@@ -9,5 +9,8 @@
         "context7",
         "playwright"
     ],
-    "enableAllProjectMcpServers": true
+    "enableAllProjectMcpServers": true,
+    "env": {
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    }
 }

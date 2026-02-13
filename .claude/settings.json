@@ -1,0 +1,13 @@
+{
+    "statusLine": {
+        "type": "command",
+        "command": "npx -y ccusage statusline",
+        "padding": 0
+    },
+    "enabledMcpjsonServers": [
+        "sequential-thinking",
+        "context7",
+        "playwright"
+    ],
+    "enableAllProjectMcpServers": true
+}

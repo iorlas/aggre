@@ -1,0 +1,22 @@
+services:
+  fetch:
+    build: .
+    command: .venv/bin/aggre fetch --loop --interval 3600
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+
+  transcribe:
+    build: .
+    command: .venv/bin/aggre transcribe --loop --interval 900
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped

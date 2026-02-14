@@ -30,7 +30,7 @@ def cli(ctx: click.Context, config_path: str) -> None:
 @cli.command()
 @click.option(
     "--source", "source_type",
-    type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters"]),
+    type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface"]),
     help="Fetch only this source type.",
 )
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
@@ -45,6 +45,7 @@ def fetch(ctx: click.Context, source_type: str | None, comment_batch: int, enric
     log = setup_logging(cfg.settings.log_dir, "fetch")
 
     from aggre.collectors.hackernews import HackernewsCollector
+    from aggre.collectors.huggingface import HuggingfaceCollector
     from aggre.collectors.lobsters import LobstersCollector
     from aggre.collectors.reddit import RedditCollector
     from aggre.collectors.rss import RssCollector
@@ -56,6 +57,7 @@ def fetch(ctx: click.Context, source_type: str | None, comment_batch: int, enric
         "youtube": YoutubeCollector(),
         "hackernews": HackernewsCollector(),
         "lobsters": LobstersCollector(),
+        "huggingface": HuggingfaceCollector(),
     }
 
     active_collectors = collectors

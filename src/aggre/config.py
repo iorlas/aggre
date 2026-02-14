@@ -45,12 +45,17 @@ class LobstersSource(BaseModel):
     tags: list[str] = []
 
 
+class HuggingfaceSource(BaseModel):
+    name: str = "HuggingFace Papers"
+
+
 class AppConfig(BaseModel):
     rss: list[RssSource] = []
     reddit: list[RedditSource] = []
     youtube: list[YoutubeSource] = []
     hackernews: list[HackernewsSource] = []
     lobsters: list[LobstersSource] = []
+    huggingface: list[HuggingfaceSource] = []
     settings: Settings = Settings()
 
 

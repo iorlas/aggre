@@ -1,0 +1,38 @@
+services:
+  migrate:
+    image: ghcr.io/iorlas/aggre:latest
+    command: .venv/bin/alembic upgrade head
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+
+  fetch:
+    image: ghcr.io/iorlas/aggre:latest
+    command: .venv/bin/aggre fetch --loop --interval 3600
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  transcribe:
+    image: ghcr.io/iorlas/aggre:latest
+    command: .venv/bin/aggre transcribe --loop --interval 900
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully

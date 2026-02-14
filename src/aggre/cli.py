@@ -9,7 +9,7 @@ import click
 import sqlalchemy as sa
 
 from aggre.config import load_config
-from aggre.db import content_items, get_engine, sources
+from aggre.db import SilverPost, Source, get_engine
 from aggre.logging import setup_logging
 
 
@@ -28,32 +28,44 @@ def cli(ctx: click.Context, config_path: str) -> None:
 
 
 @cli.command()
-@click.option("--source", "source_type", type=click.Choice(["rss", "reddit", "youtube"]), help="Fetch only this source type.")
+@click.option(
+    "--source", "source_type",
+    type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters"]),
+    help="Fetch only this source type.",
+)
+@click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
+@click.option("--enrich-batch", default=50, type=int, help="Max posts to enrich per cycle (0 = skip).")
 @click.option("--loop", is_flag=True, help="Run continuously.")
 @click.option("--interval", default=3600, type=int, help="Seconds between loop iterations.")
 @click.pass_context
-def fetch(ctx: click.Context, source_type: str | None, loop: bool, interval: int) -> None:
+def fetch(ctx: click.Context, source_type: str | None, comment_batch: int, enrich_batch: int, loop: bool, interval: int) -> None:
     """Poll sources and store new content."""
     cfg = ctx.obj["config"]
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "fetch")
 
+    from aggre.collectors.hackernews import HackernewsCollector
+    from aggre.collectors.lobsters import LobstersCollector
     from aggre.collectors.reddit import RedditCollector
     from aggre.collectors.rss import RssCollector
     from aggre.collectors.youtube import YoutubeCollector
 
-    collectors: dict[str, RssCollector | RedditCollector | YoutubeCollector] = {
+    collectors = {
         "rss": RssCollector(),
         "reddit": RedditCollector(),
         "youtube": YoutubeCollector(),
+        "hackernews": HackernewsCollector(),
+        "lobsters": LobstersCollector(),
     }
 
+    active_collectors = collectors
     if source_type:
-        collectors = {source_type: collectors[source_type]}
+        active_collectors = {source_type: collectors[source_type]}
 
     while True:
+        # Step 1: Collect posts
         total = 0
-        for name, collector in collectors.items():
+        for name, collector in active_collectors.items():
             log.info("fetching", source=name)
             try:
                 count = collector.collect(engine, cfg, log)
@@ -61,6 +73,28 @@ def fetch(ctx: click.Context, source_type: str | None, loop: bool, interval: int
                 log.info("fetch_complete", source=name, new_items=count)
             except Exception:
                 log.exception("fetch_error", source=name)
+
+        # Step 2: Collect comments for sources that support it
+        for src_name in ("reddit", "hackernews", "lobsters"):
+            if source_type in (None, src_name) and comment_batch > 0:
+                coll = active_collectors.get(src_name) or collectors.get(src_name)
+                if coll and hasattr(coll, "collect_comments"):
+                    try:
+                        comments_fetched = coll.collect_comments(engine, cfg, log, batch_limit=comment_batch)
+                        log.info("comments_complete", source=src_name, comments_fetched=comments_fetched)
+                    except Exception:
+                        log.exception("comments_error", source=src_name)
+
+        # Step 3: Enrich — only when no --source filter (cross-source step)
+        if source_type is None and enrich_batch > 0:
+            try:
+                from aggre.enrichment import enrich_posts
+
+                results = enrich_posts(engine, cfg, log, batch_limit=enrich_batch)
+                log.info("enrich_complete", results=results)
+            except Exception:
+                log.exception("enrich_error")
+
         log.info("fetch_cycle_complete", total_new_items=total)
 
         if not loop:
@@ -120,7 +154,7 @@ def status(ctx: click.Context) -> None:
 
     with engine.connect() as conn:
         # Sources summary
-        rows = conn.execute(sa.select(sources.c.type, sources.c.name, sources.c.last_fetched_at)).fetchall()
+        rows = conn.execute(sa.select(Source.type, Source.name, Source.last_fetched_at)).fetchall()
         click.echo("\n=== Sources ===")
         for row in rows:
             click.echo(f"  [{row.type}] {row.name} — last fetched: {row.last_fetched_at or 'never'}")
@@ -129,7 +163,7 @@ def status(ctx: click.Context) -> None:
             click.echo("  No sources registered yet. Run 'aggre fetch' first.")
 
         # Content counts by type
-        result = conn.execute(sa.select(content_items.c.source_type, sa.func.count()).group_by(content_items.c.source_type)).fetchall()
+        result = conn.execute(sa.select(SilverPost.source_type, sa.func.count()).group_by(SilverPost.source_type)).fetchall()
         click.echo("\n=== Content Items ===")
         for row in result:
             click.echo(f"  {row[0]}: {row[1]} items")
@@ -138,17 +172,17 @@ def status(ctx: click.Context) -> None:
             click.echo("  No content items yet.")
 
         # Transcription queue
-        pending = conn.execute(sa.select(sa.func.count()).where(content_items.c.transcription_status == "pending")).scalar()
-        failed = conn.execute(sa.select(sa.func.count()).where(content_items.c.transcription_status == "failed")).scalar()
-        completed = conn.execute(sa.select(sa.func.count()).where(content_items.c.transcription_status == "completed")).scalar()
+        pending = conn.execute(sa.select(sa.func.count()).where(SilverPost.transcription_status == "pending")).scalar()
+        failed = conn.execute(sa.select(sa.func.count()).where(SilverPost.transcription_status == "failed")).scalar()
+        completed = conn.execute(sa.select(sa.func.count()).where(SilverPost.transcription_status == "completed")).scalar()
         click.echo("\n=== Transcription Queue ===")
         click.echo(f"  Pending: {pending}  |  Completed: {completed}  |  Failed: {failed}")
 
         # Recent errors
         errors = conn.execute(
-            sa.select(content_items.c.external_id, content_items.c.title, content_items.c.transcription_error)
-            .where(content_items.c.transcription_status == "failed")
-            .order_by(content_items.c.fetched_at.desc())
+            sa.select(SilverPost.external_id, SilverPost.title, SilverPost.transcription_error)
+            .where(SilverPost.transcription_status == "failed")
+            .order_by(SilverPost.fetched_at.desc())
             .limit(5)
         ).fetchall()
         if errors:

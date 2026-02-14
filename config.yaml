@@ -3,15 +3,13 @@ rss:
     url: "https://blog.rust-lang.org/feed.xml"
   - name: "Simon Willison"
     url: "https://simonwillison.net/atom/everything/"
-  - name: "Hacker News"
-    url: "https://hnrss.org/frontpage"
 
 reddit:
   - subreddit: "rust"
-  - subreddit: "golang"
-  - subreddit: "python"
-  - subreddit: "machinelearning"
-  - subreddit: "LocalLLaMA"
+#  - subreddit: "golang"
+#  - subreddit: "python"
+#  - subreddit: "machinelearning"
+#  - subreddit: "LocalLLaMA"
 
 youtube:
   - channel_id: "UC_x5XG1OV2P6uZZ5FSM9Ttw"
@@ -19,11 +17,17 @@ youtube:
   - channel_id: "UCsBjURrPoezykLs9EqgamOA"
     name: "Fireship"
 
+hackernews:
+  - name: "Hacker News"
+
+lobsters:
+  - name: "Lobsters"
+
 settings:
   db_path: "./data/aggre.db"
   log_dir: "./data/logs"
   youtube_temp_dir: "./data/tmp/videos"
   whisper_model: "large-v3"
   whisper_model_cache: "./data/models"
-  reddit_rate_limit: 3.0
+  reddit_rate_limit: 6.0
   fetch_limit: 100

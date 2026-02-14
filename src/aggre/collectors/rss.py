@@ -9,7 +9,7 @@ import sqlalchemy as sa
 import structlog
 
 from aggre.config import AppConfig
-from aggre.db import content_items, raw_items, sources
+from aggre.db import BronzePost, SilverPost, Source
 
 
 class RssCollector:
@@ -24,15 +24,15 @@ class RssCollector:
             with engine.begin() as conn:
                 # Ensure source row exists
                 row = conn.execute(
-                    sa.select(sources.c.id).where(
-                        sources.c.type == "rss",
-                        sources.c.name == rss_source.name,
+                    sa.select(Source.id).where(
+                        Source.type == "rss",
+                        Source.name == rss_source.name,
                     )
                 ).fetchone()
 
                 if row is None:
                     result = conn.execute(
-                        sa.insert(sources).values(
+                        sa.insert(Source).values(
                             type="rss",
                             name=rss_source.name,
                             config=json.dumps({"url": rss_source.url}),
@@ -56,7 +56,7 @@ class RssCollector:
                 with engine.begin() as conn:
                     # Insert raw item (dedup by unique constraint)
                     result = conn.execute(
-                        sa.insert(raw_items)
+                        sa.insert(BronzePost)
                         .prefix_with("OR IGNORE")
                         .values(
                             source_type="rss",
@@ -68,7 +68,7 @@ class RssCollector:
                     if result.rowcount == 0:
                         continue
 
-                    raw_item_id = result.inserted_primary_key[0]
+                    bronze_post_id = result.inserted_primary_key[0]
 
                     # Extract content fields
                     content_text = entry.get("summary") or ""
@@ -82,11 +82,11 @@ class RssCollector:
                     meta = json.dumps({"feed_title": feed.feed.get("title", rss_source.name)})
 
                     conn.execute(
-                        sa.insert(content_items)
+                        sa.insert(SilverPost)
                         .prefix_with("OR IGNORE")
                         .values(
                             source_id=source_id,
-                            raw_item_id=raw_item_id,
+                            bronze_post_id=bronze_post_id,
                             source_type="rss",
                             external_id=external_id,
                             title=entry.get("title"),
@@ -94,7 +94,7 @@ class RssCollector:
                             url=entry.get("link"),
                             content_text=content_text,
                             published_at=published_at,
-                            metadata=meta,
+                            meta=meta,
                         )
                     )
 
@@ -102,7 +102,7 @@ class RssCollector:
 
             # Update last_fetched_at
             with engine.begin() as conn:
-                conn.execute(sa.update(sources).where(sources.c.id == source_id).values(last_fetched_at=sa.text("datetime('now')")))
+                conn.execute(sa.update(Source).where(Source.id == source_id).values(last_fetched_at=sa.text("datetime('now')")))
 
             log.info("rss_fetch_complete", name=rss_source.name, new_items=new_count)
             total_new += new_count

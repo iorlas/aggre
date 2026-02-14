@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import os
 
-from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
-from aggre.db import metadata as target_metadata
+from aggre.db import Base
+from alembic import context
 
 load_dotenv()
+
+target_metadata = Base.metadata
 
 config = context.config
 

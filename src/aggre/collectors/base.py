@@ -16,3 +16,12 @@ class Collector(Protocol):
     def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
         """Fetch new items from the source. Returns count of new items stored."""
         ...
+
+
+class SearchableCollector(Collector, Protocol):
+    """Collector that supports searching for discussions by URL."""
+
+    def search_by_url(self, url: str, engine: sa.engine.Engine, config: AppConfig,
+                      log: structlog.stdlib.BoundLogger) -> int:
+        """Search for discussions about a URL. Returns count of new items stored."""
+        ...

@@ -1,4 +1,14 @@
 services:
+  migrate:
+    build: .
+    command: .venv/bin/alembic upgrade head
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+
   fetch:
     build: .
     command: .venv/bin/aggre fetch --loop --interval 3600
@@ -9,6 +19,9 @@ services:
       - path: .env
         required: false
     restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   transcribe:
     build: .
@@ -20,3 +33,6 @@ services:
       - path: .env
         required: false
     restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully

@@ -1,0 +1,402 @@
+"""Tests for the Hacker News collector."""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock, patch
+
+import sqlalchemy as sa
+
+from aggre.collectors.hackernews import HackernewsCollector
+from aggre.config import AppConfig, HackernewsSource, Settings
+from aggre.db import Base, BronzeComment, BronzePost, SilverComment, SilverPost, Source
+
+
+def _make_engine():
+    engine = sa.create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    return engine
+
+
+def _make_config(rate_limit: float = 0.0) -> AppConfig:
+    return AppConfig(
+        hackernews=[HackernewsSource(name="Hacker News")],
+        settings=Settings(hn_rate_limit=rate_limit),
+    )
+
+
+def _make_hit(object_id: str = "12345", title: str = "Test Story", author: str = "pg", url: str = "https://example.com/article"):
+    return {
+        "objectID": object_id,
+        "title": title,
+        "author": author,
+        "url": url,
+        "points": 100,
+        "num_comments": 25,
+        "created_at": "2024-01-15T12:00:00.000Z",
+    }
+
+
+def _make_search_response(*hits):
+    return {"hits": list(hits)}
+
+
+def _make_item_response(object_id: str = "12345", children: list | None = None):
+    return {
+        "id": int(object_id),
+        "children": children or [],
+    }
+
+
+def _make_comment_child(
+    comment_id: int = 100, author: str = "commenter", text: str = "Great article!",
+    points: int = 5, children: list | None = None,
+):
+    return {
+        "id": comment_id,
+        "author": author,
+        "text": text,
+        "points": points,
+        "parent_id": 12345,
+        "created_at": "2024-01-15T13:00:00.000Z",
+        "children": children or [],
+    }
+
+
+def _mock_httpx_client(responses: dict):
+    """Create a mock httpx.Client that returns configured responses based on URL patterns."""
+    client = MagicMock()
+
+    def fake_get(url):
+        resp = MagicMock()
+        resp.status_code = 200
+        for pattern, data in responses.items():
+            if pattern in url:
+                resp.json.return_value = data
+                return resp
+        resp.json.return_value = {"hits": []}
+        return resp
+
+    client.get.side_effect = fake_get
+    return client
+
+
+class TestHackernewsCollectorPosts:
+    def test_stores_posts(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        hit = _make_hit()
+        responses = {"search_by_date": _make_search_response(hit)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            count = collector.collect(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            raws = conn.execute(sa.select(BronzePost)).fetchall()
+            assert len(raws) == 1
+            assert raws[0].external_id == "12345"
+            assert raws[0].source_type == "hackernews"
+
+            items = conn.execute(sa.select(SilverPost)).fetchall()
+            assert len(items) == 1
+            assert items[0].title == "Test Story"
+            assert items[0].author == "pg"
+            assert items[0].source_type == "hackernews"
+            assert items[0].url == "https://example.com/article"
+
+            meta = json.loads(items[0].meta)
+            assert meta["points"] == 100
+            assert meta["num_comments"] == 25
+            assert meta["comments_status"] == "pending"
+            assert "hn_url" in meta
+
+    def test_dedup_same_story(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        hit = _make_hit()
+        responses = {"search_by_date": _make_search_response(hit)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            count1 = collector.collect(engine, config, log)
+            count2 = collector.collect(engine, config, log)
+
+        assert count1 == 1
+        assert count2 == 0
+
+        with engine.connect() as conn:
+            assert conn.execute(sa.select(sa.func.count()).select_from(BronzePost)).scalar() == 1
+            assert conn.execute(sa.select(sa.func.count()).select_from(SilverPost)).scalar() == 1
+
+    def test_multiple_stories(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        hit1 = _make_hit(object_id="111", title="First")
+        hit2 = _make_hit(object_id="222", title="Second")
+        responses = {"search_by_date": _make_search_response(hit1, hit2)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            count = collector.collect(engine, config, log)
+
+        assert count == 2
+
+    def test_story_without_url_uses_hn_url(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        hit = _make_hit(object_id="999")
+        hit["url"] = None  # Ask HN / Show HN with no external URL
+        responses = {"search_by_date": _make_search_response(hit)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            collector.collect(engine, config, log)
+
+        with engine.connect() as conn:
+            item = conn.execute(sa.select(SilverPost)).fetchone()
+            assert item.url == "https://news.ycombinator.com/item?id=999"
+
+    def test_no_config_returns_zero(self):
+        engine = _make_engine()
+        config = AppConfig(settings=Settings(hn_rate_limit=0.0))
+        log = MagicMock()
+        collector = HackernewsCollector()
+        assert collector.collect(engine, config, log) == 0
+
+
+class TestHackernewsCollectorComments:
+    def test_fetches_comments_and_marks_done(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        # First, collect a story
+        hit = _make_hit()
+        responses = {"search_by_date": _make_search_response(hit)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            collector.collect(engine, config, log)
+
+        # Now fetch comments
+        comment = _make_comment_child(comment_id=100, text="Nice!")
+        item_response = _make_item_response(object_id="12345", children=[comment])
+        comment_responses = {"items/12345": item_response}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(comment_responses)
+            fetched = collector.collect_comments(engine, config, log, batch_limit=10)
+
+        assert fetched == 1
+
+        with engine.connect() as conn:
+            rcs = conn.execute(sa.select(BronzeComment)).fetchall()
+            assert len(rcs) == 1
+            assert rcs[0].external_id == "100"
+
+            comments = conn.execute(sa.select(SilverComment)).fetchall()
+            assert len(comments) == 1
+            assert comments[0].author == "commenter"
+            assert comments[0].body == "Nice!"
+            assert comments[0].depth == 0
+
+            items = conn.execute(sa.select(SilverPost)).fetchall()
+            meta = json.loads(items[0].meta)
+            assert meta["comments_status"] == "done"
+
+    def test_nested_comments(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        hit = _make_hit()
+        responses = {"search_by_date": _make_search_response(hit)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            collector.collect(engine, config, log)
+
+        reply = _make_comment_child(comment_id=200, text="I agree", children=[])
+        parent = _make_comment_child(comment_id=100, text="Top level", children=[reply])
+        item_response = _make_item_response(object_id="12345", children=[parent])
+        comment_responses = {"items/12345": item_response}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(comment_responses)
+            collector.collect_comments(engine, config, log, batch_limit=10)
+
+        with engine.connect() as conn:
+            comments = conn.execute(sa.select(SilverComment).order_by(SilverComment.depth)).fetchall()
+            assert len(comments) == 2
+            assert comments[0].depth == 0
+            assert comments[0].body == "Top level"
+            assert comments[1].depth == 1
+            assert comments[1].body == "I agree"
+
+    def test_no_pending_returns_zero(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+        assert collector.collect_comments(engine, config, log, batch_limit=10) == 0
+
+    def test_zero_batch_returns_zero(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+        assert collector.collect_comments(engine, config, log, batch_limit=0) == 0
+
+    def test_respects_batch_limit(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        # Collect 3 stories
+        hits = [_make_hit(object_id=str(i), title=f"Story {i}") for i in range(3)]
+        responses = {"search_by_date": _make_search_response(*hits)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            collector.collect(engine, config, log)
+
+        # Fetch comments with batch_limit=2
+        comment_responses = {
+            f"items/{i}": _make_item_response(object_id=str(i), children=[])
+            for i in range(3)
+        }
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(comment_responses)
+            fetched = collector.collect_comments(engine, config, log, batch_limit=2)
+
+        assert fetched == 2
+
+        with engine.connect() as conn:
+            items = conn.execute(sa.select(SilverPost)).fetchall()
+            statuses = [json.loads(i.meta).get("comments_status") for i in items]
+            assert statuses.count("done") == 2
+            assert statuses.count("pending") == 1
+
+
+class TestHackernewsSearchByUrl:
+    def test_search_finds_and_stores(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        hit = _make_hit(object_id="42", url="https://example.com/article")
+        responses = {"search?query": _make_search_response(hit)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            found = collector.search_by_url("https://example.com/article", engine, config, log)
+
+        assert found == 1
+
+        with engine.connect() as conn:
+            items = conn.execute(sa.select(SilverPost)).fetchall()
+            assert len(items) == 1
+            assert items[0].source_type == "hackernews"
+
+    def test_search_dedup(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        hit = _make_hit(object_id="42")
+        responses = {"search?query": _make_search_response(hit)}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            found1 = collector.search_by_url("https://example.com", engine, config, log)
+            found2 = collector.search_by_url("https://example.com", engine, config, log)
+
+        assert found1 == 1
+        assert found2 == 0
+
+    def test_search_no_results(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        responses = {"search?query": {"hits": []}}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            found = collector.search_by_url("https://no-results.com", engine, config, log)
+
+        assert found == 0
+
+
+class TestHackernewsSource:
+    def test_creates_source_row(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        responses = {"search_by_date": _make_search_response()}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            collector.collect(engine, config, log)
+
+        with engine.connect() as conn:
+            rows = conn.execute(sa.select(Source)).fetchall()
+            assert len(rows) == 1
+            assert rows[0].type == "hackernews"
+            assert rows[0].name == "Hacker News"
+
+    def test_reuses_existing_source(self):
+        engine = _make_engine()
+        config = _make_config()
+        log = MagicMock()
+        collector = HackernewsCollector()
+
+        responses = {"search_by_date": _make_search_response()}
+
+        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.hackernews.time.sleep"):
+            mock_cls.return_value = _mock_httpx_client(responses)
+            collector.collect(engine, config, log)
+            collector.collect(engine, config, log)
+
+        with engine.connect() as conn:
+            rows = conn.execute(sa.select(Source)).fetchall()
+            assert len(rows) == 1

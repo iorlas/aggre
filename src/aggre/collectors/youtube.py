@@ -9,7 +9,7 @@ import structlog
 import yt_dlp
 
 from aggre.config import AppConfig
-from aggre.db import content_items, raw_items, sources
+from aggre.db import BronzePost, SilverPost, Source
 
 
 class YoutubeCollector:
@@ -33,15 +33,15 @@ class YoutubeCollector:
 
             with engine.begin() as conn:
                 row = conn.execute(
-                    sa.select(sources.c.id).where(
-                        sources.c.type == "youtube",
-                        sources.c.name == yt_source.name,
+                    sa.select(Source.id).where(
+                        Source.type == "youtube",
+                        Source.name == yt_source.name,
                     )
                 ).fetchone()
 
                 if row is None:
                     result = conn.execute(
-                        sa.insert(sources).values(
+                        sa.insert(Source).values(
                             type="youtube",
                             name=yt_source.name,
                             config=json.dumps({"channel_id": yt_source.channel_id}),
@@ -82,7 +82,7 @@ class YoutubeCollector:
 
                 with engine.begin() as conn:
                     result = conn.execute(
-                        sa.insert(raw_items)
+                        sa.insert(BronzePost)
                         .prefix_with("OR IGNORE")
                         .values(
                             source_type="youtube",
@@ -94,7 +94,7 @@ class YoutubeCollector:
                     if result.rowcount == 0:
                         continue
 
-                    raw_item_id = result.inserted_primary_key[0]
+                    bronze_post_id = result.inserted_primary_key[0]
 
                     video_url = entry.get("url") or f"https://www.youtube.com/watch?v={external_id}"
 
@@ -116,17 +116,17 @@ class YoutubeCollector:
                     )
 
                     conn.execute(
-                        sa.insert(content_items)
+                        sa.insert(SilverPost)
                         .prefix_with("OR IGNORE")
                         .values(
                             source_id=source_id,
-                            raw_item_id=raw_item_id,
+                            bronze_post_id=bronze_post_id,
                             source_type="youtube",
                             external_id=external_id,
                             title=entry.get("title"),
                             url=video_url,
                             published_at=published_at,
-                            metadata=meta,
+                            meta=meta,
                             transcription_status="pending",
                         )
                     )
@@ -134,7 +134,7 @@ class YoutubeCollector:
                     new_count += 1
 
             with engine.begin() as conn:
-                conn.execute(sa.update(sources).where(sources.c.id == source_id).values(last_fetched_at=sa.text("datetime('now')")))
+                conn.execute(sa.update(Source).where(Source.id == source_id).values(last_fetched_at=sa.text("datetime('now')")))
 
             log.info(
                 "youtube_fetch_complete",

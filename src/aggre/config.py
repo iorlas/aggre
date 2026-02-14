@@ -17,6 +17,8 @@ class Settings(BaseModel):
     whisper_model: str = "large-v3"
     whisper_model_cache: str = "./data/models"
     reddit_rate_limit: float = 3.0
+    hn_rate_limit: float = 1.0
+    lobsters_rate_limit: float = 2.0
     fetch_limit: int = 100
 
 
@@ -34,10 +36,21 @@ class YoutubeSource(BaseModel):
     name: str
 
 
+class HackernewsSource(BaseModel):
+    name: str = "Hacker News"
+
+
+class LobstersSource(BaseModel):
+    name: str = "Lobsters"
+    tags: list[str] = []
+
+
 class AppConfig(BaseModel):
     rss: list[RssSource] = []
     reddit: list[RedditSource] = []
     youtube: list[YoutubeSource] = []
+    hackernews: list[HackernewsSource] = []
+    lobsters: list[LobstersSource] = []
     settings: Settings = Settings()
 
 
@@ -61,6 +74,8 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
         "AGGRE_WHISPER_MODEL": "whisper_model",
         "AGGRE_WHISPER_MODEL_CACHE": "whisper_model_cache",
         "AGGRE_REDDIT_RATE_LIMIT": "reddit_rate_limit",
+        "AGGRE_HN_RATE_LIMIT": "hn_rate_limit",
+        "AGGRE_LOBSTERS_RATE_LIMIT": "lobsters_rate_limit",
         "AGGRE_FETCH_LIMIT": "fetch_limit",
     }
 

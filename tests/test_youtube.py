@@ -10,12 +10,12 @@ import structlog
 
 from aggre.collectors.youtube import YoutubeCollector
 from aggre.config import AppConfig, Settings, YoutubeSource
-from aggre.db import content_items, metadata, raw_items, sources
+from aggre.db import Base, BronzePost, SilverPost, Source
 
 
 def _make_engine() -> sa.engine.Engine:
     engine = sa.create_engine("sqlite:///:memory:")
-    metadata.create_all(engine)
+    Base.metadata.create_all(engine)
     return engine
 
 
@@ -70,7 +70,7 @@ class TestYoutubeCollector:
         assert count == 2
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(content_items)).fetchall()
+            rows = conn.execute(sa.select(SilverPost)).fetchall()
             assert len(rows) == 2
 
             item1 = rows[0]
@@ -84,8 +84,8 @@ class TestYoutubeCollector:
             assert item2.external_id == "vid002"
             assert item2.title == "Second Video"
 
-            # Check metadata JSON
-            meta = json.loads(item1.metadata)
+            # Check meta JSON
+            meta = json.loads(item1.meta)
             assert meta["channel_id"] == "UC_test123"
             assert meta["channel_name"] == "Test Channel"
             assert meta["duration"] == 600
@@ -106,7 +106,7 @@ class TestYoutubeCollector:
             collector.collect(engine, config, log)
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(sources)).fetchall()
+            rows = conn.execute(sa.select(Source)).fetchall()
             assert len(rows) == 1
             assert rows[0].type == "youtube"
             assert rows[0].name == "Test Channel"
@@ -128,7 +128,7 @@ class TestYoutubeCollector:
             collector.collect(engine, config, log)
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(raw_items)).fetchall()
+            rows = conn.execute(sa.select(BronzePost)).fetchall()
             assert len(rows) == 2
             assert rows[0].source_type == "youtube"
             raw = json.loads(rows[0].raw_data)
@@ -153,7 +153,7 @@ class TestYoutubeCollector:
         assert count2 == 0
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(content_items)).fetchall()
+            rows = conn.execute(sa.select(SilverPost)).fetchall()
             assert len(rows) == 2
 
     def test_collect_reuses_existing_source(self):
@@ -172,7 +172,7 @@ class TestYoutubeCollector:
             collector.collect(engine, config, log)
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(sources)).fetchall()
+            rows = conn.execute(sa.select(Source)).fetchall()
             assert len(rows) == 1
 
     def test_collect_sets_fetch_limit(self):
@@ -266,5 +266,5 @@ class TestYoutubeCollector:
             collector.collect(engine, config, log)
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(content_items)).fetchone()
+            row = conn.execute(sa.select(SilverPost)).fetchone()
             assert row.url == "https://www.youtube.com/watch?v=vid_nourl"

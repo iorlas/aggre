@@ -8,12 +8,12 @@ import sqlalchemy as sa
 
 from aggre.collectors.rss import RssCollector
 from aggre.config import AppConfig, RssSource
-from aggre.db import content_items, metadata, raw_items, sources
+from aggre.db import Base, BronzePost, SilverPost, Source
 
 
 def _make_engine():
     engine = sa.create_engine("sqlite:///:memory:")
-    metadata.create_all(engine)
+    Base.metadata.create_all(engine)
     return engine
 
 
@@ -94,14 +94,14 @@ class TestRssCollector:
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
 
         with engine.connect() as conn:
-            # Check raw_items
-            rows = conn.execute(sa.select(raw_items)).fetchall()
+            # Check bronze_posts
+            rows = conn.execute(sa.select(BronzePost)).fetchall()
             assert len(rows) == 1
             assert rows[0].source_type == "rss"
             assert rows[0].external_id == "post-1"
 
-            # Check content_items
-            rows = conn.execute(sa.select(content_items)).fetchall()
+            # Check silver_posts
+            rows = conn.execute(sa.select(SilverPost)).fetchall()
             assert len(rows) == 1
             assert rows[0].title == "First Post"
             assert rows[0].author == "Bob"
@@ -110,7 +110,7 @@ class TestRssCollector:
             assert rows[0].published_at == "2025-06-01T12:00:00Z"
             assert rows[0].source_type == "rss"
             assert rows[0].external_id == "post-1"
-            assert rows[0].raw_item_id is not None
+            assert rows[0].bronze_post_id is not None
 
     def test_duplicate_items_skipped(self):
         engine = _make_engine()
@@ -128,8 +128,8 @@ class TestRssCollector:
         assert count2 == 0
 
         with engine.connect() as conn:
-            raw_count = conn.execute(sa.select(sa.func.count()).select_from(raw_items)).scalar()
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(content_items)).scalar()
+            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzePost)).scalar()
+            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverPost)).scalar()
             assert raw_count == 1
             assert content_count == 1
 
@@ -144,7 +144,7 @@ class TestRssCollector:
             collector.collect(engine, config, self._log())
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(sources)).fetchall()
+            rows = conn.execute(sa.select(Source)).fetchall()
             assert len(rows) == 1
             assert rows[0].type == "rss"
             assert rows[0].name == "My Feed"
@@ -161,7 +161,7 @@ class TestRssCollector:
             collector.collect(engine, config, self._log())
 
         with engine.connect() as conn:
-            count = conn.execute(sa.select(sa.func.count()).select_from(sources)).scalar()
+            count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
             assert count == 1
 
     def test_last_fetched_at_updated(self):
@@ -175,7 +175,7 @@ class TestRssCollector:
             collector.collect(engine, config, self._log())
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(sources.c.last_fetched_at)).fetchone()
+            row = conn.execute(sa.select(Source.last_fetched_at)).fetchone()
             assert row[0] is not None
 
     def test_multiple_entries(self):
@@ -196,8 +196,8 @@ class TestRssCollector:
         assert count == 3
 
         with engine.connect() as conn:
-            raw_count = conn.execute(sa.select(sa.func.count()).select_from(raw_items)).scalar()
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(content_items)).scalar()
+            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzePost)).scalar()
+            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverPost)).scalar()
             assert raw_count == 3
             assert content_count == 3
 
@@ -215,7 +215,7 @@ class TestRssCollector:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(content_items.c.external_id)).fetchone()
+            row = conn.execute(sa.select(SilverPost.external_id)).fetchone()
             assert row[0] == "https://example.com/post-42"
 
     def test_multiple_feeds(self):
@@ -240,5 +240,5 @@ class TestRssCollector:
         assert count == 2
 
         with engine.connect() as conn:
-            source_count = conn.execute(sa.select(sa.func.count()).select_from(sources)).scalar()
+            source_count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
             assert source_count == 2

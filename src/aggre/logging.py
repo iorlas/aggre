@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import structlog
@@ -14,8 +15,12 @@ def setup_logging(log_dir: str, log_name: str = "aggre") -> structlog.stdlib.Bou
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
-    # File handler — JSON lines
-    file_handler = logging.FileHandler(log_path / f"{log_name}.log")
+    # File handler — JSON lines, 10 MB per file, keep 5 backups
+    file_handler = RotatingFileHandler(
+        log_path / f"{log_name}.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+    )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter("%(message)s"))
 

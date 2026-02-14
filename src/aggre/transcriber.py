@@ -10,7 +10,7 @@ import yt_dlp
 from faster_whisper import WhisperModel
 
 from aggre.config import AppConfig
-from aggre.db import content_items
+from aggre.db import SilverPost
 
 _model_cache: WhisperModel | None = None
 
@@ -32,7 +32,7 @@ def process_pending(
     log: structlog.stdlib.BoundLogger,
     batch_limit: int = 0,
 ) -> int:
-    query = sa.select(content_items).where(content_items.c.transcription_status == "pending").order_by(content_items.c.fetched_at.asc())
+    query = sa.select(SilverPost).where(SilverPost.transcription_status == "pending").order_by(SilverPost.fetched_at.asc())
     if batch_limit > 0:
         query = query.limit(batch_limit)
 
@@ -50,7 +50,7 @@ def process_pending(
         try:
             # Mark as downloading
             with engine.begin() as conn:
-                conn.execute(sa.update(content_items).where(content_items.c.id == item.id).values(transcription_status="downloading"))
+                conn.execute(sa.update(SilverPost).where(SilverPost.id == item.id).values(transcription_status="downloading"))
 
             # Download audio
             temp_dir = Path(config.settings.youtube_temp_dir)
@@ -62,6 +62,11 @@ def process_pending(
                 "outtmpl": output_path,
                 "quiet": True,
                 "no_warnings": True,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "opus",
+                    "preferredquality": "48",
+                }],
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -75,7 +80,7 @@ def process_pending(
 
             # Mark as transcribing
             with engine.begin() as conn:
-                conn.execute(sa.update(content_items).where(content_items.c.id == item.id).values(transcription_status="transcribing"))
+                conn.execute(sa.update(SilverPost).where(SilverPost.id == item.id).values(transcription_status="transcribing"))
 
             # Transcribe
             model = _get_model(config)
@@ -85,8 +90,8 @@ def process_pending(
             # Store result
             with engine.begin() as conn:
                 conn.execute(
-                    sa.update(content_items)
-                    .where(content_items.c.id == item.id)
+                    sa.update(SilverPost)
+                    .where(SilverPost.id == item.id)
                     .values(
                         content_text=transcript,
                         transcription_status="completed",
@@ -101,8 +106,8 @@ def process_pending(
             log.exception("transcription_failed", external_id=external_id)
             with engine.begin() as conn:
                 conn.execute(
-                    sa.update(content_items)
-                    .where(content_items.c.id == item.id)
+                    sa.update(SilverPost)
+                    .where(SilverPost.id == item.id)
                     .values(
                         transcription_status="failed",
                         transcription_error=str(exc),

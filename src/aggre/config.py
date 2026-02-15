@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     reddit_rate_limit: float = 3.0
     hn_rate_limit: float = 1.0
     lobsters_rate_limit: float = 2.0
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    telegram_session: str = ""  # StringSession base64 string
+    telegram_rate_limit: float = 2.0  # seconds between channel fetches
     fetch_limit: int = 100
 
 
@@ -55,6 +59,11 @@ class HuggingfaceSource(BaseModel):
     name: str = "HuggingFace Papers"
 
 
+class TelegramSource(BaseModel):
+    username: str  # channel @handle without @ (e.g. "durov")
+    name: str  # display name for Source table
+
+
 class AppConfig(BaseModel):
     rss: list[RssSource] = []
     reddit: list[RedditSource] = []
@@ -62,6 +71,7 @@ class AppConfig(BaseModel):
     hackernews: list[HackernewsSource] = []
     lobsters: list[LobstersSource] = []
     huggingface: list[HuggingfaceSource] = []
+    telegram: list[TelegramSource] = []
     settings: Settings = Settings()
 
 

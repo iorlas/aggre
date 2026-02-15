@@ -30,7 +30,7 @@ def cli(ctx: click.Context, config_path: str) -> None:
 @cli.command("collect")
 @click.option(
     "--source", "source_type",
-    type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface"]),
+    type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface", "telegram"]),
     help="Collect only this source type.",
 )
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
@@ -48,6 +48,7 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
     from aggre.collectors.lobsters import LobstersCollector
     from aggre.collectors.reddit import RedditCollector
     from aggre.collectors.rss import RssCollector
+    from aggre.collectors.telegram import TelegramCollector
     from aggre.collectors.youtube import YoutubeCollector
 
     collectors = {
@@ -57,6 +58,7 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
         "hackernews": HackernewsCollector(),
         "lobsters": LobstersCollector(),
         "huggingface": HuggingfaceCollector(),
+        "telegram": TelegramCollector(),
     }
 
     active_collectors = collectors
@@ -97,6 +99,34 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
             break
         log.info("sleeping", seconds=interval)
         time.sleep(interval)
+
+
+@cli.command("telegram-auth")
+@click.pass_context
+def telegram_auth(ctx: click.Context) -> None:
+    """Generate a Telegram session string for AGGRE_TELEGRAM_SESSION."""
+    import asyncio
+
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+
+    cfg = ctx.obj["config"]
+    api_id = cfg.settings.telegram_api_id
+    api_hash = cfg.settings.telegram_api_hash
+
+    if not api_id or not api_hash:
+        click.echo("Set AGGRE_TELEGRAM_API_ID and AGGRE_TELEGRAM_API_HASH first.")
+        raise SystemExit(1)
+
+    async def _auth():
+        client = TelegramClient(StringSession(), api_id, api_hash)
+        await client.start()
+        session_str = client.session.save()
+        await client.disconnect()
+        return session_str
+
+    session = asyncio.run(_auth())
+    click.echo(f"\nAdd this to your .env file:\nAGGRE_TELEGRAM_SESSION={session}")
 
 
 @cli.command("download")

@@ -103,3 +103,7 @@ lobsters:
 
 huggingface:
   - name: "HuggingFace Papers"
+
+telegram:
+  - username: "durov"
+    name: "Pavel Durov"

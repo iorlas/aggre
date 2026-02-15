@@ -287,6 +287,7 @@ class TestCliCollect:
              patch("aggre.collectors.hackernews.HackernewsCollector", return_value=MagicMock()), \
              patch("aggre.collectors.lobsters.LobstersCollector", return_value=MagicMock()), \
              patch("aggre.collectors.huggingface.HuggingfaceCollector", return_value=MagicMock()), \
+             patch("aggre.collectors.telegram.TelegramCollector", return_value=MagicMock()), \
              patch("aggre.content_fetcher.download_content", return_value=0) as mock_download, \
              patch("aggre.enrichment.enrich_content_discussions", return_value={}) as mock_enrich:
             result = runner.invoke(cli, ["--config", config_path, "collect", "--source", "rss"])

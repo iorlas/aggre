@@ -1,0 +1,217 @@
+"""Tests for SilverContent download and extraction pipeline."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from aggre.config import AppConfig, Settings
+from aggre.content_fetcher import download_content, extract_html_text
+from aggre.db import SilverContent
+
+
+def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending", raw_html: str | None = None):
+    with engine.begin() as conn:
+        stmt = pg_insert(SilverContent).values(
+            canonical_url=url,
+            domain=domain,
+            fetch_status=fetch_status,
+            raw_html=raw_html,
+        )
+        stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
+        result = conn.execute(stmt)
+        return result.inserted_primary_key[0]
+
+
+class TestDownloadContent:
+    def test_no_pending_returns_zero(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+        assert download_content(engine, config, log) == 0
+
+    def test_skips_youtube_urls(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
+
+        count = download_content(engine, config, log)
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "skipped"
+
+    def test_skips_pdf_urls(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://example.com/paper.pdf", domain="example.com")
+
+        count = download_content(engine, config, log)
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "skipped"
+
+    def test_downloads_and_stores_raw_html(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://example.com/article", domain="example.com")
+
+        mock_resp = MagicMock()
+        mock_resp.text = "<html><body><p>Article content here</p></body></html>"
+        mock_resp.status_code = 200
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_resp
+
+        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+            count = download_content(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "downloaded"
+            assert row.raw_html == "<html><body><p>Article content here</p></body></html>"
+            assert row.fetched_at is not None
+
+    def test_handles_download_error(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://example.com/broken", domain="example.com")
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = Exception("Connection refused")
+
+        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+            count = download_content(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "failed"
+            assert "Connection refused" in row.fetch_error
+
+    def test_respects_batch_limit(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        for i in range(5):
+            _seed_content(engine, f"https://youtube.com/watch?v=vid{i}", domain="youtube.com")
+
+        count = download_content(engine, config, log, batch_limit=3)
+        assert count == 3
+
+    def test_skips_already_fetched(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://example.com/already-done", fetch_status="fetched")
+
+        count = download_content(engine, config, log)
+        assert count == 0
+
+    def test_parallel_downloads(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        for i in range(3):
+            _seed_content(engine, f"https://example.com/article-{i}", domain="example.com")
+
+        mock_resp = MagicMock()
+        mock_resp.text = "<html><body>content</body></html>"
+        mock_resp.status_code = 200
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_resp
+
+        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+            count = download_content(engine, config, log, max_workers=3)
+
+        assert count == 3
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.select(SilverContent).where(SilverContent.fetch_status == "downloaded")
+            ).fetchall()
+            assert len(rows) == 3
+
+
+class TestExtractHtmlText:
+    def test_no_downloaded_returns_zero(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+        assert extract_html_text(engine, config, log) == 0
+
+    def test_extracts_text_from_downloaded(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        html = "<html><body><p>Article content here</p></body></html>"
+        _seed_content(engine, "https://example.com/article", domain="example.com",
+                      fetch_status="downloaded", raw_html=html)
+
+        with patch("aggre.content_fetcher.trafilatura.extract", return_value="Article content here"), \
+             patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta:
+            mock_meta_obj = MagicMock()
+            mock_meta_obj.title = "Test Article"
+            mock_meta.return_value = mock_meta_obj
+
+            count = extract_html_text(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "fetched"
+            assert row.body_text == "Article content here"
+            assert row.title == "Test Article"
+            assert row.fetched_at is not None
+
+    def test_handles_extraction_error(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://example.com/bad-html", domain="example.com",
+                      fetch_status="downloaded", raw_html="<html>bad</html>")
+
+        with patch("aggre.content_fetcher.trafilatura.extract", side_effect=Exception("Parse error")):
+            count = extract_html_text(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "failed"
+            assert "Parse error" in row.fetch_error
+
+    def test_ignores_pending_content(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://example.com/still-pending", fetch_status="pending")
+
+        count = extract_html_text(engine, config, log)
+        assert count == 0
+
+    def test_respects_batch_limit(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        for i in range(5):
+            _seed_content(engine, f"https://example.com/article-{i}", domain="example.com",
+                          fetch_status="downloaded", raw_html=f"<html>content {i}</html>")
+
+        with patch("aggre.content_fetcher.trafilatura.extract", return_value="text"), \
+             patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata", return_value=None):
+            count = extract_html_text(engine, config, log, batch_limit=3)
+
+        assert count == 3

@@ -8,12 +8,20 @@ import sqlalchemy as sa
 import structlog
 import yt_dlp
 
+from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
-from aggre.db import BronzePost, SilverPost, Source
+from aggre.db import SilverContent
+from aggre.statuses import TranscriptionStatus
+from aggre.urls import ensure_content
+
+# Columns to update on re-insert (titles always fresh)
+_UPSERT_COLS = ("title", "url", "meta")
 
 
-class YoutubeCollector:
+class YoutubeCollector(BaseCollector):
     """Fetches YouTube channel video metadata and stores entries in the database."""
+
+    source_type = "youtube"
 
     def collect(
         self,
@@ -26,30 +34,12 @@ class YoutubeCollector:
 
         for yt_source in config.youtube:
             log.info(
-                "fetching_youtube",
+                "youtube.collecting",
                 name=yt_source.name,
                 channel_id=yt_source.channel_id,
             )
 
-            with engine.begin() as conn:
-                row = conn.execute(
-                    sa.select(Source.id).where(
-                        Source.type == "youtube",
-                        Source.name == yt_source.name,
-                    )
-                ).fetchone()
-
-                if row is None:
-                    result = conn.execute(
-                        sa.insert(Source).values(
-                            type="youtube",
-                            name=yt_source.name,
-                            config=json.dumps({"channel_id": yt_source.channel_id}),
-                        )
-                    )
-                    source_id = result.inserted_primary_key[0]
-                else:
-                    source_id = row[0]
+            source_id = self._ensure_source(engine, yt_source.name, {"channel_id": yt_source.channel_id})
 
             url = f"https://www.youtube.com/channel/{yt_source.channel_id}/videos"
             ydl_opts = {
@@ -64,7 +54,7 @@ class YoutubeCollector:
                     info = ydl.extract_info(url, download=False)
                     entries = info.get("entries", []) if info else []
             except Exception:
-                log.exception("youtube_fetch_error", channel=yt_source.name)
+                log.exception("youtube.fetch_error", channel=yt_source.name)
                 continue
 
             new_count = 0
@@ -81,22 +71,20 @@ class YoutubeCollector:
                 raw_data = json.dumps(entry)
 
                 with engine.begin() as conn:
-                    result = conn.execute(
-                        sa.insert(BronzePost)
-                        .prefix_with("OR IGNORE")
-                        .values(
-                            source_type="youtube",
-                            external_id=external_id,
-                            raw_data=raw_data,
-                        )
-                    )
-
-                    if result.rowcount == 0:
-                        continue
-
-                    bronze_post_id = result.inserted_primary_key[0]
+                    raw_id = self._store_raw_item(conn, external_id, raw_data)
 
                     video_url = entry.get("url") or f"https://www.youtube.com/watch?v={external_id}"
+
+                    # Create content entry for the video URL
+                    content_id = ensure_content(conn, video_url)
+
+                    # Set transcription_status on content (content-level concern)
+                    if content_id:
+                        conn.execute(
+                            sa.update(SilverContent)
+                            .where(SilverContent.id == content_id, SilverContent.transcription_status.is_(None))
+                            .values(transcription_status=TranscriptionStatus.PENDING)
+                        )
 
                     # Format upload_date from YYYYMMDD to YYYY-MM-DD if present
                     published_at = None
@@ -115,31 +103,27 @@ class YoutubeCollector:
                         }
                     )
 
-                    conn.execute(
-                        sa.insert(SilverPost)
-                        .prefix_with("OR IGNORE")
-                        .values(
-                            source_id=source_id,
-                            bronze_post_id=bronze_post_id,
-                            source_type="youtube",
-                            external_id=external_id,
-                            title=entry.get("title"),
-                            url=video_url,
-                            published_at=published_at,
-                            meta=meta,
-                            transcription_status="pending",
-                        )
+                    values = dict(
+                        source_id=source_id,
+                        bronze_discussion_id=raw_id,
+                        source_type="youtube",
+                        external_id=external_id,
+                        title=entry.get("title"),
+                        url=video_url,
+                        published_at=published_at,
+                        meta=meta,
+                        content_id=content_id,
                     )
+                    result = self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
+                    if result is not None:
+                        new_count += 1
 
-                    new_count += 1
-
-            with engine.begin() as conn:
-                conn.execute(sa.update(Source).where(Source.id == source_id).values(last_fetched_at=sa.text("datetime('now')")))
+            self._update_last_fetched(engine, source_id)
 
             log.info(
-                "youtube_fetch_complete",
+                "youtube.discussions_stored",
                 name=yt_source.name,
-                new_items=new_count,
+                new_discussions=new_count,
             )
             total_new += new_count
 

@@ -8,13 +8,7 @@ import sqlalchemy as sa
 
 from aggre.collectors.rss import RssCollector
 from aggre.config import AppConfig, RssSource
-from aggre.db import Base, BronzePost, SilverPost, Source
-
-
-def _make_engine():
-    engine = sa.create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
+from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config(*rss_sources):
@@ -62,6 +56,7 @@ def _fake_feed(entries, feed_title="Test Feed"):
         def __init__(self, entries, feed):
             self.entries = entries
             self.feed = feed
+            self.bozo = False
 
     return Feed(entries, FeedMeta())
 
@@ -72,8 +67,7 @@ class TestRssCollector:
 
         return structlog.get_logger()
 
-    def test_new_items_stored(self):
-        engine = _make_engine()
+    def test_new_items_stored(self, engine):
         config = _make_config(RssSource(name="Test Blog", url="https://example.com/feed.xml"))
 
         entry = _fake_entry(
@@ -94,14 +88,14 @@ class TestRssCollector:
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
 
         with engine.connect() as conn:
-            # Check bronze_posts
-            rows = conn.execute(sa.select(BronzePost)).fetchall()
+            # Check bronze_discussions
+            rows = conn.execute(sa.select(BronzeDiscussion)).fetchall()
             assert len(rows) == 1
             assert rows[0].source_type == "rss"
             assert rows[0].external_id == "post-1"
 
-            # Check silver_posts
-            rows = conn.execute(sa.select(SilverPost)).fetchall()
+            # Check silver_discussions
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 1
             assert rows[0].title == "First Post"
             assert rows[0].author == "Bob"
@@ -110,10 +104,9 @@ class TestRssCollector:
             assert rows[0].published_at == "2025-06-01T12:00:00Z"
             assert rows[0].source_type == "rss"
             assert rows[0].external_id == "post-1"
-            assert rows[0].bronze_post_id is not None
+            assert rows[0].bronze_discussion_id is not None
 
-    def test_duplicate_items_skipped(self):
-        engine = _make_engine()
+    def test_duplicate_items_skipped(self, engine):
         config = _make_config(RssSource(name="Test Blog", url="https://example.com/feed.xml"))
 
         entry = _fake_entry(id="post-1", title="First Post")
@@ -128,13 +121,12 @@ class TestRssCollector:
         assert count2 == 0
 
         with engine.connect() as conn:
-            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzePost)).scalar()
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverPost)).scalar()
+            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzeDiscussion)).scalar()
+            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar()
             assert raw_count == 1
             assert content_count == 1
 
-    def test_source_row_created(self):
-        engine = _make_engine()
+    def test_source_row_created(self, engine):
         config = _make_config(RssSource(name="My Feed", url="https://example.com/rss"))
 
         feed = _fake_feed([])
@@ -149,8 +141,7 @@ class TestRssCollector:
             assert rows[0].type == "rss"
             assert rows[0].name == "My Feed"
 
-    def test_source_row_reused_on_second_run(self):
-        engine = _make_engine()
+    def test_source_row_reused_on_second_run(self, engine):
         config = _make_config(RssSource(name="My Feed", url="https://example.com/rss"))
 
         feed = _fake_feed([])
@@ -164,11 +155,10 @@ class TestRssCollector:
             count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
             assert count == 1
 
-    def test_last_fetched_at_updated(self):
-        engine = _make_engine()
+    def test_last_fetched_at_updated(self, engine):
         config = _make_config(RssSource(name="My Feed", url="https://example.com/rss"))
 
-        feed = _fake_feed([])
+        feed = _fake_feed([_fake_entry()])
 
         with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
             collector = RssCollector()
@@ -178,8 +168,7 @@ class TestRssCollector:
             row = conn.execute(sa.select(Source.last_fetched_at)).fetchone()
             assert row[0] is not None
 
-    def test_multiple_entries(self):
-        engine = _make_engine()
+    def test_multiple_entries(self, engine):
         config = _make_config(RssSource(name="Blog", url="https://example.com/feed"))
 
         entries = [
@@ -196,13 +185,12 @@ class TestRssCollector:
         assert count == 3
 
         with engine.connect() as conn:
-            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzePost)).scalar()
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverPost)).scalar()
+            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzeDiscussion)).scalar()
+            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar()
             assert raw_count == 3
             assert content_count == 3
 
-    def test_entry_uses_link_as_fallback_id(self):
-        engine = _make_engine()
+    def test_entry_uses_link_as_fallback_id(self, engine):
         config = _make_config(RssSource(name="Blog", url="https://example.com/feed"))
 
         entry = _fake_entry(id=None, link="https://example.com/post-42")
@@ -215,11 +203,10 @@ class TestRssCollector:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverPost.external_id)).fetchone()
+            row = conn.execute(sa.select(SilverDiscussion.external_id)).fetchone()
             assert row[0] == "https://example.com/post-42"
 
-    def test_multiple_feeds(self):
-        engine = _make_engine()
+    def test_multiple_feeds(self, engine):
         config = _make_config(
             RssSource(name="Feed A", url="https://a.com/feed"),
             RssSource(name="Feed B", url="https://b.com/feed"),

@@ -9,13 +9,7 @@ import sqlalchemy as sa
 
 from aggre.collectors.hackernews import HackernewsCollector
 from aggre.config import AppConfig, HackernewsSource, Settings
-from aggre.db import Base, BronzeComment, BronzePost, SilverComment, SilverPost, Source
-
-
-def _make_engine():
-    engine = sa.create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
+from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config(rate_limit: float = 0.0) -> AppConfig:
@@ -81,9 +75,8 @@ def _mock_httpx_client(responses: dict):
     return client
 
 
-class TestHackernewsCollectorPosts:
-    def test_stores_posts(self):
-        engine = _make_engine()
+class TestHackernewsCollectorDiscussions:
+    def test_stores_posts(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -99,26 +92,26 @@ class TestHackernewsCollectorPosts:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzePost)).fetchall()
+            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
             assert len(raws) == 1
             assert raws[0].external_id == "12345"
             assert raws[0].source_type == "hackernews"
 
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Story"
             assert items[0].author == "pg"
             assert items[0].source_type == "hackernews"
             assert items[0].url == "https://example.com/article"
 
+            assert items[0].score == 100
+            assert items[0].comment_count == 25
+            assert items[0].comments_status == "pending"
+
             meta = json.loads(items[0].meta)
-            assert meta["points"] == 100
-            assert meta["num_comments"] == 25
-            assert meta["comments_status"] == "pending"
             assert "hn_url" in meta
 
-    def test_dedup_same_story(self):
-        engine = _make_engine()
+    def test_dedup_same_story(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -136,11 +129,10 @@ class TestHackernewsCollectorPosts:
         assert count2 == 0
 
         with engine.connect() as conn:
-            assert conn.execute(sa.select(sa.func.count()).select_from(BronzePost)).scalar() == 1
-            assert conn.execute(sa.select(sa.func.count()).select_from(SilverPost)).scalar() == 1
+            assert conn.execute(sa.select(sa.func.count()).select_from(BronzeDiscussion)).scalar() == 1
+            assert conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar() == 1
 
-    def test_multiple_stories(self):
-        engine = _make_engine()
+    def test_multiple_stories(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -156,8 +148,7 @@ class TestHackernewsCollectorPosts:
 
         assert count == 2
 
-    def test_story_without_url_uses_hn_url(self):
-        engine = _make_engine()
+    def test_story_without_url_uses_hn_url(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -172,11 +163,10 @@ class TestHackernewsCollectorPosts:
             collector.collect(engine, config, log)
 
         with engine.connect() as conn:
-            item = conn.execute(sa.select(SilverPost)).fetchone()
+            item = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert item.url == "https://news.ycombinator.com/item?id=999"
 
-    def test_no_config_returns_zero(self):
-        engine = _make_engine()
+    def test_no_config_returns_zero(self, engine):
         config = AppConfig(settings=Settings(hn_rate_limit=0.0))
         log = MagicMock()
         collector = HackernewsCollector()
@@ -184,8 +174,7 @@ class TestHackernewsCollectorPosts:
 
 
 class TestHackernewsCollectorComments:
-    def test_fetches_comments_and_marks_done(self):
-        engine = _make_engine()
+    def test_fetches_comments_and_marks_done(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -212,22 +201,20 @@ class TestHackernewsCollectorComments:
         assert fetched == 1
 
         with engine.connect() as conn:
-            rcs = conn.execute(sa.select(BronzeComment)).fetchall()
-            assert len(rcs) == 1
-            assert rcs[0].external_id == "100"
+            # Verify comments stored as JSON on SilverDiscussion
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            assert len(items) == 1
+            assert items[0].comments_json is not None
+            comments_data = json.loads(items[0].comments_json)
+            assert len(comments_data) == 1
+            assert comments_data[0]["author"] == "commenter"
+            assert comments_data[0]["text"] == "Nice!"
+            assert items[0].comment_count == 1
 
-            comments = conn.execute(sa.select(SilverComment)).fetchall()
-            assert len(comments) == 1
-            assert comments[0].author == "commenter"
-            assert comments[0].body == "Nice!"
-            assert comments[0].depth == 0
+            # HN collector updates comments_status column directly
+            assert items[0].comments_status == "done"
 
-            items = conn.execute(sa.select(SilverPost)).fetchall()
-            meta = json.loads(items[0].meta)
-            assert meta["comments_status"] == "done"
-
-    def test_nested_comments(self):
-        engine = _make_engine()
+    def test_nested_comments(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -251,29 +238,29 @@ class TestHackernewsCollectorComments:
             collector.collect_comments(engine, config, log, batch_limit=10)
 
         with engine.connect() as conn:
-            comments = conn.execute(sa.select(SilverComment).order_by(SilverComment.depth)).fetchall()
-            assert len(comments) == 2
-            assert comments[0].depth == 0
-            assert comments[0].body == "Top level"
-            assert comments[1].depth == 1
-            assert comments[1].body == "I agree"
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            assert items[0].comments_json is not None
+            comments_data = json.loads(items[0].comments_json)
+            # Top-level has 1 child (parent comment)
+            assert len(comments_data) == 1
+            assert comments_data[0]["text"] == "Top level"
+            # Nested reply is inside children
+            assert len(comments_data[0]["children"]) == 1
+            assert comments_data[0]["children"][0]["text"] == "I agree"
 
-    def test_no_pending_returns_zero(self):
-        engine = _make_engine()
+    def test_no_pending_returns_zero(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
         assert collector.collect_comments(engine, config, log, batch_limit=10) == 0
 
-    def test_zero_batch_returns_zero(self):
-        engine = _make_engine()
+    def test_zero_batch_returns_zero(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
         assert collector.collect_comments(engine, config, log, batch_limit=0) == 0
 
-    def test_respects_batch_limit(self):
-        engine = _make_engine()
+    def test_respects_batch_limit(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -301,15 +288,15 @@ class TestHackernewsCollectorComments:
         assert fetched == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
-            statuses = [json.loads(i.meta).get("comments_status") for i in items]
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            # HN uses comments_status column directly
+            statuses = [i.comments_status for i in items]
             assert statuses.count("done") == 2
             assert statuses.count("pending") == 1
 
 
 class TestHackernewsSearchByUrl:
-    def test_search_finds_and_stores(self):
-        engine = _make_engine()
+    def test_search_finds_and_stores(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -325,12 +312,11 @@ class TestHackernewsSearchByUrl:
         assert found == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].source_type == "hackernews"
 
-    def test_search_dedup(self):
-        engine = _make_engine()
+    def test_search_dedup(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -347,8 +333,7 @@ class TestHackernewsSearchByUrl:
         assert found1 == 1
         assert found2 == 0
 
-    def test_search_no_results(self):
-        engine = _make_engine()
+    def test_search_no_results(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -364,8 +349,7 @@ class TestHackernewsSearchByUrl:
 
 
 class TestHackernewsSource:
-    def test_creates_source_row(self):
-        engine = _make_engine()
+    def test_creates_source_row(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
@@ -383,8 +367,7 @@ class TestHackernewsSource:
             assert rows[0].type == "hackernews"
             assert rows[0].name == "Hacker News"
 
-    def test_reuses_existing_source(self):
-        engine = _make_engine()
+    def test_reuses_existing_source(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()

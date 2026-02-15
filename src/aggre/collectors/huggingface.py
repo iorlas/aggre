@@ -3,21 +3,27 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 
 import httpx
 import sqlalchemy as sa
 import structlog
 
+from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
-from aggre.db import BronzePost, SilverPost, Source
+from aggre.db import SilverContent
+from aggre.urls import ensure_content
 
 HF_API_URL = "https://huggingface.co/api/daily_papers"
 USER_AGENT = "aggre/0.1.0 (content-aggregator)"
 
+# Columns to update on re-insert (scores/titles always fresh)
+_UPSERT_COLS = ("title", "author", "content_text", "meta", "score", "comment_count")
 
-class HuggingfaceCollector:
+
+class HuggingfaceCollector(BaseCollector):
     """Collect daily papers from HuggingFace."""
+
+    source_type = "huggingface"
 
     def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
         if not config.huggingface:
@@ -47,55 +53,19 @@ class HuggingfaceCollector:
                             continue
 
                         raw_id = self._store_raw_item(conn, paper_id, item)
-                        if raw_id is not None:
-                            ci_id = self._store_content_item(conn, source_id, raw_id, paper_id, item)
-                            if ci_id is not None:
-                                total_new += 1
+                        discussion_id = self._store_discussion(conn, source_id, raw_id, paper_id, item)
+                        if discussion_id is not None:
+                            total_new += 1
 
-                log.info("huggingface.papers_stored", new=total_new, total_seen=len(papers))
-
-                with engine.begin() as conn:
-                    conn.execute(
-                        sa.update(Source).where(Source.id == source_id)
-                        .values(last_fetched_at=datetime.now(UTC).isoformat())
-                    )
+                log.info("huggingface.discussions_stored", new=total_new, total_seen=len(papers))
+                self._update_last_fetched(engine, source_id)
         finally:
             client.close()
 
         return total_new
 
-    def _ensure_source(self, engine: sa.engine.Engine, name: str) -> int:
-        with engine.begin() as conn:
-            row = conn.execute(
-                sa.select(Source.id).where(Source.type == "huggingface", Source.name == name)
-            ).first()
-            if row:
-                return row[0]
-            result = conn.execute(
-                sa.insert(Source).values(
-                    type="huggingface",
-                    name=name,
-                    config=json.dumps({"name": name}),
-                )
-            )
-            return result.lastrowid
-
-    def _store_raw_item(self, conn: sa.Connection, paper_id: str, item: dict) -> int | None:
-        result = conn.execute(
-            sa.insert(BronzePost)
-            .prefix_with("OR IGNORE")
-            .values(
-                source_type="huggingface",
-                external_id=paper_id,
-                raw_data=json.dumps(item),
-            )
-        )
-        if result.rowcount == 0:
-            return None
-        return result.lastrowid
-
-    def _store_content_item(
-        self, conn: sa.Connection, source_id: int, raw_id: int, paper_id: str, item: dict,
+    def _store_discussion(
+        self, conn: sa.Connection, source_id: int, raw_id: int | None, paper_id: str, item: dict,
     ) -> int | None:
         paper = item.get("paper", {})
 
@@ -104,28 +74,35 @@ class HuggingfaceCollector:
             a.get("name", "") for a in authors if isinstance(a, dict)
         ) if authors else None
 
+        hf_url = f"https://huggingface.co/papers/{paper_id}"
+
+        # Create content entry and set summary as body_text
+        content_id = ensure_content(conn, hf_url)
+        summary = paper.get("summary")
+        if content_id and summary:
+            conn.execute(
+                sa.update(SilverContent)
+                .where(SilverContent.id == content_id, SilverContent.body_text.is_(None))
+                .values(body_text=summary)
+            )
+
         meta = json.dumps({
-            "upvotes": item.get("paper", {}).get("upvotes", 0),
-            "num_comments": item.get("numComments", 0),
             "github_repo": item.get("paper", {}).get("githubRepo"),
         })
 
-        result = conn.execute(
-            sa.insert(SilverPost)
-            .prefix_with("OR IGNORE")
-            .values(
-                source_id=source_id,
-                bronze_post_id=raw_id,
-                source_type="huggingface",
-                external_id=paper_id,
-                title=paper.get("title"),
-                content_text=paper.get("summary"),
-                author=author_names,
-                url=f"https://huggingface.co/papers/{paper_id}",
-                published_at=paper.get("publishedAt"),
-                meta=meta,
-            )
+        values = dict(
+            source_id=source_id,
+            bronze_discussion_id=raw_id,
+            source_type="huggingface",
+            external_id=paper_id,
+            title=paper.get("title"),
+            content_text=summary,
+            author=author_names,
+            url=hf_url,
+            published_at=paper.get("publishedAt"),
+            meta=meta,
+            content_id=content_id,
+            score=item.get("paper", {}).get("upvotes", 0),
+            comment_count=item.get("numComments", 0),
         )
-        if result.rowcount == 0:
-            return None
-        return result.lastrowid
+        return self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

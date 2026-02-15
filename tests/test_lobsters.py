@@ -9,13 +9,7 @@ import sqlalchemy as sa
 
 from aggre.collectors.lobsters import LobstersCollector
 from aggre.config import AppConfig, LobstersSource, Settings
-from aggre.db import Base, BronzeComment, BronzePost, SilverComment, SilverPost, Source
-
-
-def _make_engine():
-    engine = sa.create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
+from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config(tags: list[str] | None = None, rate_limit: float = 0.0) -> AppConfig:
@@ -89,9 +83,8 @@ def _mock_httpx_client(responses: dict):
     return client
 
 
-class TestLobstersCollectorPosts:
-    def test_stores_posts(self):
-        engine = _make_engine()
+class TestLobstersCollectorDiscussions:
+    def test_stores_posts(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -110,25 +103,27 @@ class TestLobstersCollectorPosts:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzePost)).fetchall()
+            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
             assert len(raws) == 1
             assert raws[0].external_id == "abc123"
             assert raws[0].source_type == "lobsters"
 
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Story"
             assert items[0].author == "testuser"
             assert items[0].source_type == "lobsters"
             assert items[0].url == "https://example.com/article"
 
-            meta = json.loads(items[0].meta)
-            assert meta["score"] == 10
-            assert meta["comment_count"] == 3
-            assert meta["comments_status"] == "pending"
+            assert items[0].score == 10
+            assert items[0].comment_count == 3
+            assert items[0].comments_status == "pending"
 
-    def test_dedup_across_runs(self):
-        engine = _make_engine()
+            meta = json.loads(items[0].meta)
+            assert "tags" in meta
+            assert "lobsters_url" in meta
+
+    def test_dedup_across_runs(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -145,8 +140,7 @@ class TestLobstersCollectorPosts:
         assert count1 == 1
         assert count2 == 0
 
-    def test_multiple_stories(self):
-        engine = _make_engine()
+    def test_multiple_stories(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -162,8 +156,7 @@ class TestLobstersCollectorPosts:
 
         assert count == 2
 
-    def test_tag_filtering(self):
-        engine = _make_engine()
+    def test_tag_filtering(self, engine):
         config = _make_config(tags=["rust", "python"])
         log = MagicMock()
         collector = LobstersCollector()
@@ -204,8 +197,7 @@ class TestLobstersCollectorPosts:
         assert any("t/python.json" in u for u in requested_urls)
         assert not any("hottest.json" in u for u in requested_urls)
 
-    def test_no_config_returns_zero(self):
-        engine = _make_engine()
+    def test_no_config_returns_zero(self, engine):
         config = AppConfig(settings=Settings(lobsters_rate_limit=0.0))
         log = MagicMock()
         collector = LobstersCollector()
@@ -213,8 +205,7 @@ class TestLobstersCollectorPosts:
 
 
 class TestLobstersCollectorComments:
-    def test_fetches_comments_and_marks_done(self):
-        engine = _make_engine()
+    def test_fetches_comments_and_marks_done(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -241,22 +232,20 @@ class TestLobstersCollectorComments:
         assert fetched == 1
 
         with engine.connect() as conn:
-            rcs = conn.execute(sa.select(BronzeComment)).fetchall()
-            assert len(rcs) == 1
-            assert rcs[0].external_id == "com1"
+            # Verify comments stored as JSON on SilverDiscussion
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            assert len(items) == 1
+            assert items[0].comments_json is not None
+            comments_data = json.loads(items[0].comments_json)
+            assert len(comments_data) == 1
+            assert comments_data[0]["commenting_user"]["username"] == "commenter"
+            assert comments_data[0]["comment"] == "Nice!"
+            assert items[0].comment_count == 1
 
-            comments = conn.execute(sa.select(SilverComment)).fetchall()
-            assert len(comments) == 1
-            assert comments[0].author == "commenter"
-            assert comments[0].body == "Nice!"
-            assert comments[0].depth == 0  # indent_level 1 → depth 0
+            # Lobsters stores comments_status as column
+            assert items[0].comments_status == "done"
 
-            items = conn.execute(sa.select(SilverPost)).fetchall()
-            meta = json.loads(items[0].meta)
-            assert meta["comments_status"] == "done"
-
-    def test_indent_levels(self):
-        engine = _make_engine()
+    def test_indent_levels(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -280,30 +269,29 @@ class TestLobstersCollectorComments:
             collector.collect_comments(engine, config, log, batch_limit=10)
 
         with engine.connect() as conn:
-            comments = conn.execute(sa.select(SilverComment).order_by(SilverComment.depth)).fetchall()
-            assert len(comments) == 2
-            assert comments[0].depth == 0
-            assert comments[0].body == "Parent"
-            assert comments[1].depth == 1
-            assert comments[1].body == "Child"
-            assert comments[1].parent_id == "c1"
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            assert items[0].comments_json is not None
+            comments_data = json.loads(items[0].comments_json)
+            assert len(comments_data) == 2
+            assert comments_data[0]["comment"] == "Parent"
+            assert comments_data[0]["indent_level"] == 1
+            assert comments_data[1]["comment"] == "Child"
+            assert comments_data[1]["indent_level"] == 2
+            assert comments_data[1]["parent_comment"] == "c1"
 
-    def test_no_pending_returns_zero(self):
-        engine = _make_engine()
+    def test_no_pending_returns_zero(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
         assert collector.collect_comments(engine, config, log, batch_limit=10) == 0
 
-    def test_zero_batch_returns_zero(self):
-        engine = _make_engine()
+    def test_zero_batch_returns_zero(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
         assert collector.collect_comments(engine, config, log, batch_limit=0) == 0
 
-    def test_respects_batch_limit(self):
-        engine = _make_engine()
+    def test_respects_batch_limit(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -329,15 +317,15 @@ class TestLobstersCollectorComments:
         assert fetched == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
-            statuses = [json.loads(i.meta).get("comments_status") for i in items]
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            # comments_status is a column
+            statuses = [i.comments_status for i in items]
             assert statuses.count("done") == 2
             assert statuses.count("pending") == 1
 
 
 class TestLobstersSearchByUrl:
-    def test_search_finds_and_stores(self):
-        engine = _make_engine()
+    def test_search_finds_and_stores(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -353,12 +341,11 @@ class TestLobstersSearchByUrl:
         assert found == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].source_type == "lobsters"
 
-    def test_search_filters_by_exact_url(self):
-        engine = _make_engine()
+    def test_search_filters_by_exact_url(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -374,8 +361,7 @@ class TestLobstersSearchByUrl:
 
         assert found == 1
 
-    def test_search_dedup(self):
-        engine = _make_engine()
+    def test_search_dedup(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -392,8 +378,7 @@ class TestLobstersSearchByUrl:
         assert found1 == 1
         assert found2 == 0
 
-    def test_search_no_domain_returns_zero(self):
-        engine = _make_engine()
+    def test_search_no_domain_returns_zero(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -401,8 +386,7 @@ class TestLobstersSearchByUrl:
 
 
 class TestLobstersSource:
-    def test_creates_source_row(self):
-        engine = _make_engine()
+    def test_creates_source_row(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
@@ -420,8 +404,7 @@ class TestLobstersSource:
             assert rows[0].type == "lobsters"
             assert rows[0].name == "Lobsters"
 
-    def test_reuses_existing_source(self):
-        engine = _make_engine()
+    def test_reuses_existing_source(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()

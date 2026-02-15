@@ -17,8 +17,8 @@ target_metadata = Base.metadata
 config = context.config
 
 # Override DB URL from env if set
-db_path = os.environ.get("AGGRE_DB_PATH", "./data/aggre.db")
-config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+database_url = os.environ.get("AGGRE_DATABASE_URL", "postgresql+psycopg2://localhost/aggre")
+config.set_main_option("sqlalchemy.url", database_url)
 
 
 def run_migrations_offline() -> None:

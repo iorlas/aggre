@@ -15,10 +15,16 @@ from tenacity import (
     wait_exponential,
 )
 
+from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
-from aggre.db import BronzeComment, BronzePost, SilverComment, SilverPost, Source
+from aggre.db import SilverDiscussion
+from aggre.statuses import CommentsStatus
+from aggre.urls import ensure_content
 
 USER_AGENT = "linux:aggre:v0.1.0 (content-aggregator)"
+
+# Columns to update on re-insert (scores/titles always fresh)
+_UPSERT_COLS = ("title", "author", "url", "content_text", "meta", "score", "comment_count")
 
 
 def _should_retry(retry_state) -> bool:
@@ -63,8 +69,10 @@ def _fetch_json(client: httpx.Client, url: str, log: structlog.stdlib.BoundLogge
     return resp.json(), resp
 
 
-class RedditCollector:
+class RedditCollector(BaseCollector):
     """Collect posts and comments from Reddit's public JSON API."""
+
+    source_type = "reddit"
 
     def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
         """Fetch post listings only. Comments are fetched separately via collect_comments()."""
@@ -77,7 +85,7 @@ class RedditCollector:
                 sub = reddit_source.subreddit
                 log.info("reddit.collecting", subreddit=sub)
 
-                source_id = self._ensure_source(engine, sub)
+                source_id = self._ensure_source(engine, sub, {"subreddit": sub})
 
                 # Fetch hot + new listings, dedup by external_id
                 posts_by_id: dict[str, dict] = {}
@@ -97,22 +105,18 @@ class RedditCollector:
                         if ext_id and ext_id not in posts_by_id:
                             posts_by_id[ext_id] = post_data
 
-                # Store posts with comments_status: pending
+                # Store posts
                 new_post_ids: list[str] = []
                 with engine.begin() as conn:
                     for ext_id, post_data in posts_by_id.items():
                         raw_id = self._store_raw_item(conn, ext_id, post_data)
-                        if raw_id is not None:
-                            ci_id = self._store_content_item(conn, source_id, raw_id, ext_id, post_data, sub)
-                            if ci_id is not None:
-                                new_post_ids.append(ext_id)
-                                total_new += 1
+                        discussion_id = self._store_discussion(conn, source_id, raw_id, ext_id, post_data, sub)
+                        if discussion_id is not None:
+                            new_post_ids.append(ext_id)
+                            total_new += 1
 
-                log.info("reddit.posts_stored", subreddit=sub, new=len(new_post_ids), total_seen=len(posts_by_id))
-
-                # Update last_fetched_at
-                with engine.begin() as conn:
-                    conn.execute(sa.update(Source).where(Source.id == source_id).values(last_fetched_at=datetime.now(UTC).isoformat()))
+                log.info("reddit.discussions_stored", subreddit=sub, new=len(new_post_ids), total_seen=len(posts_by_id))
+                self._update_last_fetched(engine, source_id)
         finally:
             client.close()
 
@@ -129,13 +133,12 @@ class RedditCollector:
         if batch_limit <= 0:
             return 0
 
-        # Find pending posts
         with engine.connect() as conn:
             rows = conn.execute(
-                sa.select(SilverPost.id, SilverPost.external_id, SilverPost.meta)
+                sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
                 .where(
-                    SilverPost.source_type == "reddit",
-                    SilverPost.meta.like('%"comments_status": "pending"%'),
+                    SilverDiscussion.source_type == "reddit",
+                    SilverDiscussion.comments_status == CommentsStatus.PENDING,
                 )
                 .limit(batch_limit)
             ).fetchall()
@@ -151,7 +154,7 @@ class RedditCollector:
 
         try:
             for row in rows:
-                ci_id = row.id
+                discussion_id = row.id
                 ext_id = row.external_id
                 meta = json.loads(row.meta) if row.meta else {}
                 subreddit = meta.get("subreddit", "")
@@ -167,16 +170,21 @@ class RedditCollector:
                     continue
 
                 with engine.begin() as conn:
+                    comments_json = None
+                    comment_count = 0
                     if len(data) >= 2:
                         comment_children = data[1].get("data", {}).get("children", [])
-                        self._walk_comments(conn, ci_id, comment_children, depth=0)
+                        comments_json = json.dumps(comment_children)
+                        comment_count = len(comment_children)
 
-                    # Mark as done
-                    meta["comments_status"] = "done"
                     conn.execute(
-                        sa.update(SilverPost)
-                        .where(SilverPost.id == ci_id)
-                        .values(meta=json.dumps(meta))
+                        sa.update(SilverDiscussion)
+                        .where(SilverDiscussion.id == discussion_id)
+                        .values(
+                            comments_status=CommentsStatus.DONE,
+                            comments_json=comments_json,
+                            comment_count=comment_count,
+                        )
                     )
                     fetched += 1
 
@@ -186,121 +194,42 @@ class RedditCollector:
 
         return fetched
 
-    def _ensure_source(self, engine: sa.engine.Engine, subreddit: str) -> int:
-        with engine.begin() as conn:
-            row = conn.execute(
-                sa.select(Source.id).where(
-                    Source.type == "reddit",
-                    Source.name == subreddit,
-                )
-            ).first()
-            if row:
-                return row[0]
-            result = conn.execute(
-                sa.insert(Source).values(
-                    type="reddit",
-                    name=subreddit,
-                    config=json.dumps({"subreddit": subreddit}),
-                )
-            )
-            return result.lastrowid
-
-    def _store_raw_item(self, conn: sa.Connection, ext_id: str, post_data: dict) -> int | None:
-        """Insert raw item. Returns id if new, None if duplicate."""
-        result = conn.execute(
-            sa.insert(BronzePost)
-            .prefix_with("OR IGNORE")
-            .values(
-                source_type="reddit",
-                external_id=ext_id,
-                raw_data=json.dumps(post_data),
-            )
-        )
-        if result.rowcount == 0:
-            return None
-        return result.lastrowid
-
-    def _store_content_item(
+    def _store_discussion(
         self,
         conn: sa.Connection,
         source_id: int,
-        raw_id: int,
+        raw_id: int | None,
         ext_id: str,
         post_data: dict,
         subreddit: str,
     ) -> int | None:
-        """Insert content item with comments_status='pending'. Returns id if new, None if duplicate."""
         published_at = datetime.fromtimestamp(post_data.get("created_utc", 0), tz=UTC).isoformat()
-        meta = json.dumps(
-            {
-                "subreddit": subreddit,
-                "score": post_data.get("score", 0),
-                "num_comments": post_data.get("num_comments", 0),
-                "flair": post_data.get("link_flair_text"),
-                "comments_status": "pending",
-            }
+
+        content_id = None
+        if not post_data.get("is_self", True):
+            post_url = post_data.get("url", "")
+            if post_url and "reddit.com" not in post_url:
+                content_id = ensure_content(conn, post_url)
+
+        meta = json.dumps({
+            "subreddit": subreddit,
+            "flair": post_data.get("link_flair_text"),
+        })
+
+        values = dict(
+            source_id=source_id,
+            bronze_discussion_id=raw_id,
+            source_type="reddit",
+            external_id=ext_id,
+            title=post_data.get("title"),
+            author=post_data.get("author"),
+            url=f"https://reddit.com{post_data.get('permalink', '')}",
+            content_text=post_data.get("selftext", ""),
+            published_at=published_at,
+            meta=meta,
+            content_id=content_id,
+            comments_status=CommentsStatus.PENDING,
+            score=post_data.get("score", 0),
+            comment_count=post_data.get("num_comments", 0),
         )
-        result = conn.execute(
-            sa.insert(SilverPost)
-            .prefix_with("OR IGNORE")
-            .values(
-                source_id=source_id,
-                bronze_post_id=raw_id,
-                source_type="reddit",
-                external_id=ext_id,
-                title=post_data.get("title"),
-                author=post_data.get("author"),
-                url=f"https://reddit.com{post_data.get('permalink', '')}",
-                content_text=post_data.get("selftext", ""),
-                published_at=published_at,
-                meta=meta,
-            )
-        )
-        if result.rowcount == 0:
-            return None
-        return result.lastrowid
-
-    def _walk_comments(self, conn: sa.Connection, silver_post_id: int | None, children: list, depth: int) -> None:
-        for child in children:
-            if child.get("kind") != "t1":
-                continue
-            comment = child.get("data", {})
-            ext_id = comment.get("name")
-            if not ext_id:
-                continue
-
-            # Store raw comment
-            rc_result = conn.execute(
-                sa.insert(BronzeComment)
-                .prefix_with("OR IGNORE")
-                .values(
-                    bronze_post_id=None,
-                    external_id=ext_id,
-                    raw_data=json.dumps(comment),
-                )
-            )
-            bronze_comment_id = rc_result.lastrowid if rc_result.rowcount > 0 else None
-
-            # Store silver comment
-            created_at = datetime.fromtimestamp(comment.get("created_utc", 0), tz=UTC).isoformat()
-            conn.execute(
-                sa.insert(SilverComment)
-                .prefix_with("OR IGNORE")
-                .values(
-                    silver_post_id=silver_post_id,
-                    bronze_comment_id=bronze_comment_id,
-                    external_id=ext_id,
-                    author=comment.get("author"),
-                    body=comment.get("body"),
-                    score=comment.get("score"),
-                    parent_id=comment.get("parent_id"),
-                    depth=depth,
-                    created_at=created_at,
-                )
-            )
-
-            # Recurse into replies
-            replies = comment.get("replies")
-            if isinstance(replies, dict):
-                reply_children = replies.get("data", {}).get("children", [])
-                self._walk_comments(conn, silver_post_id, reply_children, depth=depth + 1)
+        return self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

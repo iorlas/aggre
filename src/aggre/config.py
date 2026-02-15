@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 
 class Settings(BaseModel):
-    db_path: str = "./data/aggre.db"
+    database_url: str = "postgresql+psycopg2://localhost/aggre"
     log_dir: str = "./data/logs"
     youtube_temp_dir: str = "./data/tmp/videos"
     whisper_model: str = "large-v3"
@@ -73,7 +73,7 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
 
     # Apply env var overrides for settings
     env_map = {
-        "AGGRE_DB_PATH": "db_path",
+        "AGGRE_DATABASE_URL": "database_url",
         "AGGRE_LOG_DIR": "log_dir",
         "AGGRE_YOUTUBE_TEMP_DIR": "youtube_temp_dir",
         "AGGRE_WHISPER_MODEL": "whisper_model",

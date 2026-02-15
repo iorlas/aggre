@@ -10,13 +10,7 @@ import structlog
 
 from aggre.collectors.youtube import YoutubeCollector
 from aggre.config import AppConfig, Settings, YoutubeSource
-from aggre.db import Base, BronzePost, SilverPost, Source
-
-
-def _make_engine() -> sa.engine.Engine:
-    engine = sa.create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
+from aggre.db import BronzeDiscussion, SilverContent, SilverDiscussion, Source
 
 
 def _make_config(fetch_limit: int = 10) -> AppConfig:
@@ -53,8 +47,7 @@ def _mock_extract_info(url, download=False):
 
 
 class TestYoutubeCollector:
-    def test_collect_inserts_new_items(self):
-        engine = _make_engine()
+    def test_collect_inserts_new_items(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -70,14 +63,13 @@ class TestYoutubeCollector:
         assert count == 2
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverPost)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 2
 
             item1 = rows[0]
             assert item1.external_id == "vid001"
             assert item1.title == "First Video"
             assert item1.source_type == "youtube"
-            assert item1.transcription_status == "pending"
             assert item1.published_at == "2024-01-15"
 
             item2 = rows[1]
@@ -91,8 +83,14 @@ class TestYoutubeCollector:
             assert meta["duration"] == 600
             assert meta["view_count"] == 1000
 
-    def test_collect_creates_source_row(self):
-        engine = _make_engine()
+            # transcription_status is now on SilverContent
+            sc_rows = conn.execute(
+                sa.select(SilverContent)
+                .where(SilverContent.transcription_status == "pending")
+            ).fetchall()
+            assert len(sc_rows) == 2
+
+    def test_collect_creates_source_row(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -113,8 +111,7 @@ class TestYoutubeCollector:
             src_config = json.loads(rows[0].config)
             assert src_config["channel_id"] == "UC_test123"
 
-    def test_collect_stores_raw_items(self):
-        engine = _make_engine()
+    def test_collect_stores_raw_items(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -128,14 +125,13 @@ class TestYoutubeCollector:
             collector.collect(engine, config, log)
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(BronzePost)).fetchall()
+            rows = conn.execute(sa.select(BronzeDiscussion)).fetchall()
             assert len(rows) == 2
             assert rows[0].source_type == "youtube"
             raw = json.loads(rows[0].raw_data)
             assert raw["id"] == "vid001"
 
-    def test_dedup_does_not_insert_duplicates(self):
-        engine = _make_engine()
+    def test_dedup_does_not_insert_duplicates(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -153,11 +149,10 @@ class TestYoutubeCollector:
         assert count2 == 0
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverPost)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 2
 
-    def test_collect_reuses_existing_source(self):
-        engine = _make_engine()
+    def test_collect_reuses_existing_source(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -175,8 +170,7 @@ class TestYoutubeCollector:
             rows = conn.execute(sa.select(Source)).fetchall()
             assert len(rows) == 1
 
-    def test_collect_sets_fetch_limit(self):
-        engine = _make_engine()
+    def test_collect_sets_fetch_limit(self, engine):
         config = _make_config(fetch_limit=25)
         log = structlog.get_logger()
 
@@ -192,8 +186,7 @@ class TestYoutubeCollector:
         opts = mock_cls.call_args[0][0]
         assert opts["playlistend"] == 25
 
-    def test_collect_backfill_no_limit(self):
-        engine = _make_engine()
+    def test_collect_backfill_no_limit(self, engine):
         config = _make_config(fetch_limit=25)
         log = structlog.get_logger()
 
@@ -209,8 +202,7 @@ class TestYoutubeCollector:
         opts = mock_cls.call_args[0][0]
         assert opts["playlistend"] is None
 
-    def test_collect_skips_entries_without_id(self):
-        engine = _make_engine()
+    def test_collect_skips_entries_without_id(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -227,8 +219,7 @@ class TestYoutubeCollector:
 
         assert count == 2
 
-    def test_collect_handles_yt_dlp_error(self):
-        engine = _make_engine()
+    def test_collect_handles_yt_dlp_error(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -243,8 +234,7 @@ class TestYoutubeCollector:
 
         assert count == 0
 
-    def test_collect_url_fallback(self):
-        engine = _make_engine()
+    def test_collect_url_fallback(self, engine):
         config = _make_config()
         log = structlog.get_logger()
 
@@ -266,5 +256,5 @@ class TestYoutubeCollector:
             collector.collect(engine, config, log)
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverPost)).fetchone()
+            row = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert row.url == "https://www.youtube.com/watch?v=vid_nourl"

@@ -1,20 +1,91 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: aggre
+      POSTGRES_USER: aggre
+      POSTGRES_PASSWORD: aggre
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggre"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   migrate:
     build: .
     command: .venv/bin/alembic upgrade head
     volumes:
-      - ./data:/app/data
+      - appdata:/app/data
       - ./config.yaml:/app/config.yaml:ro
+    environment:
+      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
     env_file:
       - path: .env
         required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  fetch:
+  collect:
     build: .
-    command: .venv/bin/aggre fetch --loop --interval 3600
+    command: .venv/bin/aggre collect --loop --interval 3600
     volumes:
-      - ./data:/app/data
+      - appdata:/app/data
       - ./config.yaml:/app/config.yaml:ro
+    environment:
+      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  download:
+    build: .
+    command: .venv/bin/aggre download --loop --interval 10
+    volumes:
+      - appdata:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  extract-html-text:
+    build: .
+    command: .venv/bin/aggre extract-html-text --loop --interval 10
+    volumes:
+      - appdata:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  enrich-content-discussions:
+    build: .
+    command: .venv/bin/aggre enrich-content-discussions --loop --interval 60
+    volumes:
+      - appdata:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
     env_file:
       - path: .env
         required: false
@@ -25,10 +96,12 @@ services:
 
   transcribe:
     build: .
-    command: .venv/bin/aggre transcribe --loop --interval 900
+    command: .venv/bin/aggre transcribe --loop --interval 10
     volumes:
-      - ./data:/app/data
+      - appdata:/app/data
       - ./config.yaml:/app/config.yaml:ro
+    environment:
+      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
     env_file:
       - path: .env
         required: false
@@ -36,3 +109,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  appdata:

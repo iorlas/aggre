@@ -10,7 +10,8 @@ import yt_dlp
 from faster_whisper import WhisperModel
 
 from aggre.config import AppConfig
-from aggre.db import SilverPost
+from aggre.db import SilverContent, SilverDiscussion
+from aggre.statuses import TranscriptionStatus
 
 _model_cache: WhisperModel | None = None
 
@@ -26,13 +27,28 @@ def _get_model(config: AppConfig) -> WhisperModel:
     return _model_cache
 
 
-def process_pending(
+def transcribe(
     engine: sa.engine.Engine,
     config: AppConfig,
     log: structlog.stdlib.BoundLogger,
     batch_limit: int = 0,
 ) -> int:
-    query = sa.select(SilverPost).where(SilverPost.transcription_status == "pending").order_by(SilverPost.fetched_at.asc())
+    # Query SilverContent with pending transcription, JOIN to get the YouTube video ID
+    query = (
+        sa.select(
+            SilverContent.id,
+            SilverContent.canonical_url,
+            SilverContent.transcription_status,
+            SilverDiscussion.external_id,
+            SilverDiscussion.title,
+        )
+        .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
+        .where(
+            SilverContent.transcription_status.in_((TranscriptionStatus.PENDING, TranscriptionStatus.DOWNLOADING, TranscriptionStatus.TRANSCRIBING)),
+            SilverDiscussion.source_type == "youtube",
+        )
+        .order_by(SilverContent.created_at.asc())
+    )
     if batch_limit > 0:
         query = query.limit(batch_limit)
 
@@ -42,6 +58,7 @@ def process_pending(
     processed = 0
 
     for item in pending:
+        content_id = item.id
         external_id = item.external_id
         log.info("transcribing_video", external_id=external_id, title=item.title)
 
@@ -50,7 +67,11 @@ def process_pending(
         try:
             # Mark as downloading
             with engine.begin() as conn:
-                conn.execute(sa.update(SilverPost).where(SilverPost.id == item.id).values(transcription_status="downloading"))
+                conn.execute(
+                    sa.update(SilverContent)
+                    .where(SilverContent.id == content_id)
+                    .values(transcription_status=TranscriptionStatus.DOWNLOADING)
+                )
 
             # Download audio
             temp_dir = Path(config.settings.youtube_temp_dir)
@@ -78,23 +99,42 @@ def process_pending(
                 raise FileNotFoundError(f"No downloaded file found for {external_id}")
             audio_path = candidates[0]
 
+            # Check audio file size (500MB limit)
+            file_size = audio_path.stat().st_size
+            if file_size > 500 * 1024 * 1024:
+                log.warning("audio_file_too_large", external_id=external_id, size_mb=file_size / (1024 * 1024))
+                with engine.begin() as conn:
+                    conn.execute(
+                        sa.update(SilverContent)
+                        .where(SilverContent.id == content_id)
+                        .values(
+                            transcription_status=TranscriptionStatus.FAILED,
+                            transcription_error="Audio file exceeds 500MB limit",
+                        )
+                    )
+                continue
+
             # Mark as transcribing
             with engine.begin() as conn:
-                conn.execute(sa.update(SilverPost).where(SilverPost.id == item.id).values(transcription_status="transcribing"))
+                conn.execute(
+                    sa.update(SilverContent)
+                    .where(SilverContent.id == content_id)
+                    .values(transcription_status=TranscriptionStatus.TRANSCRIBING)
+                )
 
             # Transcribe
             model = _get_model(config)
             segments, info = model.transcribe(str(audio_path))
             transcript = " ".join(seg.text for seg in segments)
 
-            # Store result
+            # Store result on SilverContent (body_text holds the transcript)
             with engine.begin() as conn:
                 conn.execute(
-                    sa.update(SilverPost)
-                    .where(SilverPost.id == item.id)
+                    sa.update(SilverContent)
+                    .where(SilverContent.id == content_id)
                     .values(
-                        content_text=transcript,
-                        transcription_status="completed",
+                        body_text=transcript,
+                        transcription_status=TranscriptionStatus.COMPLETED,
                         detected_language=info.language,
                     )
                 )
@@ -106,10 +146,10 @@ def process_pending(
             log.exception("transcription_failed", external_id=external_id)
             with engine.begin() as conn:
                 conn.execute(
-                    sa.update(SilverPost)
-                    .where(SilverPost.id == item.id)
+                    sa.update(SilverContent)
+                    .where(SilverContent.id == content_id)
                     .values(
-                        transcription_status="failed",
+                        transcription_status=TranscriptionStatus.FAILED,
                         transcription_error=str(exc),
                     )
                 )
@@ -119,3 +159,7 @@ def process_pending(
                 audio_path.unlink()
 
     return processed
+
+
+# Backward compatibility alias
+process_pending = transcribe

@@ -8,41 +8,37 @@ import feedparser
 import sqlalchemy as sa
 import structlog
 
+from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
-from aggre.db import BronzePost, SilverPost, Source
+from aggre.db import SilverContent
+from aggre.urls import ensure_content
+
+# Columns to update on re-insert (titles/content always fresh)
+_UPSERT_COLS = ("title", "author", "url", "content_text", "meta")
 
 
-class RssCollector:
+class RssCollector(BaseCollector):
     """Fetches RSS/Atom feeds and stores entries in the database."""
+
+    source_type = "rss"
 
     def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
         total_new = 0
 
         for rss_source in config.rss:
-            log.info("fetching_rss", name=rss_source.name, url=rss_source.url)
+            log.info("rss.collecting", name=rss_source.name, url=rss_source.url)
 
-            with engine.begin() as conn:
-                # Ensure source row exists
-                row = conn.execute(
-                    sa.select(Source.id).where(
-                        Source.type == "rss",
-                        Source.name == rss_source.name,
-                    )
-                ).fetchone()
-
-                if row is None:
-                    result = conn.execute(
-                        sa.insert(Source).values(
-                            type="rss",
-                            name=rss_source.name,
-                            config=json.dumps({"url": rss_source.url}),
-                        )
-                    )
-                    source_id = result.inserted_primary_key[0]
-                else:
-                    source_id = row[0]
+            source_id = self._ensure_source(engine, rss_source.name, {"url": rss_source.url})
 
             feed = feedparser.parse(rss_source.url)
+
+            if feed.bozo:
+                log.warning("rss_bozo_error", name=rss_source.name, error=str(feed.bozo_exception))
+
+            if not feed.entries:
+                log.warning("rss_no_entries", name=rss_source.name)
+                continue
+
             new_count = 0
 
             for entry in feed.entries:
@@ -54,21 +50,7 @@ class RssCollector:
                 raw_data = json.dumps(dict(entry))
 
                 with engine.begin() as conn:
-                    # Insert raw item (dedup by unique constraint)
-                    result = conn.execute(
-                        sa.insert(BronzePost)
-                        .prefix_with("OR IGNORE")
-                        .values(
-                            source_type="rss",
-                            external_id=external_id,
-                            raw_data=raw_data,
-                        )
-                    )
-
-                    if result.rowcount == 0:
-                        continue
-
-                    bronze_post_id = result.inserted_primary_key[0]
+                    raw_id = self._store_raw_item(conn, external_id, raw_data)
 
                     # Extract content fields
                     content_text = entry.get("summary") or ""
@@ -81,30 +63,34 @@ class RssCollector:
 
                     meta = json.dumps({"feed_title": feed.feed.get("title", rss_source.name)})
 
-                    conn.execute(
-                        sa.insert(SilverPost)
-                        .prefix_with("OR IGNORE")
-                        .values(
-                            source_id=source_id,
-                            bronze_post_id=bronze_post_id,
-                            source_type="rss",
-                            external_id=external_id,
-                            title=entry.get("title"),
-                            author=entry.get("author"),
-                            url=entry.get("link"),
-                            content_text=content_text,
-                            published_at=published_at,
-                            meta=meta,
+                    # Create content for the entry link
+                    content_id = ensure_content(conn, entry.get("link")) if entry.get("link") else None
+                    if content_id and content_text:
+                        conn.execute(
+                            sa.update(SilverContent)
+                            .where(SilverContent.id == content_id, SilverContent.body_text.is_(None))
+                            .values(body_text=content_text)
                         )
+
+                    values = dict(
+                        source_id=source_id,
+                        bronze_discussion_id=raw_id,
+                        source_type="rss",
+                        external_id=external_id,
+                        title=entry.get("title"),
+                        author=entry.get("author"),
+                        url=entry.get("link"),
+                        content_text=content_text,
+                        published_at=published_at,
+                        meta=meta,
+                        content_id=content_id,
                     )
+                    result = self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
+                    if result is not None:
+                        new_count += 1
 
-                    new_count += 1
-
-            # Update last_fetched_at
-            with engine.begin() as conn:
-                conn.execute(sa.update(Source).where(Source.id == source_id).values(last_fetched_at=sa.text("datetime('now')")))
-
-            log.info("rss_fetch_complete", name=rss_source.name, new_items=new_count)
+            self._update_last_fetched(engine, source_id)
+            log.info("rss.discussions_stored", name=rss_source.name, new_discussions=new_count)
             total_new += new_count
 
         return total_new

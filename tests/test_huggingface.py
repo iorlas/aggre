@@ -9,13 +9,7 @@ import sqlalchemy as sa
 
 from aggre.collectors.huggingface import HuggingfaceCollector
 from aggre.config import AppConfig, HuggingfaceSource, Settings
-from aggre.db import Base, BronzePost, SilverPost, Source
-
-
-def _make_engine():
-    engine = sa.create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
+from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config() -> AppConfig:
@@ -59,9 +53,8 @@ def _mock_httpx_client(papers: list[dict]):
     return client
 
 
-class TestHuggingfaceCollectorPosts:
-    def test_stores_papers(self):
-        engine = _make_engine()
+class TestHuggingfaceCollectorDiscussions:
+    def test_stores_papers(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()
@@ -75,12 +68,12 @@ class TestHuggingfaceCollectorPosts:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzePost)).fetchall()
+            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
             assert len(raws) == 1
             assert raws[0].external_id == "2401.12345"
             assert raws[0].source_type == "huggingface"
 
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Paper"
             assert items[0].content_text == "A summary of the paper."
@@ -89,13 +82,13 @@ class TestHuggingfaceCollectorPosts:
             assert items[0].url == "https://huggingface.co/papers/2401.12345"
             assert items[0].published_at == "2024-01-15T00:00:00.000Z"
 
+            assert items[0].score == 42
+            assert items[0].comment_count == 5
+
             meta = json.loads(items[0].meta)
-            assert meta["upvotes"] == 42
-            assert meta["num_comments"] == 5
             assert meta["github_repo"] == "https://github.com/example/repo"
 
-    def test_dedup_across_runs(self):
-        engine = _make_engine()
+    def test_dedup_across_runs(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()
@@ -110,8 +103,7 @@ class TestHuggingfaceCollectorPosts:
         assert count1 == 1
         assert count2 == 0
 
-    def test_multiple_papers(self):
-        engine = _make_engine()
+    def test_multiple_papers(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()
@@ -128,8 +120,7 @@ class TestHuggingfaceCollectorPosts:
 
         assert count == 3
 
-    def test_skips_paper_without_id(self):
-        engine = _make_engine()
+    def test_skips_paper_without_id(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()
@@ -143,15 +134,13 @@ class TestHuggingfaceCollectorPosts:
 
         assert count == 1
 
-    def test_no_config_returns_zero(self):
-        engine = _make_engine()
+    def test_no_config_returns_zero(self, engine):
         config = AppConfig(settings=Settings())
         log = MagicMock()
         collector = HuggingfaceCollector()
         assert collector.collect(engine, config, log) == 0
 
-    def test_handles_fetch_error(self):
-        engine = _make_engine()
+    def test_handles_fetch_error(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()
@@ -165,8 +154,7 @@ class TestHuggingfaceCollectorPosts:
 
         assert count == 0
 
-    def test_paper_with_no_authors(self):
-        engine = _make_engine()
+    def test_paper_with_no_authors(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()
@@ -180,13 +168,12 @@ class TestHuggingfaceCollectorPosts:
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert items[0].author is None
 
 
 class TestHuggingfaceSource:
-    def test_creates_source_row(self):
-        engine = _make_engine()
+    def test_creates_source_row(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()
@@ -201,8 +188,7 @@ class TestHuggingfaceSource:
             assert rows[0].type == "huggingface"
             assert rows[0].name == "HuggingFace Papers"
 
-    def test_reuses_existing_source(self):
-        engine = _make_engine()
+    def test_reuses_existing_source(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HuggingfaceCollector()

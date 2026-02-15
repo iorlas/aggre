@@ -10,13 +10,7 @@ import sqlalchemy as sa
 
 from aggre.collectors.reddit import RedditCollector, _rate_limit_sleep
 from aggre.config import AppConfig, RedditSource, Settings
-from aggre.db import Base, BronzeComment, BronzePost, SilverComment, SilverPost, Source
-
-
-def _make_engine():
-    engine = sa.create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    return engine
+from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config(subreddits: list[str] | None = None, rate_limit: float = 0.0) -> AppConfig:
@@ -100,9 +94,8 @@ def _fake_get_for_listings(mock_responses):
     return fake_get
 
 
-class TestRedditCollectorPosts:
-    def test_stores_posts_in_raw_and_content(self):
-        engine = _make_engine()
+class TestRedditCollectorDiscussions:
+    def test_stores_posts_in_raw_and_content(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -125,12 +118,12 @@ class TestRedditCollectorPosts:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzePost)).fetchall()
+            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
             assert len(raws) == 1
             assert raws[0].external_id == "t3_abc123"
             assert raws[0].source_type == "reddit"
 
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Post"
             assert items[0].author == "testuser"
@@ -138,15 +131,15 @@ class TestRedditCollectorPosts:
             assert "reddit.com" in items[0].url
             assert items[0].content_text == "This is the body text"
 
+            assert items[0].score == 42
+            assert items[0].comment_count == 5
+            assert items[0].comments_status == "pending"
+
             meta = json.loads(items[0].meta)
             assert meta["subreddit"] == "python"
-            assert meta["score"] == 42
-            assert meta["num_comments"] == 5
             assert meta["flair"] == "Discussion"
-            assert meta["comments_status"] == "pending"
 
-    def test_dedup_same_post_in_hot_and_new(self):
-        engine = _make_engine()
+    def test_dedup_same_post_in_hot_and_new(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -169,14 +162,13 @@ class TestRedditCollectorPosts:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzePost)).fetchall()
+            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
             assert len(raws) == 1
 
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
 
-    def test_multiple_unique_posts(self):
-        engine = _make_engine()
+    def test_multiple_unique_posts(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -201,12 +193,11 @@ class TestRedditCollectorPosts:
         assert count == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 2
 
-    def test_collect_does_not_fetch_comments(self):
+    def test_collect_does_not_fetch_comments(self, engine):
         """collect() should only make listing requests, not comment requests."""
-        engine = _make_engine()
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -240,16 +231,14 @@ class TestRedditCollectorPosts:
 
         # But comments should be pending
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
-            meta = json.loads(items[0].meta)
-            assert meta["comments_status"] == "pending"
+            assert items[0].comments_status == "pending"
 
 
 class TestRedditCollectorComments:
-    def test_collect_comments_fetches_and_marks_done(self):
+    def test_collect_comments_fetches_and_marks_done(self, engine):
         """collect_comments() should fetch comments for pending posts and mark them done."""
-        engine = _make_engine()
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -280,25 +269,21 @@ class TestRedditCollectorComments:
         assert fetched == 1
 
         with engine.connect() as conn:
-            rcs = conn.execute(sa.select(BronzeComment)).fetchall()
-            assert len(rcs) == 1
-            assert rcs[0].external_id == "t1_com1"
+            # Verify comments are stored as JSON on SilverDiscussion
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            assert len(items) == 1
+            assert items[0].comments_json is not None
+            comments_data = json.loads(items[0].comments_json)
+            assert len(comments_data) == 1
+            assert comments_data[0]["data"]["body"] == "Great post!"
+            assert comments_data[0]["data"]["author"] == "commenter"
+            assert items[0].comment_count == 1
 
-            reddits = conn.execute(sa.select(SilverComment)).fetchall()
-            assert len(reddits) == 1
-            assert reddits[0].author == "commenter"
-            assert reddits[0].body == "Great post!"
-            assert reddits[0].score == 10
-            assert reddits[0].depth == 0
+            # Verify comments_status is now done (column)
+            assert items[0].comments_status == "done"
 
-            # Verify comments_status is now done
-            items = conn.execute(sa.select(SilverPost)).fetchall()
-            meta = json.loads(items[0].meta)
-            assert meta["comments_status"] == "done"
-
-    def test_collect_comments_respects_batch_limit(self):
+    def test_collect_comments_respects_batch_limit(self, engine):
         """collect_comments() should only process batch_limit posts."""
-        engine = _make_engine()
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -332,16 +317,15 @@ class TestRedditCollectorComments:
 
         assert fetched == 2
 
-        # One should still be pending
+        # One should still be pending (comments_status column)
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverPost)).fetchall()
-            statuses = [json.loads(i.meta).get("comments_status") for i in items]
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            statuses = [i.comments_status for i in items]
             assert statuses.count("done") == 2
             assert statuses.count("pending") == 1
 
-    def test_collect_comments_no_pending(self):
+    def test_collect_comments_no_pending(self, engine):
         """collect_comments() returns 0 when no pending posts exist."""
-        engine = _make_engine()
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -349,9 +333,8 @@ class TestRedditCollectorComments:
         fetched = collector.collect_comments(engine, config, log, batch_limit=10)
         assert fetched == 0
 
-    def test_collect_comments_zero_batch_limit(self):
+    def test_collect_comments_zero_batch_limit(self, engine):
         """collect_comments() returns 0 when batch_limit is 0."""
-        engine = _make_engine()
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -359,8 +342,7 @@ class TestRedditCollectorComments:
         fetched = collector.collect_comments(engine, config, log, batch_limit=0)
         assert fetched == 0
 
-    def test_nested_comments(self):
-        engine = _make_engine()
+    def test_nested_comments(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -394,19 +376,21 @@ class TestRedditCollectorComments:
             collector.collect_comments(engine, config, log, batch_limit=10)
 
         with engine.connect() as conn:
-            reddits = conn.execute(sa.select(SilverComment).order_by(SilverComment.depth)).fetchall()
-            assert len(reddits) == 2
-            assert reddits[0].depth == 0
-            assert reddits[0].body == "Top level"
-            assert reddits[1].depth == 1
-            assert reddits[1].body == "I agree"
-            assert reddits[1].parent_id == "t1_com1"
+            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            assert items[0].comments_json is not None
+            comments_data = json.loads(items[0].comments_json)
+            # The top-level children list has 1 comment (parent_comment)
+            assert len(comments_data) == 1
+            assert comments_data[0]["data"]["body"] == "Top level"
+            # The nested reply is inside the parent comment's replies
+            replies = comments_data[0]["data"]["replies"]["data"]["children"]
+            assert len(replies) == 1
+            assert replies[0]["data"]["body"] == "I agree"
 
 
 class TestRedditCollectorRateLimit:
-    def test_sleep_called_before_each_listing_request(self):
+    def test_sleep_called_before_each_listing_request(self, engine):
         """Verify rate-limit sleep fires before each listing HTTP request."""
-        engine = _make_engine()
         config = _make_config(rate_limit=2.0)
         log = MagicMock()
         collector = RedditCollector()
@@ -525,8 +509,7 @@ class TestRetryAfter429:
 
 
 class TestRedditCollectorSources:
-    def test_creates_source_row(self):
-        engine = _make_engine()
+    def test_creates_source_row(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -549,8 +532,7 @@ class TestRedditCollectorSources:
             assert src_config["subreddit"] == "python"
             assert rows[0].last_fetched_at is not None
 
-    def test_reuses_existing_source(self):
-        engine = _make_engine()
+    def test_reuses_existing_source(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()

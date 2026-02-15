@@ -1,15 +1,16 @@
-"""Click CLI with commands: fetch, transcribe, backfill, status."""
+"""Click CLI with commands: collect, transcribe, backfill, status."""
 
 from __future__ import annotations
 
+import concurrent.futures
 import time
-from pathlib import Path
 
 import click
 import sqlalchemy as sa
 
 from aggre.config import load_config
-from aggre.db import SilverPost, Source, get_engine
+from aggre.db import SilverContent, SilverDiscussion, Source, get_engine
+from aggre.statuses import TranscriptionStatus
 from aggre.logging import setup_logging
 
 
@@ -22,27 +23,25 @@ def cli(ctx: click.Context, config_path: str) -> None:
     cfg = load_config(config_path)
     ctx.obj["config"] = cfg
 
-    Path(cfg.settings.db_path).parent.mkdir(parents=True, exist_ok=True)
-    engine = get_engine(cfg.settings.db_path)
+    engine = get_engine(cfg.settings.database_url)
     ctx.obj["engine"] = engine
 
 
-@cli.command()
+@cli.command("collect")
 @click.option(
     "--source", "source_type",
     type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface"]),
-    help="Fetch only this source type.",
+    help="Collect only this source type.",
 )
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
-@click.option("--enrich-batch", default=50, type=int, help="Max posts to enrich per cycle (0 = skip).")
 @click.option("--loop", is_flag=True, help="Run continuously.")
 @click.option("--interval", default=3600, type=int, help="Seconds between loop iterations.")
 @click.pass_context
-def fetch(ctx: click.Context, source_type: str | None, comment_batch: int, enrich_batch: int, loop: bool, interval: int) -> None:
-    """Poll sources and store new content."""
+def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int, loop: bool, interval: int) -> None:
+    """Collect discussions from configured sources."""
     cfg = ctx.obj["config"]
     engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "fetch")
+    log = setup_logging(cfg.settings.log_dir, "collect")
 
     from aggre.collectors.hackernews import HackernewsCollector
     from aggre.collectors.huggingface import HuggingfaceCollector
@@ -65,16 +64,21 @@ def fetch(ctx: click.Context, source_type: str | None, comment_batch: int, enric
         active_collectors = {source_type: collectors[source_type]}
 
     while True:
-        # Step 1: Collect posts
+        # Step 1: Collect discussions
         total = 0
-        for name, collector in active_collectors.items():
-            log.info("fetching", source=name)
-            try:
-                count = collector.collect(engine, cfg, log)
-                total += count
-                log.info("fetch_complete", source=name, new_items=count)
-            except Exception:
-                log.exception("fetch_error", source=name)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(active_collectors)) as executor:
+            futures = {
+                executor.submit(collector.collect, engine, cfg, log): name
+                for name, collector in active_collectors.items()
+            }
+            for future in concurrent.futures.as_completed(futures):
+                name = futures[future]
+                try:
+                    count = future.result()
+                    total += count
+                    log.info("collect.source_complete", source=name, new_discussions=count)
+                except Exception:
+                    log.exception("collect.source_error", source=name)
 
         # Step 2: Collect comments for sources that support it
         for src_name in ("reddit", "hackernews", "lobsters"):
@@ -83,22 +87,82 @@ def fetch(ctx: click.Context, source_type: str | None, comment_batch: int, enric
                 if coll and hasattr(coll, "collect_comments"):
                     try:
                         comments_fetched = coll.collect_comments(engine, cfg, log, batch_limit=comment_batch)
-                        log.info("comments_complete", source=src_name, comments_fetched=comments_fetched)
+                        log.info("collect.comments_complete", source=src_name, comments_fetched=comments_fetched)
                     except Exception:
-                        log.exception("comments_error", source=src_name)
+                        log.exception("collect.comments_error", source=src_name)
 
-        # Step 3: Enrich — only when no --source filter (cross-source step)
-        if source_type is None and enrich_batch > 0:
-            try:
-                from aggre.enrichment import enrich_posts
+        log.info("collect.cycle_complete", total_new_discussions=total)
 
-                results = enrich_posts(engine, cfg, log, batch_limit=enrich_batch)
-                log.info("enrich_complete", results=results)
-            except Exception:
-                log.exception("enrich_error")
+        if not loop:
+            break
+        log.info("sleeping", seconds=interval)
+        time.sleep(interval)
 
-        log.info("fetch_cycle_complete", total_new_items=total)
 
+@cli.command("download")
+@click.option("--batch", default=50, type=int)
+@click.option("--workers", default=5, type=int, help="Concurrent download threads.")
+@click.option("--loop", is_flag=True)
+@click.option("--interval", default=10, type=int)
+@click.pass_context
+def download_cmd(ctx, batch, workers, loop, interval):
+    """Download pending content URLs."""
+    cfg = ctx.obj["config"]
+    engine = ctx.obj["engine"]
+    log = setup_logging(cfg.settings.log_dir, "download")
+    from aggre.content_fetcher import download_content
+    while True:
+        try:
+            processed = download_content(engine, cfg, log, batch_limit=batch, max_workers=workers)
+            log.info("download.cycle_complete", processed=processed)
+        except Exception:
+            log.exception("download.error")
+        if not loop:
+            break
+        log.info("sleeping", seconds=interval)
+        time.sleep(interval)
+
+
+@cli.command("extract-html-text")
+@click.option("--batch", default=50, type=int)
+@click.option("--loop", is_flag=True)
+@click.option("--interval", default=10, type=int)
+@click.pass_context
+def extract_html_text_cmd(ctx, batch, loop, interval):
+    """Extract text from downloaded HTML content."""
+    cfg = ctx.obj["config"]
+    engine = ctx.obj["engine"]
+    log = setup_logging(cfg.settings.log_dir, "extract-html-text")
+    from aggre.content_fetcher import extract_html_text
+    while True:
+        try:
+            processed = extract_html_text(engine, cfg, log, batch_limit=batch)
+            log.info("extract_html_text.cycle_complete", processed=processed)
+        except Exception:
+            log.exception("extract_html_text.error")
+        if not loop:
+            break
+        log.info("sleeping", seconds=interval)
+        time.sleep(interval)
+
+
+@cli.command("enrich-content-discussions")
+@click.option("--batch", default=50, type=int)
+@click.option("--loop", is_flag=True)
+@click.option("--interval", default=60, type=int)
+@click.pass_context
+def enrich_content_discussions_cmd(ctx, batch, loop, interval):
+    """Discover cross-source discussions for content URLs."""
+    cfg = ctx.obj["config"]
+    engine = ctx.obj["engine"]
+    log = setup_logging(cfg.settings.log_dir, "enrich-content-discussions")
+    from aggre.enrichment import enrich_content_discussions
+    while True:
+        try:
+            results = enrich_content_discussions(engine, cfg, log, batch_limit=batch)
+            log.info("enrich.cycle_complete", results=results)
+        except Exception:
+            log.exception("enrich.error")
         if not loop:
             break
         log.info("sleeping", seconds=interval)
@@ -108,7 +172,7 @@ def fetch(ctx: click.Context, source_type: str | None, comment_batch: int, enric
 @cli.command()
 @click.option("--batch", default=0, type=int, help="Max videos to process (0 = all pending).")
 @click.option("--loop", is_flag=True, help="Run continuously.")
-@click.option("--interval", default=900, type=int, help="Seconds between loop iterations.")
+@click.option("--interval", default=10, type=int, help="Seconds between loop iterations.")
 @click.pass_context
 def transcribe(ctx: click.Context, batch: int, loop: bool, interval: int) -> None:
     """Transcribe pending YouTube videos."""
@@ -116,14 +180,14 @@ def transcribe(ctx: click.Context, batch: int, loop: bool, interval: int) -> Non
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "transcribe")
 
-    from aggre.transcriber import process_pending
+    from aggre.transcriber import transcribe as do_transcribe
 
     while True:
         try:
-            processed = process_pending(engine, cfg, log, batch_limit=batch)
-            log.info("transcribe_cycle_complete", processed=processed)
+            processed = do_transcribe(engine, cfg, log, batch_limit=batch)
+            log.info("transcribe.cycle_complete", processed=processed)
         except Exception:
-            log.exception("transcribe_error")
+            log.exception("transcribe.error")
 
         if not loop:
             break
@@ -145,13 +209,75 @@ def backfill(ctx: click.Context, source_type: str) -> None:
 
         collector = YoutubeCollector()
         count = collector.collect(engine, cfg, log, backfill=True)
-        log.info("backfill_complete", source=source_type, items=count)
+        log.info("backfill.complete", source=source_type, discussions=count)
+
+
+@cli.command("backfill-content")
+@click.option("--batch", default=50, type=int, help="Max content items to fetch per batch.")
+@click.pass_context
+def backfill_content(ctx: click.Context, batch: int) -> None:
+    """Backfill content for existing discussions."""
+    cfg = ctx.obj["config"]
+    engine = ctx.obj["engine"]
+    log = setup_logging(cfg.settings.log_dir, "backfill-content")
+
+    import json
+
+    import sqlalchemy as sa
+
+    from aggre.db import SilverDiscussion
+    from aggre.urls import ensure_content
+
+    # Step 1: Link existing discussions to SilverContent
+    with engine.connect() as conn:
+        rows = conn.execute(
+            sa.select(SilverDiscussion.id, SilverDiscussion.url, SilverDiscussion.meta)
+            .where(
+                SilverDiscussion.content_id.is_(None),
+                SilverDiscussion.url.isnot(None),
+            )
+        ).fetchall()
+
+    linked = 0
+    for row in rows:
+        with engine.begin() as conn:
+            content_id = ensure_content(conn, row.url)
+            if content_id:
+                conn.execute(
+                    sa.update(SilverDiscussion)
+                    .where(SilverDiscussion.id == row.id)
+                    .values(content_id=content_id)
+                )
+                linked += 1
+
+                # Extract score/comment_count from meta if available
+                if row.meta:
+                    meta = json.loads(row.meta)
+                    updates = {}
+                    if "score" in meta:
+                        updates["score"] = meta["score"]
+                    elif "points" in meta:
+                        updates["score"] = meta["points"]
+                    if "num_comments" in meta:
+                        updates["comment_count"] = meta["num_comments"]
+                    elif "comment_count" in meta:
+                        updates["comment_count"] = meta["comment_count"]
+                    if updates:
+                        conn.execute(
+                            sa.update(SilverDiscussion)
+                            .where(SilverDiscussion.id == row.id)
+                            .values(**updates)
+                        )
+
+    log.info("backfill.linked", linked=linked, total=len(rows))
+
+    click.echo(f"Linked {linked} discussions to content.")
 
 
 @cli.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
-    """Show fetch times, queue sizes, and recent errors."""
+    """Show collection times, queue sizes, and recent errors."""
     engine = ctx.obj["engine"]
 
     with engine.connect() as conn:
@@ -162,34 +288,44 @@ def status(ctx: click.Context) -> None:
             click.echo(f"  [{row.type}] {row.name} — last fetched: {row.last_fetched_at or 'never'}")
 
         if not rows:
-            click.echo("  No sources registered yet. Run 'aggre fetch' first.")
+            click.echo("  No sources registered yet. Run 'aggre collect' first.")
 
-        # Content counts by type
-        result = conn.execute(sa.select(SilverPost.source_type, sa.func.count()).group_by(SilverPost.source_type)).fetchall()
-        click.echo("\n=== Content Items ===")
+        # Discussion counts by type
+        result = conn.execute(sa.select(SilverDiscussion.source_type, sa.func.count()).group_by(SilverDiscussion.source_type)).fetchall()
+        click.echo("\n=== Discussions by Source ===")
         for row in result:
-            click.echo(f"  {row[0]}: {row[1]} items")
+            click.echo(f"  {row[0]}: {row[1]} discussions")
 
         if not result:
-            click.echo("  No content items yet.")
+            click.echo("  No discussions yet.")
 
-        # Transcription queue
-        pending = conn.execute(sa.select(sa.func.count()).where(SilverPost.transcription_status == "pending")).scalar()
-        failed = conn.execute(sa.select(sa.func.count()).where(SilverPost.transcription_status == "failed")).scalar()
-        completed = conn.execute(sa.select(sa.func.count()).where(SilverPost.transcription_status == "completed")).scalar()
+        # Content status
+        content_stats = conn.execute(
+            sa.select(SilverContent.fetch_status, sa.func.count())
+            .group_by(SilverContent.fetch_status)
+        ).fetchall()
+        if content_stats:
+            click.echo("\n=== Content Status ===")
+            for row in content_stats:
+                click.echo(f"  {row[0]}: {row[1]}")
+
+        # Transcription queue (on SilverContent)
+        pending = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.PENDING)).scalar()
+        failed = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.FAILED)).scalar()
+        completed = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.COMPLETED)).scalar()
         click.echo("\n=== Transcription Queue ===")
         click.echo(f"  Pending: {pending}  |  Completed: {completed}  |  Failed: {failed}")
 
         # Recent errors
         errors = conn.execute(
-            sa.select(SilverPost.external_id, SilverPost.title, SilverPost.transcription_error)
-            .where(SilverPost.transcription_status == "failed")
-            .order_by(SilverPost.fetched_at.desc())
+            sa.select(SilverContent.canonical_url, SilverContent.title, SilverContent.transcription_error)
+            .where(SilverContent.transcription_status == TranscriptionStatus.FAILED)
+            .order_by(SilverContent.created_at.desc())
             .limit(5)
         ).fetchall()
         if errors:
             click.echo("\n=== Recent Transcription Errors ===")
             for row in errors:
-                click.echo(f"  {row.external_id} ({row.title}): {row.transcription_error}")
+                click.echo(f"  {row.canonical_url} ({row.title}): {row.transcription_error}")
 
     click.echo()

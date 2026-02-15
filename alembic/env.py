@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-import os
-
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
+from aggre.config import Settings
 from aggre.db import Base
 from alembic import context
-
-load_dotenv()
 
 target_metadata = Base.metadata
 
 config = context.config
 
-# Override DB URL from env if set
-database_url = os.environ.get("AGGRE_DATABASE_URL", "postgresql+psycopg2://localhost/aggre")
+database_url = Settings().database_url
 config.set_main_option("sqlalchemy.url", database_url)
 
 

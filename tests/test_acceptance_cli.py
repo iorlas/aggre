@@ -157,12 +157,12 @@ class TestCliStatus:
             )
 
         config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text(
-            f"settings:\n  database_url: \"{db_url}\"\n  log_dir: {tmp_path / 'logs'}\n"
-        )
+        Path(config_path).write_text("")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["--config", config_path, "status"])
+        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        with patch.dict(os.environ, env):
+            result = runner.invoke(cli, ["--config", config_path, "status"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         assert "Sources" in result.output
@@ -176,12 +176,12 @@ class TestCliStatus:
         db_url = engine.url.render_as_string(hide_password=False)
 
         config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text(
-            f"settings:\n  database_url: \"{db_url}\"\n  log_dir: {tmp_path / 'logs'}\n"
-        )
+        Path(config_path).write_text("")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["--config", config_path, "status"])
+        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        with patch.dict(os.environ, env):
+            result = runner.invoke(cli, ["--config", config_path, "status"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         assert "Sources" in result.output
@@ -220,12 +220,12 @@ class TestCliBackfillContent:
             )
 
         config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text(
-            f"settings:\n  database_url: \"{db_url}\"\n  log_dir: {tmp_path / 'logs'}\n"
-        )
+        Path(config_path).write_text("")
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["--config", config_path, "backfill-content"])
+        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        with patch.dict(os.environ, env):
+            result = runner.invoke(cli, ["--config", config_path, "backfill-content"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         assert "Linked 2 discussions" in result.output
@@ -272,15 +272,16 @@ class TestCliCollect:
 
         config_path = str(tmp_path / "config.yaml")
         Path(config_path).write_text(
-            f"settings:\n  database_url: \"{db_url}\"\n  log_dir: {tmp_path / 'logs'}\n"
-            f"rss:\n  - name: Test\n    url: https://example.com/feed.xml\n"
+            "rss:\n  - name: Test\n    url: https://example.com/feed.xml\n"
         )
 
         mock_rss_collector = MagicMock()
         mock_rss_collector.collect.return_value = 3
 
         runner = CliRunner()
-        with patch("aggre.collectors.rss.RssCollector", return_value=mock_rss_collector), \
+        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        with patch.dict(os.environ, env), \
+             patch("aggre.collectors.rss.RssCollector", return_value=mock_rss_collector), \
              patch("aggre.collectors.reddit.RedditCollector", return_value=MagicMock()), \
              patch("aggre.collectors.youtube.YoutubeCollector", return_value=MagicMock()), \
              patch("aggre.collectors.hackernews.HackernewsCollector", return_value=MagicMock()), \
@@ -307,12 +308,12 @@ class TestCliDownload:
         db_url = engine.url.render_as_string(hide_password=False)
 
         config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text(
-            f"settings:\n  database_url: \"{db_url}\"\n  log_dir: {tmp_path / 'logs'}\n"
-        )
+        Path(config_path).write_text("")
 
         runner = CliRunner()
-        with patch("aggre.content_fetcher.download_content", return_value=5) as mock_download:
+        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        with patch.dict(os.environ, env), \
+             patch("aggre.content_fetcher.download_content", return_value=5) as mock_download:
             result = runner.invoke(cli, ["--config", config_path, "download", "--batch", "10", "--workers", "3"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
@@ -333,12 +334,12 @@ class TestCliExtractHtmlText:
         db_url = engine.url.render_as_string(hide_password=False)
 
         config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text(
-            f"settings:\n  database_url: \"{db_url}\"\n  log_dir: {tmp_path / 'logs'}\n"
-        )
+        Path(config_path).write_text("")
 
         runner = CliRunner()
-        with patch("aggre.content_fetcher.extract_html_text", return_value=3) as mock_extract:
+        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        with patch.dict(os.environ, env), \
+             patch("aggre.content_fetcher.extract_html_text", return_value=3) as mock_extract:
             result = runner.invoke(cli, ["--config", config_path, "extract-html-text", "--batch", "25"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
@@ -357,12 +358,12 @@ class TestCliEnrich:
         db_url = engine.url.render_as_string(hide_password=False)
 
         config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text(
-            f"settings:\n  database_url: \"{db_url}\"\n  log_dir: {tmp_path / 'logs'}\n"
-        )
+        Path(config_path).write_text("")
 
         runner = CliRunner()
-        with patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 2, "lobsters": 1}) as mock_enrich:
+        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        with patch.dict(os.environ, env), \
+             patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 2, "lobsters": 1}) as mock_enrich:
             result = runner.invoke(cli, ["--config", config_path, "enrich-content-discussions", "--batch", "30"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"

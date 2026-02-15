@@ -1,3 +1,6 @@
+x-app-env: &app-env
+  AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -6,7 +9,7 @@ services:
       POSTGRES_USER: aggre
       POSTGRES_PASSWORD: aggre
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -17,12 +20,12 @@ services:
 
   migrate:
     build: .
-    command: .venv/bin/alembic upgrade head
+    command: uv run alembic upgrade head
     volumes:
-      - appdata:/app/data
+      - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+      <<: *app-env
     env_file:
       - path: .env
         required: false
@@ -32,12 +35,12 @@ services:
 
   collect:
     build: .
-    command: .venv/bin/aggre collect --loop --interval 3600
+    command: uv run aggre collect --loop --interval 3600
     volumes:
-      - appdata:/app/data
+      - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+      <<: *app-env
     env_file:
       - path: .env
         required: false
@@ -48,12 +51,12 @@ services:
 
   download:
     build: .
-    command: .venv/bin/aggre download --loop --interval 10
+    command: uv run aggre download --loop --interval 10
     volumes:
-      - appdata:/app/data
+      - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+      <<: *app-env
     env_file:
       - path: .env
         required: false
@@ -64,12 +67,12 @@ services:
 
   extract-html-text:
     build: .
-    command: .venv/bin/aggre extract-html-text --loop --interval 10
+    command: uv run aggre extract-html-text --loop --interval 10
     volumes:
-      - appdata:/app/data
+      - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+      <<: *app-env
     env_file:
       - path: .env
         required: false
@@ -80,12 +83,12 @@ services:
 
   enrich-content-discussions:
     build: .
-    command: .venv/bin/aggre enrich-content-discussions --loop --interval 60
+    command: uv run aggre enrich-content-discussions --loop --interval 60
     volumes:
-      - appdata:/app/data
+      - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+      <<: *app-env
     env_file:
       - path: .env
         required: false
@@ -96,12 +99,12 @@ services:
 
   transcribe:
     build: .
-    command: .venv/bin/aggre transcribe --loop --interval 10
+    command: uv run aggre transcribe --loop --interval 10
     volumes:
-      - appdata:/app/data
+      - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
-      AGGRE_DATABASE_URL: postgresql://aggre:aggre@postgres/aggre
+      <<: *app-env
     env_file:
       - path: .env
         required: false
@@ -109,7 +112,3 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-
-volumes:
-  pgdata:
-  appdata:

@@ -1,17 +1,21 @@
-FROM python:3.12-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
 
-RUN pip install uv
+# ffmpeg needed by yt-dlp, build-essential for native deps (ctranslate2 etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml uv.lock ./
-RUN uv sync --no-dev --no-install-project
+# Deps first (cache layer)
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-COPY src/ src/
-COPY alembic/ alembic/
+# Source + install project
+COPY src/ ./src/
+COPY alembic/ ./alembic/
 COPY alembic.ini ./
-RUN uv sync --no-dev
+RUN uv sync --frozen --no-dev
 
-VOLUME /app/data
+# Skip sync at runtime
+ENV UV_NO_SYNC=true

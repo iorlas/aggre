@@ -103,12 +103,3 @@ lobsters:
 
 huggingface:
   - name: "HuggingFace Papers"
-
-settings:
-  database_url: "postgresql://localhost/aggre"
-  log_dir: "./data/logs"
-  youtube_temp_dir: "./data/tmp/videos"
-  whisper_model: "large-v3"
-  whisper_model_cache: "./data/models"
-  reddit_rate_limit: 6.0
-  fetch_limit: 100

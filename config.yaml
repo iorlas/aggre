@@ -94,6 +94,12 @@ youtube:
     name: "Яблокодер: Хайлайты"
   - channel_id: "UC9tZbR8DlUSXLjLqwUmwzWA"
     name: "AI RANEZ"
+  - channel_id: "UCYuQjtwffrSIzfswH3V24mQ"
+    name: "Tom Delalande"
+  - channel_id: "UC_mYaQAE6-71rjSN6CeCA-g"
+    name: "NeetCode"
+  - channel_id: "UC-nZ6AfvJAwpqA2oRfD3ZNA"
+    name: "Доступное айти"
 
 hackernews:
   - name: "Hacker News"

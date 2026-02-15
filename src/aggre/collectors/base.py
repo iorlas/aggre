@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import Any, Protocol, Sequence
 
 import sqlalchemy as sa
@@ -11,7 +10,8 @@ import structlog
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.config import AppConfig
-from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.db import BronzeDiscussion, SilverDiscussion, Source, now_iso
+from aggre.statuses import CommentsStatus
 
 
 class Collector(Protocol):
@@ -68,7 +68,35 @@ class BaseCollector:
         with engine.begin() as conn:
             conn.execute(
                 sa.update(Source).where(Source.id == source_id)
-                .values(last_fetched_at=datetime.now(UTC).isoformat())
+                .values(last_fetched_at=now_iso())
+            )
+
+    def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int):
+        """Return discussions with pending comments for this source_type."""
+        with engine.connect() as conn:
+            return conn.execute(
+                sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
+                .where(
+                    SilverDiscussion.source_type == self.source_type,
+                    SilverDiscussion.comments_status == CommentsStatus.PENDING,
+                )
+                .limit(batch_limit)
+            ).fetchall()
+
+    def _mark_comments_done(
+        self, engine: sa.engine.Engine, discussion_id: int,
+        comments_json: str | None, comment_count: int,
+    ) -> None:
+        """PENDING → DONE. Stores fetched comments."""
+        with engine.begin() as conn:
+            conn.execute(
+                sa.update(SilverDiscussion)
+                .where(SilverDiscussion.id == discussion_id)
+                .values(
+                    comments_status=CommentsStatus.DONE,
+                    comments_json=comments_json,
+                    comment_count=comment_count,
+                )
             )
 
     @staticmethod

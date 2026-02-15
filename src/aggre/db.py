@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Any
+
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def now_iso() -> str:
+    """Current UTC time as ISO 8601 string."""
+    return datetime.now(UTC).isoformat()
 
 
 class Base(DeclarativeBase):
@@ -108,3 +116,13 @@ sa.Index("idx_silver_discussions_content_id", SilverDiscussion.content_id, postg
 def get_engine(database_url: str) -> sa.engine.Engine:
     """Create a SQLAlchemy engine for the given database URL."""
     return sa.create_engine(database_url, echo=False)
+
+
+def _update_content(engine: sa.engine.Engine, content_id: int, **values: Any) -> None:
+    """Internal: update a SilverContent row by id in its own transaction."""
+    with engine.begin() as conn:
+        conn.execute(
+            sa.update(SilverContent)
+            .where(SilverContent.id == content_id)
+            .values(**values)
+        )

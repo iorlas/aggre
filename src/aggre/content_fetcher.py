@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-from datetime import UTC, datetime
 
 import httpx
 import sqlalchemy as sa
@@ -11,11 +10,37 @@ import structlog
 import trafilatura
 
 from aggre.config import AppConfig
-from aggre.db import SilverContent
+from aggre.db import SilverContent, _update_content, now_iso
 from aggre.statuses import FetchStatus
 
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
 SKIP_EXTENSIONS = (".pdf",)
+
+
+# -- Fetch state transitions --------------------------------------------------
+
+def content_skipped(engine: sa.engine.Engine, content_id: int) -> None:
+    """PENDING → SKIPPED (YouTube, PDF, etc.)"""
+    _update_content(engine, content_id,
+        fetch_status=FetchStatus.SKIPPED, fetched_at=now_iso())
+
+
+def content_downloaded(engine: sa.engine.Engine, content_id: int, *, raw_html: str) -> None:
+    """PENDING → DOWNLOADED"""
+    _update_content(engine, content_id,
+        raw_html=raw_html, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
+
+
+def content_fetched(engine: sa.engine.Engine, content_id: int, *, body_text: str | None, title: str | None) -> None:
+    """DOWNLOADED → FETCHED"""
+    _update_content(engine, content_id,
+        body_text=body_text, title=title, fetch_status=FetchStatus.FETCHED, fetched_at=now_iso())
+
+
+def content_fetch_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
+    """any → FAILED"""
+    _update_content(engine, content_id,
+        fetch_status=FetchStatus.FAILED, fetch_error=error, fetched_at=now_iso())
 
 
 def _download_one(
@@ -29,21 +54,11 @@ def _download_one(
     """Download a single URL and store raw_html. Returns 1 on success, 0 on skip."""
     # Skip YouTube, PDFs
     if domain and domain in SKIP_DOMAINS:
-        with engine.begin() as conn:
-            conn.execute(
-                sa.update(SilverContent)
-                .where(SilverContent.id == content_id)
-                .values(fetch_status=FetchStatus.SKIPPED, fetched_at=datetime.now(UTC).isoformat())
-            )
+        content_skipped(engine, content_id)
         return 1
 
     if any(url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
-        with engine.begin() as conn:
-            conn.execute(
-                sa.update(SilverContent)
-                .where(SilverContent.id == content_id)
-                .values(fetch_status=FetchStatus.SKIPPED, fetched_at=datetime.now(UTC).isoformat())
-            )
+        content_skipped(engine, content_id)
         return 1
 
     try:
@@ -51,31 +66,13 @@ def _download_one(
         resp.raise_for_status()
         html = resp.text
 
-        with engine.begin() as conn:
-            conn.execute(
-                sa.update(SilverContent)
-                .where(SilverContent.id == content_id)
-                .values(
-                    raw_html=html,
-                    fetch_status=FetchStatus.DOWNLOADED,
-                    fetched_at=datetime.now(UTC).isoformat(),
-                )
-            )
+        content_downloaded(engine, content_id, raw_html=html)
         log.info("content_fetcher.downloaded", url=url)
         return 1
 
     except Exception as exc:
         log.exception("content_fetcher.download_failed", url=url)
-        with engine.begin() as conn:
-            conn.execute(
-                sa.update(SilverContent)
-                .where(SilverContent.id == content_id)
-                .values(
-                    fetch_status=FetchStatus.FAILED,
-                    fetch_error=str(exc),
-                    fetched_at=datetime.now(UTC).isoformat(),
-                )
-            )
+        content_fetch_failed(engine, content_id, error=str(exc))
         return 1
 
 
@@ -160,32 +157,13 @@ def extract_html_text(
             if metadata:
                 extracted_title = metadata.title
 
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.update(SilverContent)
-                    .where(SilverContent.id == content_id)
-                    .values(
-                        body_text=result,
-                        title=extracted_title,
-                        fetch_status=FetchStatus.FETCHED,
-                        fetched_at=datetime.now(UTC).isoformat(),
-                    )
-                )
+            content_fetched(engine, content_id, body_text=result, title=extracted_title)
             processed += 1
             log.info("content_fetcher.extracted", url=url)
 
         except Exception as exc:
             log.exception("content_fetcher.extract_failed", url=url)
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.update(SilverContent)
-                    .where(SilverContent.id == content_id)
-                    .values(
-                        fetch_status=FetchStatus.FAILED,
-                        fetch_error=str(exc),
-                        fetched_at=datetime.now(UTC).isoformat(),
-                    )
-                )
+            content_fetch_failed(engine, content_id, error=str(exc))
             processed += 1
 
     log.info("content_fetcher.extract_complete", processed=processed)

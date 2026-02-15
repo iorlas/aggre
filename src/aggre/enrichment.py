@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import sqlalchemy as sa
 import structlog
 
 from aggre.collectors.hackernews import HackernewsCollector
 from aggre.collectors.lobsters import LobstersCollector
 from aggre.config import AppConfig
-from aggre.db import SilverContent
+from aggre.db import SilverContent, _update_content, now_iso
 
 
 def enrich_content_discussions(
@@ -70,12 +68,7 @@ def enrich_content_discussions(
 
         # Only mark enriched when both searches completed without transient errors
         if not failed:
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.update(SilverContent)
-                    .where(SilverContent.id == row.id)
-                    .values(enriched_at=datetime.now(UTC).isoformat())
-                )
+            _update_content(engine, row.id, enriched_at=now_iso())
 
     log.info("enrich.complete", totals=totals)
     return totals

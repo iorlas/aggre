@@ -12,7 +12,6 @@ import structlog
 
 from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
 
@@ -89,15 +88,7 @@ class LobstersCollector(BaseCollector):
         if batch_limit <= 0:
             return 0
 
-        with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
-                .where(
-                    SilverDiscussion.source_type == "lobsters",
-                    SilverDiscussion.comments_status == CommentsStatus.PENDING,
-                )
-                .limit(batch_limit)
-            ).fetchall()
+        rows = self._query_pending_comments(engine, batch_limit)
 
         if not rows:
             log.info("lobsters.no_pending_comments")
@@ -124,21 +115,9 @@ class LobstersCollector(BaseCollector):
                     log.exception("lobsters.comments_fetch_failed", story_id=short_id)
                     continue
 
-                with engine.begin() as conn:
-                    comments = data.get("comments", [])
-                    comments_json = json.dumps(comments)
-                    comment_count = len(comments)
-
-                    conn.execute(
-                        sa.update(SilverDiscussion)
-                        .where(SilverDiscussion.id == discussion_id)
-                        .values(
-                            comments_status=CommentsStatus.DONE,
-                            comments_json=comments_json,
-                            comment_count=comment_count,
-                        )
-                    )
-                    fetched += 1
+                comments = data.get("comments", [])
+                self._mark_comments_done(engine, discussion_id, json.dumps(comments), len(comments))
+                fetched += 1
 
             log.info("lobsters.comments_fetched", fetched=fetched, total_pending=len(rows))
         finally:

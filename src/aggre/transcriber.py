@@ -10,10 +10,35 @@ import yt_dlp
 from faster_whisper import WhisperModel
 
 from aggre.config import AppConfig
-from aggre.db import SilverContent, SilverDiscussion
+from aggre.db import SilverContent, SilverDiscussion, _update_content
 from aggre.statuses import TranscriptionStatus
 
 _model_cache: WhisperModel | None = None
+
+
+# -- Transcription state transitions -------------------------------------------
+
+def transcription_downloading(engine: sa.engine.Engine, content_id: int) -> None:
+    """PENDING → DOWNLOADING"""
+    _update_content(engine, content_id, transcription_status=TranscriptionStatus.DOWNLOADING)
+
+
+def transcription_transcribing(engine: sa.engine.Engine, content_id: int) -> None:
+    """DOWNLOADING → TRANSCRIBING"""
+    _update_content(engine, content_id, transcription_status=TranscriptionStatus.TRANSCRIBING)
+
+
+def transcription_completed(engine: sa.engine.Engine, content_id: int, *, body_text: str, detected_language: str) -> None:
+    """TRANSCRIBING → COMPLETED"""
+    _update_content(engine, content_id,
+        body_text=body_text, transcription_status=TranscriptionStatus.COMPLETED,
+        detected_language=detected_language)
+
+
+def transcription_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
+    """any → FAILED"""
+    _update_content(engine, content_id,
+        transcription_status=TranscriptionStatus.FAILED, transcription_error=error)
 
 
 def _get_model(config: AppConfig) -> WhisperModel:
@@ -66,12 +91,7 @@ def transcribe(
 
         try:
             # Mark as downloading
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.update(SilverContent)
-                    .where(SilverContent.id == content_id)
-                    .values(transcription_status=TranscriptionStatus.DOWNLOADING)
-                )
+            transcription_downloading(engine, content_id)
 
             # Download audio
             temp_dir = Path(config.settings.youtube_temp_dir)
@@ -103,24 +123,11 @@ def transcribe(
             file_size = audio_path.stat().st_size
             if file_size > 500 * 1024 * 1024:
                 log.warning("audio_file_too_large", external_id=external_id, size_mb=file_size / (1024 * 1024))
-                with engine.begin() as conn:
-                    conn.execute(
-                        sa.update(SilverContent)
-                        .where(SilverContent.id == content_id)
-                        .values(
-                            transcription_status=TranscriptionStatus.FAILED,
-                            transcription_error="Audio file exceeds 500MB limit",
-                        )
-                    )
+                transcription_failed(engine, content_id, error="Audio file exceeds 500MB limit")
                 continue
 
             # Mark as transcribing
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.update(SilverContent)
-                    .where(SilverContent.id == content_id)
-                    .values(transcription_status=TranscriptionStatus.TRANSCRIBING)
-                )
+            transcription_transcribing(engine, content_id)
 
             # Transcribe
             model = _get_model(config)
@@ -128,31 +135,14 @@ def transcribe(
             transcript = " ".join(seg.text for seg in segments)
 
             # Store result on SilverContent (body_text holds the transcript)
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.update(SilverContent)
-                    .where(SilverContent.id == content_id)
-                    .values(
-                        body_text=transcript,
-                        transcription_status=TranscriptionStatus.COMPLETED,
-                        detected_language=info.language,
-                    )
-                )
+            transcription_completed(engine, content_id, body_text=transcript, detected_language=info.language)
 
             log.info("transcription_complete", external_id=external_id)
             processed += 1
 
         except Exception as exc:
             log.exception("transcription_failed", external_id=external_id)
-            with engine.begin() as conn:
-                conn.execute(
-                    sa.update(SilverContent)
-                    .where(SilverContent.id == content_id)
-                    .values(
-                        transcription_status=TranscriptionStatus.FAILED,
-                        transcription_error=str(exc),
-                    )
-                )
+            transcription_failed(engine, content_id, error=str(exc))
 
         finally:
             if audio_path and audio_path.exists():

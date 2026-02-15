@@ -17,7 +17,6 @@ from tenacity import (
 
 from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
 
@@ -133,15 +132,7 @@ class RedditCollector(BaseCollector):
         if batch_limit <= 0:
             return 0
 
-        with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
-                .where(
-                    SilverDiscussion.source_type == "reddit",
-                    SilverDiscussion.comments_status == CommentsStatus.PENDING,
-                )
-                .limit(batch_limit)
-            ).fetchall()
+        rows = self._query_pending_comments(engine, batch_limit)
 
         if not rows:
             log.info("reddit.no_pending_comments")
@@ -169,24 +160,15 @@ class RedditCollector(BaseCollector):
                     log.exception("reddit.comments_fetch_failed", post_id=ext_id)
                     continue
 
-                with engine.begin() as conn:
-                    comments_json = None
-                    comment_count = 0
-                    if len(data) >= 2:
-                        comment_children = data[1].get("data", {}).get("children", [])
-                        comments_json = json.dumps(comment_children)
-                        comment_count = len(comment_children)
+                comments_json = None
+                comment_count = 0
+                if len(data) >= 2:
+                    comment_children = data[1].get("data", {}).get("children", [])
+                    comments_json = json.dumps(comment_children)
+                    comment_count = len(comment_children)
 
-                    conn.execute(
-                        sa.update(SilverDiscussion)
-                        .where(SilverDiscussion.id == discussion_id)
-                        .values(
-                            comments_status=CommentsStatus.DONE,
-                            comments_json=comments_json,
-                            comment_count=comment_count,
-                        )
-                    )
-                    fetched += 1
+                self._mark_comments_done(engine, discussion_id, comments_json, comment_count)
+                fetched += 1
 
             log.info("reddit.comments_fetched", fetched=fetched, total_pending=len(rows))
         finally:

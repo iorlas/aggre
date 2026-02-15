@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import time
 
 import click
 import sqlalchemy as sa
@@ -12,6 +11,7 @@ from aggre.config import load_config
 from aggre.db import SilverContent, SilverDiscussion, Source, get_engine
 from aggre.statuses import TranscriptionStatus
 from aggre.logging import setup_logging
+from aggre.worker import run_loop, worker_options
 
 
 @click.group()
@@ -34,8 +34,7 @@ def cli(ctx: click.Context, config_path: str) -> None:
     help="Collect only this source type.",
 )
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
-@click.option("--loop", is_flag=True, help="Run continuously.")
-@click.option("--interval", default=3600, type=int, help="Seconds between loop iterations.")
+@worker_options(default_interval=3600, include_batch=False)
 @click.pass_context
 def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int, loop: bool, interval: int) -> None:
     """Collect discussions from configured sources."""
@@ -65,8 +64,7 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
     if source_type:
         active_collectors = {source_type: collectors[source_type]}
 
-    while True:
-        # Step 1: Collect discussions
+    def _cycle():
         total = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(active_collectors)) as executor:
             futures = {
@@ -82,7 +80,6 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
                 except Exception:
                     log.exception("collect.source_error", source=name)
 
-        # Step 2: Collect comments for sources that support it
         for src_name in ("reddit", "hackernews", "lobsters"):
             if source_type in (None, src_name) and comment_batch > 0:
                 coll = active_collectors.get(src_name) or collectors.get(src_name)
@@ -93,12 +90,9 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
                     except Exception:
                         log.exception("collect.comments_error", source=src_name)
 
-        log.info("collect.cycle_complete", total_new_discussions=total)
+        return total
 
-        if not loop:
-            break
-        log.info("sleeping", seconds=interval)
-        time.sleep(interval)
+    run_loop(fn=_cycle, loop=loop, interval=interval, log=log, name="collect")
 
 
 @cli.command("telegram-auth")
@@ -130,10 +124,8 @@ def telegram_auth(ctx: click.Context) -> None:
 
 
 @cli.command("download")
-@click.option("--batch", default=50, type=int)
+@worker_options(default_interval=10, default_batch=50)
 @click.option("--workers", default=5, type=int, help="Concurrent download threads.")
-@click.option("--loop", is_flag=True)
-@click.option("--interval", default=10, type=int)
 @click.pass_context
 def download_cmd(ctx, batch, workers, loop, interval):
     """Download pending content URLs."""
@@ -141,22 +133,14 @@ def download_cmd(ctx, batch, workers, loop, interval):
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "download")
     from aggre.content_fetcher import download_content
-    while True:
-        try:
-            processed = download_content(engine, cfg, log, batch_limit=batch, max_workers=workers)
-            log.info("download.cycle_complete", processed=processed)
-        except Exception:
-            log.exception("download.error")
-        if not loop:
-            break
-        log.info("sleeping", seconds=interval)
-        time.sleep(interval)
+    run_loop(
+        fn=lambda: download_content(engine, cfg, log, batch_limit=batch, max_workers=workers),
+        loop=loop, interval=interval, log=log, name="download",
+    )
 
 
 @cli.command("extract-html-text")
-@click.option("--batch", default=50, type=int)
-@click.option("--loop", is_flag=True)
-@click.option("--interval", default=10, type=int)
+@worker_options(default_interval=10, default_batch=50)
 @click.pass_context
 def extract_html_text_cmd(ctx, batch, loop, interval):
     """Extract text from downloaded HTML content."""
@@ -164,22 +148,14 @@ def extract_html_text_cmd(ctx, batch, loop, interval):
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "extract-html-text")
     from aggre.content_fetcher import extract_html_text
-    while True:
-        try:
-            processed = extract_html_text(engine, cfg, log, batch_limit=batch)
-            log.info("extract_html_text.cycle_complete", processed=processed)
-        except Exception:
-            log.exception("extract_html_text.error")
-        if not loop:
-            break
-        log.info("sleeping", seconds=interval)
-        time.sleep(interval)
+    run_loop(
+        fn=lambda: extract_html_text(engine, cfg, log, batch_limit=batch),
+        loop=loop, interval=interval, log=log, name="extract_html_text",
+    )
 
 
 @cli.command("enrich-content-discussions")
-@click.option("--batch", default=50, type=int)
-@click.option("--loop", is_flag=True)
-@click.option("--interval", default=60, type=int)
+@worker_options(default_interval=60, default_batch=50)
 @click.pass_context
 def enrich_content_discussions_cmd(ctx, batch, loop, interval):
     """Discover cross-source discussions for content URLs."""
@@ -187,22 +163,14 @@ def enrich_content_discussions_cmd(ctx, batch, loop, interval):
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "enrich-content-discussions")
     from aggre.enrichment import enrich_content_discussions
-    while True:
-        try:
-            results = enrich_content_discussions(engine, cfg, log, batch_limit=batch)
-            log.info("enrich.cycle_complete", results=results)
-        except Exception:
-            log.exception("enrich.error")
-        if not loop:
-            break
-        log.info("sleeping", seconds=interval)
-        time.sleep(interval)
+    run_loop(
+        fn=lambda: enrich_content_discussions(engine, cfg, log, batch_limit=batch),
+        loop=loop, interval=interval, log=log, name="enrich",
+    )
 
 
 @cli.command()
-@click.option("--batch", default=0, type=int, help="Max videos to process (0 = all pending).")
-@click.option("--loop", is_flag=True, help="Run continuously.")
-@click.option("--interval", default=10, type=int, help="Seconds between loop iterations.")
+@worker_options(default_interval=10, default_batch=0)
 @click.pass_context
 def transcribe(ctx: click.Context, batch: int, loop: bool, interval: int) -> None:
     """Transcribe pending YouTube videos."""
@@ -212,17 +180,10 @@ def transcribe(ctx: click.Context, batch: int, loop: bool, interval: int) -> Non
 
     from aggre.transcriber import transcribe as do_transcribe
 
-    while True:
-        try:
-            processed = do_transcribe(engine, cfg, log, batch_limit=batch)
-            log.info("transcribe.cycle_complete", processed=processed)
-        except Exception:
-            log.exception("transcribe.error")
-
-        if not loop:
-            break
-        log.info("sleeping", seconds=interval)
-        time.sleep(interval)
+    run_loop(
+        fn=lambda: do_transcribe(engine, cfg, log, batch_limit=batch),
+        loop=loop, interval=interval, log=log, name="transcribe",
+    )
 
 
 @cli.command()

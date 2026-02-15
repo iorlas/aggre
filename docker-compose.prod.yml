@@ -1,7 +1,7 @@
 services:
   migrate:
     image: ghcr.io/iorlas/aggre:latest
-    command: .venv/bin/alembic upgrade head
+    command: uv run alembic upgrade head
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
@@ -9,9 +9,51 @@ services:
       - path: .env
         required: false
 
-  fetch:
+  collect:
     image: ghcr.io/iorlas/aggre:latest
-    command: .venv/bin/aggre fetch --loop --interval 3600
+    command: uv run aggre collect --loop --interval 3600
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  download:
+    image: ghcr.io/iorlas/aggre:latest
+    command: uv run aggre download --loop --interval 10
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  extract-html-text:
+    image: ghcr.io/iorlas/aggre:latest
+    command: uv run aggre extract-html-text --loop --interval 10
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  enrich-content-discussions:
+    image: ghcr.io/iorlas/aggre:latest
+    command: uv run aggre enrich-content-discussions --loop --interval 60
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
@@ -25,7 +67,7 @@ services:
 
   transcribe:
     image: ghcr.io/iorlas/aggre:latest
-    command: .venv/bin/aggre transcribe --loop --interval 900
+    command: uv run aggre transcribe --loop --interval 10
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro

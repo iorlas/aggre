@@ -102,6 +102,18 @@ youtube:
     name: "Доступное айти"
   - channel_id: "UCc5B1PXJ6yK7uZZx4IqgETA"
     name: "Кошачья Бацыла"
+  - channel_id: "UCcMplxvoLyNVH2Fhq4pqriw"
+    name: "Direcode"
+  - channel_id: "UCELHcNI5hYHy5iz54WUsndQ"
+    name: "Hack the Clown"
+  - channel_id: "UCDS20hpBFiv_Kdp5Ibh0vew"
+    name: "Open Data Science and AI Conference"
+  - channel_id: "UCCsGEYIgJbIqgQha1fIJ74A"
+    name: "skill issue"
+  - channel_id: "UCgfe2ooZD3VJPB6aJAnuQng"
+    name: "bycloud AI"
+  - channel_id: "UCEAbqW0HFB_UxZoUDO0kJBw"
+    name: "Aitrepreneur"
 
 hackernews:
   - name: "Hacker News"

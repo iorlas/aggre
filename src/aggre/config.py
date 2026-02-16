@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     telegram_session: str = ""  # StringSession base64 string
     telegram_rate_limit: float = 2.0  # seconds between channel fetches
     fetch_limit: int = 100
+    proxy_url: str = ""
 
 
 class RssSource(BaseModel):

@@ -112,3 +112,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  tor-proxy:
+    image: peterdavehello/tor-socks-proxy:latest
+    restart: unless-stopped

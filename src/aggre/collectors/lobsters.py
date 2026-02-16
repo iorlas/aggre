@@ -12,11 +12,11 @@ import structlog
 
 from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
+from aggre.http import create_http_client
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
 
 LOBSTERS_BASE = "https://lobste.rs"
-USER_AGENT = "aggre/0.1.0 (content-aggregator)"
 
 # Columns to update on re-insert (scores/titles always fresh)
 _UPSERT_COLS = ("title", "author", "url", "meta", "score", "comment_count")
@@ -33,7 +33,7 @@ class LobstersCollector(BaseCollector):
 
         total_new = 0
         rate_limit = config.settings.lobsters_rate_limit
-        client = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
 
         try:
             for lob_source in config.lobsters:
@@ -96,7 +96,7 @@ class LobstersCollector(BaseCollector):
 
         log.info("lobsters.fetching_comments", pending=len(rows))
         rate_limit = config.settings.lobsters_rate_limit
-        client = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
         fetched = 0
 
         try:
@@ -129,7 +129,7 @@ class LobstersCollector(BaseCollector):
         self, url: str, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger,
     ) -> int:
         rate_limit = config.settings.lobsters_rate_limit
-        client = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
         new_count = 0
 
         try:

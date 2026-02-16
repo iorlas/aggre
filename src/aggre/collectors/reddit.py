@@ -17,10 +17,9 @@ from tenacity import (
 
 from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
+from aggre.http import create_http_client
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
-
-USER_AGENT = "linux:aggre:v0.1.0 (content-aggregator)"
 
 # Columns to update on re-insert (scores/titles always fresh)
 _UPSERT_COLS = ("title", "author", "url", "content_text", "meta", "score", "comment_count")
@@ -76,7 +75,7 @@ class RedditCollector(BaseCollector):
     def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
         """Fetch post listings only. Comments are fetched separately via collect_comments()."""
         total_new = 0
-        client = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
         rate_limit = config.settings.reddit_rate_limit
 
         try:
@@ -140,7 +139,7 @@ class RedditCollector(BaseCollector):
 
         log.info("reddit.fetching_comments", pending=len(rows))
         rate_limit = config.settings.reddit_rate_limit
-        client = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
         fetched = 0
 
         try:

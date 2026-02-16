@@ -11,6 +11,7 @@ import structlog
 
 from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
+from aggre.http import create_http_client
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
 
@@ -31,7 +32,7 @@ class HackernewsCollector(BaseCollector):
 
         total_new = 0
         rate_limit = config.settings.hn_rate_limit
-        client = httpx.Client(timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
 
         try:
             for hn_source in config.hackernews:
@@ -86,7 +87,7 @@ class HackernewsCollector(BaseCollector):
 
         log.info("hackernews.fetching_comments", pending=len(rows))
         rate_limit = config.settings.hn_rate_limit
-        client = httpx.Client(timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
         fetched = 0
 
         try:
@@ -119,7 +120,7 @@ class HackernewsCollector(BaseCollector):
         self, url: str, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger,
     ) -> int:
         rate_limit = config.settings.hn_rate_limit
-        client = httpx.Client(timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
         new_count = 0
 
         try:

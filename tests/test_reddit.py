@@ -9,6 +9,7 @@ import httpx
 import sqlalchemy as sa
 
 from aggre.collectors.reddit import RedditCollector, _rate_limit_sleep
+from aggre.http import BROWSER_USER_AGENT
 from aggre.config import AppConfig, RedditSource, Settings
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
@@ -108,7 +109,7 @@ class TestRedditCollectorDiscussions:
             "new.json": listing,
         }
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
@@ -152,7 +153,7 @@ class TestRedditCollectorDiscussions:
             "new.json": listing,
         }
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
@@ -183,7 +184,7 @@ class TestRedditCollectorDiscussions:
             "new.json": new_listing,
         }
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
@@ -219,7 +220,7 @@ class TestRedditCollectorDiscussions:
             resp.json.return_value = _make_listing()
             return resp
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = tracking_get
             mock_client_cls.return_value = client_instance
@@ -248,7 +249,7 @@ class TestRedditCollectorComments:
         listing = _make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
@@ -260,7 +261,7 @@ class TestRedditCollectorComments:
 
         comment_mock_responses = {"comments/abc123.json": comment_response}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
             mock_client_cls.return_value = client_instance
@@ -296,7 +297,7 @@ class TestRedditCollectorComments:
 
         mock_responses = {"hot.json": listing, "new.json": _make_listing()}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
@@ -309,7 +310,7 @@ class TestRedditCollectorComments:
             "comments/ccc.json": _make_comment_listing(),
         }
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
             mock_client_cls.return_value = client_instance
@@ -352,7 +353,7 @@ class TestRedditCollectorComments:
         listing = _make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
@@ -369,7 +370,7 @@ class TestRedditCollectorComments:
 
         comment_mock_responses = {"comments/abc123.json": comment_response}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
             mock_client_cls.return_value = client_instance
@@ -415,7 +416,7 @@ class TestRedditCollectorRateLimit:
             if seconds == 2.0:
                 call_order.append("sleep")
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch(
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch(
             "aggre.collectors.reddit.time.sleep", side_effect=fake_sleep
         ):
             client_instance = MagicMock()
@@ -516,7 +517,7 @@ class TestRedditCollectorSources:
 
         listing = _make_listing()
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_client_cls.return_value = client_instance
@@ -539,7 +540,7 @@ class TestRedditCollectorSources:
 
         listing = _make_listing()
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.create_http_client") as mock_client_cls, patch("aggre.collectors.reddit.time.sleep"):
             client_instance = MagicMock()
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_client_cls.return_value = client_instance
@@ -550,3 +551,42 @@ class TestRedditCollectorSources:
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
             assert len(rows) == 1
+
+
+class TestRedditCollectorProxy:
+    def test_collect_passes_proxy_url_to_http_client(self, engine):
+        """collect() should pass proxy_url from config to create_http_client."""
+        config = AppConfig(
+            reddit=[RedditSource(subreddit="python")],
+            settings=Settings(reddit_rate_limit=0.0, proxy_url="socks5://tor-proxy:9150"),
+        )
+        log = MagicMock()
+        collector = RedditCollector()
+
+        listing = _make_listing()
+
+        with patch("aggre.collectors.reddit.create_http_client") as mock_factory, patch("aggre.collectors.reddit.time.sleep"):
+            client_instance = MagicMock()
+            client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
+            mock_factory.return_value = client_instance
+
+            collector.collect(engine, config, log)
+
+        mock_factory.assert_called_with(proxy_url="socks5://tor-proxy:9150")
+
+    def test_collect_passes_none_when_proxy_empty(self, engine):
+        """collect() should pass proxy_url=None when config has empty proxy_url."""
+        config = _make_config()
+        log = MagicMock()
+        collector = RedditCollector()
+
+        listing = _make_listing()
+
+        with patch("aggre.collectors.reddit.create_http_client") as mock_factory, patch("aggre.collectors.reddit.time.sleep"):
+            client_instance = MagicMock()
+            client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
+            mock_factory.return_value = client_instance
+
+            collector.collect(engine, config, log)
+
+        mock_factory.assert_called_with(proxy_url=None)

@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: aggre
+      POSTGRES_USER: aggre
+      POSTGRES_PASSWORD: aggre
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggre"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   migrate:
     image: ghcr.io/iorlas/aggre:latest
     command: uv run alembic upgrade head
@@ -8,6 +23,9 @@ services:
     env_file:
       - path: .env
         required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   collect:
     image: ghcr.io/iorlas/aggre:latest
@@ -78,3 +96,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  tor-proxy:
+    image: peterdavehello/tor-socks-proxy:latest
+    restart: unless-stopped

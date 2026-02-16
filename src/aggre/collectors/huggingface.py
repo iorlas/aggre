@@ -11,10 +11,10 @@ import structlog
 from aggre.collectors.base import BaseCollector
 from aggre.config import AppConfig
 from aggre.db import SilverContent
+from aggre.http import create_http_client
 from aggre.urls import ensure_content
 
 HF_API_URL = "https://huggingface.co/api/daily_papers"
-USER_AGENT = "aggre/0.1.0 (content-aggregator)"
 
 # Columns to update on re-insert (scores/titles always fresh)
 _UPSERT_COLS = ("title", "author", "content_text", "meta", "score", "comment_count")
@@ -30,7 +30,7 @@ class HuggingfaceCollector(BaseCollector):
             return 0
 
         total_new = 0
-        client = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30.0)
+        client = create_http_client(proxy_url=config.settings.proxy_url or None)
 
         try:
             for hf_source in config.huggingface:

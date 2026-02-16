@@ -11,6 +11,7 @@ import trafilatura
 
 from aggre.config import AppConfig
 from aggre.db import SilverContent, _update_content, now_iso
+from aggre.http import create_http_client
 from aggre.statuses import FetchStatus
 
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
@@ -98,7 +99,10 @@ def download_content(
 
     log.info("content_fetcher.download_starting", batch_size=len(rows))
     processed = 0
-    client = httpx.Client(timeout=30.0, follow_redirects=True)
+    client = create_http_client(
+        proxy_url=config.settings.proxy_url or None,
+        follow_redirects=True,
+    )
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:

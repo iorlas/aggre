@@ -114,6 +114,8 @@ youtube:
     name: "bycloud AI"
   - channel_id: "UCEAbqW0HFB_UxZoUDO0kJBw"
     name: "Aitrepreneur"
+  - channel_id: "UCndBDrR7x8zpdPKtoy3uW4A"
+    name: "Одна Подписка"
 
 hackernews:
   - name: "Hacker News"

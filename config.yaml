@@ -116,6 +116,34 @@ youtube:
     name: "Aitrepreneur"
   - channel_id: "UCndBDrR7x8zpdPKtoy3uW4A"
     name: "Одна Подписка"
+  - channel_id: "UChI0q9a-ZcbZh7dAu_-J-hg"
+    name: "Upper Echelon"
+  - channel_id: "UC1hMDNGSWdma040c1ZVczFD"
+    name: "Limitless FT"
+  - channel_id: "UCN8F8z4wIicwkm4X7Tk3BOQ"
+    name: "Александр Григорин"
+  - channel_id: "UC1RYl9Eb3dQRlVDbTNyVWZr"
+    name: "John Hammond"
+  - channel_id: "UCdCR4-uYOg5ju-IUuDnfnQA"
+    name: "Simon Scrapes"
+  - channel_id: "UC_iEmYXdZJvjxdUMehwSXqw"
+    name: "Asian Dad Energy"
+  - channel_id: "UCgQGu_BPXtWq6X4ZH38eySQ"
+    name: "Zero to One"
+  - channel_id: "UCJUmE61LxhbhudzUugHL2wQ"
+    name: "Mehul Mohan"
+  - channel_id: "UCbRP3c757lWg9M-U7TyEkXA"
+    name: "Theo"
+  - channel_id: "UCzCsyvyrq38R6TnztEzOmgg"
+    name: "ByteMonk"
+  - channel_id: "UCYhgVUxsl1PQUOMufZ8I5uQ"
+    name: "Claudius Papirus"
+  - channel_id: "UC55ODQSvARtgSyc8ThfiepQ"
+    name: "Sam Witteveen"
+  - channel_id: "UCgscS8mBsQZ5sFRkJIFWD7Q"
+    name: "RoboNuggets"
+  - channel_id: "UCjiDBsEL3QtROdoM-FphuKQ"
+    name: "Ben Sla"
 
 hackernews:
   - name: "Hacker News"
@@ -125,7 +153,6 @@ lobsters:
 
 huggingface:
   - name: "HuggingFace Papers"
-
-telegram:
-  - username: "durov"
-    name: "Pavel Durov"
+# telegram:
+#   - username: "durov"
+#     name: "Pavel Durov"

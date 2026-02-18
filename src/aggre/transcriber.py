@@ -109,6 +109,9 @@ def transcribe(
                     "preferredquality": "48",
                 }],
             }
+            if config.settings.proxy_url:
+                ydl_opts["proxy"] = config.settings.proxy_url
+                ydl_opts["source_address"] = "0.0.0.0"
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([f"https://www.youtube.com/watch?v={external_id}"])

@@ -48,6 +48,9 @@ class YoutubeCollector(BaseCollector):
                 "no_warnings": True,
                 "playlistend": None if backfill else config.settings.fetch_limit,
             }
+            if config.settings.proxy_url:
+                ydl_opts["proxy"] = config.settings.proxy_url
+                ydl_opts["source_address"] = "0.0.0.0"
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:

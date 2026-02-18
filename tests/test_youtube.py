@@ -13,12 +13,12 @@ from aggre.config import AppConfig, Settings, YoutubeSource
 from aggre.db import BronzeDiscussion, SilverContent, SilverDiscussion, Source
 
 
-def _make_config(fetch_limit: int = 10) -> AppConfig:
+def _make_config(fetch_limit: int = 10, proxy_url: str = "") -> AppConfig:
     return AppConfig(
         youtube=[
             YoutubeSource(channel_id="UC_test123", name="Test Channel"),
         ],
-        settings=Settings(fetch_limit=fetch_limit),
+        settings=Settings(fetch_limit=fetch_limit, proxy_url=proxy_url),
     )
 
 
@@ -233,6 +233,40 @@ class TestYoutubeCollector:
             count = collector.collect(engine, config, log)
 
         assert count == 0
+
+    def test_collect_passes_proxy_to_ytdlp(self, engine):
+        config = _make_config(proxy_url="socks5://user:pass@proxy:1080")
+        log = structlog.get_logger()
+
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info = _mock_extract_info
+        mock_ydl.__enter__ = lambda s: s
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+
+        with patch("aggre.collectors.youtube.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
+            collector = YoutubeCollector()
+            collector.collect(engine, config, log)
+
+        opts = mock_cls.call_args[0][0]
+        assert opts["proxy"] == "socks5://user:pass@proxy:1080"
+        assert opts["source_address"] == "0.0.0.0"
+
+    def test_collect_no_proxy_when_not_configured(self, engine):
+        config = _make_config()
+        log = structlog.get_logger()
+
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info = _mock_extract_info
+        mock_ydl.__enter__ = lambda s: s
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+
+        with patch("aggre.collectors.youtube.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
+            collector = YoutubeCollector()
+            collector.collect(engine, config, log)
+
+        opts = mock_cls.call_args[0][0]
+        assert "proxy" not in opts
+        assert "source_address" not in opts
 
     def test_collect_url_fallback(self, engine):
         config = _make_config()

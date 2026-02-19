@@ -174,6 +174,14 @@ youtube:
     name: "VuntraCity"
   - channel_id: "UCpphSHXSrc3uPcUGG4rGgtg"
     name: "reyzdor"
+  - channel_id: "UCq8XiKtzXOBOtqeNygJRjdA"
+    name: "Coder Kaylee"
+  - channel_id: "UCyoTo72htVfcrbx_RvGuejw"
+    name: "Erwan Lorteau"
+  - channel_id: "UCrNfRFWnLC3tCy1TnyhVQ7g"
+    name: "Casually Finance"
+  - channel_id: "UCV03SRZXJEz-hchIAogeJOg"
+    name: "Claude"
 
 hackernews:
   - name: "Hacker News"

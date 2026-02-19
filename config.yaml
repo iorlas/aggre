@@ -182,6 +182,14 @@ youtube:
     name: "Casually Finance"
   - channel_id: "UCV03SRZXJEz-hchIAogeJOg"
     name: "Claude"
+  - channel_id: "UCtrGZc-hme--8LECM0dMS5A"
+    name: "Jaymin West"
+  - channel_id: "UCjhFK5Yk0w9k_ydlaTJG3ew"
+    name: "TechTalk NotDead"
+  - channel_id: "UCxVxcTULO9cFU6SB9qVaisQ"
+    name: "Its Jack"
+  - channel_id: "UCxIJaCMEptJjxmmQgGFsnCg"
+    name: "YC Root Access"
 
 hackernews:
   - name: "Hacker News"

@@ -190,6 +190,16 @@ youtube:
     name: "Its Jack"
   - channel_id: "UCxIJaCMEptJjxmmQgGFsnCg"
     name: "YC Root Access"
+  - channel_id: "UCSHZKyawb77ixDdsGog4iWA"
+    name: "Machine Learning Street Talk"
+  - channel_id: "UCdh_dHrl_pkg8QCKCEAioFQ"
+    name: "devsplate"
+  - channel_id: "UCwgKmJM4ZJQRJ-U5NjvR2dg"
+    name: "george hotz archive"
+  - channel_id: "UCMHBJH5rX2dF1S7o-fJuY-A"
+    name: "NeuroDump"
+  - channel_id: "UC1LJVKQ0hp7sKyfAbKoDHMw"
+    name: "Brian Jenney"
 
 hackernews:
   - name: "Hacker News"

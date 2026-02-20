@@ -322,7 +322,7 @@ def status(ctx: click.Context) -> None:
     click.echo()
 
 
-_MAX_DRAIN_ITERATIONS = 100
+_MAX_DRAIN_ITERATIONS = 100  # Safety cap; prevents infinite loops if a stage never drains
 
 
 @cli.command("run-once")
@@ -367,11 +367,12 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
     sources_checked = 0
     sources_collected = 0
     sources_skipped = 0
+    sources_failed = 0
     total_new_discussions = 0
 
     for name, collector in active_collectors.items():
         sources_checked += 1
-        if source_ttl > 0 and all_sources_recent(engine, name, ttl_minutes=source_ttl):
+        if source_ttl > 0 and all_sources_recent(engine, collector.source_type, ttl_minutes=source_ttl):
             sources_skipped += 1
             log.info("run_once.source_skipped", source=name, reason="recent")
             continue
@@ -382,6 +383,7 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
             log.info("run_once.source_collected", source=name, new_discussions=count)
         except Exception:
             log.exception("run_once.collect_error", source=name)
+            sources_failed += 1
 
     # Fetch comments (same pattern as collect_cmd)
     for src_name in ("reddit", "hackernews", "lobsters"):
@@ -422,7 +424,7 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
     total_enriched = 0
     for _ in range(_MAX_DRAIN_ITERATIONS):
         result = enrich_content_discussions(engine, cfg, log)
-        n = sum(result.values()) if isinstance(result, dict) else 0
+        n = sum(result.values())
         if n == 0:
             break
         total_enriched += n
@@ -431,7 +433,10 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
     transcribe_line = "skipped" if skip_transcribe else f"{total_transcribed} transcribed"
     click.echo("")
     click.echo("=== Run Complete ===")
-    click.echo(f"Sources:  {sources_checked} checked, {sources_collected} collected, {sources_skipped} skipped (recent)")
+    sources_line = f"Sources:  {sources_collected + sources_skipped + sources_failed} checked, {sources_collected} collected, {sources_skipped} skipped (recent)"
+    if sources_failed:
+        sources_line += f", {sources_failed} failed"
+    click.echo(sources_line)
     click.echo(f"Discuss:  {total_new_discussions} new")
     click.echo(f"Content:  {total_downloaded} downloaded")
     click.echo(f"Extract:  {total_extracted} extracted")

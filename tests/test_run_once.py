@@ -110,6 +110,7 @@ def _collector_patches(mocks: dict[str, MagicMock] | None = None) -> list:
     patches = []
     for name, module_path in modules.items():
         mock = mocks.get(name, MagicMock())
+        mock.source_type = name
         mock.collect.return_value = mock.collect.return_value if name in mocks else 0
         patches.append(patch(module_path, return_value=mock))
     return patches

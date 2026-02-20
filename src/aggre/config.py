@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg2://localhost/aggre"
     log_dir: str = "./data/logs"
     youtube_temp_dir: str = "./data/tmp/videos"
-    whisper_model: str = "large-v3"
+    whisper_model: str = "large-v3-turbo"
     whisper_model_cache: str = "./data/models"
     reddit_rate_limit: float = 3.0
     hn_rate_limit: float = 1.0

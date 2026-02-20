@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, Sequence
 
 import sqlalchemy as sa
@@ -12,6 +13,37 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source, now_iso
 from aggre.statuses import CommentsStatus
+
+
+def all_sources_recent(engine: sa.engine.Engine, source_type: str, ttl_minutes: int) -> bool:
+    """Check if ALL sources of a given type were fetched within a TTL.
+
+    Returns False if there are no sources (first run) or any source is stale/never-fetched.
+    Returns True only when every source of *source_type* has been fetched within *ttl_minutes*.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
+
+    with engine.connect() as conn:
+        total = conn.execute(
+            sa.select(sa.func.count()).select_from(Source).where(Source.type == source_type)
+        ).scalar()
+
+        if total == 0:
+            return False
+
+        stale = conn.execute(
+            sa.select(sa.func.count())
+            .select_from(Source)
+            .where(
+                Source.type == source_type,
+                sa.or_(
+                    Source.last_fetched_at.is_(None),
+                    Source.last_fetched_at < cutoff,
+                ),
+            )
+        ).scalar()
+
+        return stale == 0
 
 
 class Collector(Protocol):

@@ -320,3 +320,120 @@ def status(ctx: click.Context) -> None:
                 click.echo(f"  {row.canonical_url} ({row.title}): {row.transcription_error}")
 
     click.echo()
+
+
+_MAX_DRAIN_ITERATIONS = 100
+
+
+@cli.command("run-once")
+@click.option("--source-ttl", default=0, type=int, help="Skip sources fetched within this many minutes (0 = always collect).")
+@click.option("--source", "source_type", type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface", "telegram"]), help="Collect only this source type.")
+@click.option("--skip-transcribe", is_flag=True, help="Skip the transcription stage.")
+@click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
+@click.pass_context
+def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
+    """Run the full pipeline once and exit."""
+    from aggre.collectors.base import all_sources_recent
+    from aggre.collectors.hackernews import HackernewsCollector
+    from aggre.collectors.huggingface import HuggingfaceCollector
+    from aggre.collectors.lobsters import LobstersCollector
+    from aggre.collectors.reddit import RedditCollector
+    from aggre.collectors.rss import RssCollector
+    from aggre.collectors.telegram import TelegramCollector
+    from aggre.collectors.youtube import YoutubeCollector
+    from aggre.content_fetcher import download_content, extract_html_text
+    from aggre.enrichment import enrich_content_discussions
+    from aggre.transcriber import transcribe as do_transcribe
+
+    cfg = ctx.obj["config"]
+    engine = ctx.obj["engine"]
+    log = setup_logging(cfg.settings.log_dir, "run-once")
+
+    collectors = {
+        "rss": RssCollector(),
+        "reddit": RedditCollector(),
+        "youtube": YoutubeCollector(),
+        "hackernews": HackernewsCollector(),
+        "lobsters": LobstersCollector(),
+        "huggingface": HuggingfaceCollector(),
+        "telegram": TelegramCollector(),
+    }
+
+    active_collectors = collectors
+    if source_type:
+        active_collectors = {source_type: collectors[source_type]}
+
+    # ---- Stage 1: Collect ----
+    sources_checked = 0
+    sources_collected = 0
+    sources_skipped = 0
+    total_new_discussions = 0
+
+    for name, collector in active_collectors.items():
+        sources_checked += 1
+        if source_ttl > 0 and all_sources_recent(engine, name, ttl_minutes=source_ttl):
+            sources_skipped += 1
+            log.info("run_once.source_skipped", source=name, reason="recent")
+            continue
+        try:
+            count = collector.collect(engine, cfg, log)
+            sources_collected += 1
+            total_new_discussions += count
+            log.info("run_once.source_collected", source=name, new_discussions=count)
+        except Exception:
+            log.exception("run_once.collect_error", source=name)
+
+    # Fetch comments (same pattern as collect_cmd)
+    for src_name in ("reddit", "hackernews", "lobsters"):
+        if source_type in (None, src_name) and comment_batch > 0:
+            coll = active_collectors.get(src_name) or collectors.get(src_name)
+            if coll and hasattr(coll, "collect_comments"):
+                try:
+                    coll.collect_comments(engine, cfg, log, batch_limit=comment_batch)
+                except Exception:
+                    log.exception("run_once.comments_error", source=src_name)
+
+    # ---- Stage 2: Download (drain loop) ----
+    total_downloaded = 0
+    for _ in range(_MAX_DRAIN_ITERATIONS):
+        n = download_content(engine, cfg, log)
+        if n == 0:
+            break
+        total_downloaded += n
+
+    # ---- Stage 3: Extract (drain loop) ----
+    total_extracted = 0
+    for _ in range(_MAX_DRAIN_ITERATIONS):
+        n = extract_html_text(engine, cfg, log)
+        if n == 0:
+            break
+        total_extracted += n
+
+    # ---- Stage 4: Transcribe (drain loop, skippable) ----
+    total_transcribed = 0
+    if not skip_transcribe:
+        for _ in range(_MAX_DRAIN_ITERATIONS):
+            n = do_transcribe(engine, cfg, log)
+            if n == 0:
+                break
+            total_transcribed += n
+
+    # ---- Stage 5: Enrich (drain loop) ----
+    total_enriched = 0
+    for _ in range(_MAX_DRAIN_ITERATIONS):
+        result = enrich_content_discussions(engine, cfg, log)
+        n = sum(result.values()) if isinstance(result, dict) else 0
+        if n == 0:
+            break
+        total_enriched += n
+
+    # ---- Summary ----
+    transcribe_line = "skipped" if skip_transcribe else f"{total_transcribed} transcribed"
+    click.echo("")
+    click.echo("=== Run Complete ===")
+    click.echo(f"Sources:  {sources_checked} checked, {sources_collected} collected, {sources_skipped} skipped (recent)")
+    click.echo(f"Discuss:  {total_new_discussions} new")
+    click.echo(f"Content:  {total_downloaded} downloaded")
+    click.echo(f"Extract:  {total_extracted} extracted")
+    click.echo(f"Transcr:  {transcribe_line}")
+    click.echo(f"Enrich:   {total_enriched} enriched")

@@ -1,39 +1,22 @@
 # Aggre — Content Aggregation System
 
-Aggre collects discussions from multiple sources (Hacker News, Reddit, Lobsters, RSS, YouTube, HuggingFace), fetches linked content, and discovers cross-source discussions.
+Aggre collects discussions from multiple sources (Hacker News, Reddit, Lobsters, RSS, YouTube, HuggingFace, Telegram), fetches linked content, and discovers cross-source discussions.
 
-## Ubiquitous Language
+## Before Writing Code
 
-See `docs/semantic-model.md` for the full semantic model.
+Read the relevant docs first:
 
-| Term | Meaning |
-|------|---------|
-| `BronzeDiscussion` | Immutable raw API response |
-| `SilverDiscussion` | Parsed discussion thread (HN story, Reddit post, RSS entry, etc.) |
-| `SilverContent` | Content artifact (article, video, paper) independent of discussions |
-| `Source` | Configured data source (feed, subreddit, channel) |
-| "collect" | Gather new discussions from sources (not "fetch") |
-| "fetch content" | Download article/video body text |
-| "enrich content discussions" | Discover cross-source discussions for known content URLs |
-
-## Naming Conventions
-
-- Entity names follow the Bronze/Silver medallion pattern
-- Source-specific API terms (`story`, `entry`, `paper`) are OK inside collector internals only
-- Database-facing code and shared interfaces must use the ubiquitous language
-- Log events use dot notation: `{component}.{event}` (e.g., `hackernews.discussions_stored`)
-- Variables referencing SilverDiscussion IDs should be named `discussion_id`, not `ci_id` or `post_id`
-
-## Key Architecture
-
-- Semantic model: `docs/semantic-model.md`
-- DB models: `src/aggre/db.py`
-- Collector base: `src/aggre/collectors/base.py`
-- URL normalization: `src/aggre/urls.py`
-- Status enums: `src/aggre/statuses.py`
+- **Always read:** `docs/semantic-model.md` — entity definitions, ubiquitous language, status lifecycles
+- **Before writing code:** `.planning/codebase/CONVENTIONS.md` — code style, naming, imports, error handling
+- **Before writing tests:** `.planning/codebase/TESTING.md` — fixtures, mocking patterns, factories
+- **Before adding features:** `.planning/codebase/ARCHITECTURE.md` — layers, data flow, entry points
+- **Before adding files:** `.planning/codebase/STRUCTURE.md` — directory layout, where to put new code
+- **Before changing deps:** `.planning/codebase/STACK.md` — tech stack, versions, configuration
+- **Before touching integrations:** `.planning/codebase/INTEGRATIONS.md` — external APIs, auth, rate limits
+- **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
 
 ## Dev Commands
 
-- Run tests: `pytest tests/`
+- Run tests: `pytest tests/` (requires PostgreSQL — see `AGGRE_TEST_DATABASE_URL`)
 - Run migrations: `alembic upgrade head`
-- Run collector: `aggre collect [--source=TYPE]`
+- Lint: `ruff check src/`

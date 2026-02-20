@@ -1,0 +1,53 @@
+# One-shot local execution: start DB, migrate, run full pipeline, exit.
+# Usage: docker compose -f docker-compose.local.yml up --build
+#
+# Data persists in ./data/postgres/ between runs. Re-running skips
+# recently-fetched sources (--source-ttl) and already-processed content.
+
+x-app-env: &app-env
+  AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: aggre
+      POSTGRES_USER: aggre
+      POSTGRES_PASSWORD: aggre
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggre"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build: .
+    command: uv run alembic upgrade head
+    volumes:
+      - ./data/app:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      <<: *app-env
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  run-once:
+    build: .
+    command: uv run aggre run-once --source-ttl 60 --skip-transcribe
+    volumes:
+      - ./data/app:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      <<: *app-env
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      migrate:
+        condition: service_completed_successfully

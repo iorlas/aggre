@@ -13,6 +13,7 @@ Read the relevant docs first:
 - **Before adding files:** `.planning/codebase/STRUCTURE.md` — directory layout, where to put new code
 - **Before changing deps:** `.planning/codebase/STACK.md` — tech stack, versions, configuration
 - **Before touching integrations:** `.planning/codebase/INTEGRATIONS.md` — external APIs, auth, rate limits
+- **Before touching data layers:** `docs/medallion-guidelines.md` — medallion architecture, bronze/silver patterns
 - **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
 
 ## Dev Commands

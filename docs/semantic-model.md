@@ -18,20 +18,6 @@ tables:
       created_at:       { type: text, default: "now()", description: "ISO 8601 timestamp" }
       last_fetched_at:  { type: text, nullable: true, description: "ISO 8601 — last successful collection" }
 
-  bronze_discussions:
-    description: Immutable raw API responses. Never updated after creation. Rarely queried directly.
-    columns:
-      id:           { type: serial, pk: true }
-      source_type:  { type: text, not_null: true, description: "Matches sources.type" }
-      external_id:  { type: text, not_null: true, description: "Source-specific unique ID (post ID, paper ID, video ID)" }
-      raw_data:     { type: text, not_null: true, description: "Full JSON response from the API" }
-      fetched_at:   { type: text, default: "now()", description: "ISO 8601 timestamp" }
-    constraints:
-      - unique: [source_type, external_id]
-    indexes:
-      - idx_bronze_discussions_source_type: [source_type]
-      - idx_bronze_discussions_external: [source_type, external_id]
-
   silver_content:
     description: >
       One row per canonical URL. The content artifact (article, video, paper) itself,
@@ -42,8 +28,7 @@ tables:
       domain:                 { type: text, nullable: true, description: "Extracted domain for grouping/filtering" }
       title:                  { type: text, nullable: true, description: "Page title (from trafilatura extraction)" }
       body_text:              { type: text, nullable: true, description: "Article body (trafilatura) OR video transcript (whisper) — check transcription_status to distinguish" }
-      raw_html:               { type: text, nullable: true, description: "Raw HTML from fetch (before extraction)" }
-      fetch_status:           { type: text, not_null: true, default: "pending", values: [pending, fetched, skipped, failed] }
+      fetch_status:           { type: text, not_null: true, default: "pending", values: [pending, downloaded, fetched, skipped, failed] }
       fetch_error:            { type: text, nullable: true, description: "Error message if fetch_status = failed" }
       fetched_at:             { type: text, nullable: true, description: "ISO 8601 — when content was fetched" }
       created_at:             { type: text, default: "now()", description: "ISO 8601 timestamp" }
@@ -65,7 +50,6 @@ tables:
     columns:
       id:                     { type: serial, pk: true }
       source_id:              { type: integer, nullable: true, fk: "sources.id" }
-      bronze_discussion_id:   { type: integer, nullable: true, fk: "bronze_discussions.id" }
       content_id:             { type: integer, nullable: true, fk: "silver_content.id", description: "NULL for self-posts or discussions without external links" }
       source_type:            { type: text, not_null: true, values: [rss, reddit, youtube, hackernews, lobsters, huggingface, telegram] }
       external_id:            { type: text, not_null: true, description: "Source-specific unique ID" }
@@ -96,7 +80,6 @@ tables:
 
 ```
 sources.id              <--  silver_discussions.source_id
-bronze_discussions.id   <--  silver_discussions.bronze_discussion_id
 silver_content.id       <--  silver_discussions.content_id   (the cross-source pivot)
 ```
 

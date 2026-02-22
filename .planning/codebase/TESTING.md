@@ -191,13 +191,12 @@ class TestNormalizeUrl:
 
 3. **Database Seeders:** Insert test data using PostgreSQL INSERT helpers
    ```python
-   def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending", raw_html: str | None = None):
+   def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending"):
        with engine.begin() as conn:
            stmt = pg_insert(SilverContent).values(
                canonical_url=url,
                domain=domain,
                fetch_status=fetch_status,
-               raw_html=raw_html,
            )
            stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
            result = conn.execute(stmt)

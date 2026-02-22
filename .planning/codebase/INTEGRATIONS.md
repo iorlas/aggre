@@ -57,7 +57,7 @@
   - Connection: `postgresql+psycopg2://[user]:[password]@[host]/[database]`
   - Configured via: `AGGRE_DATABASE_URL` env var (default: `postgresql+psycopg2://localhost/aggre`)
   - Client: psycopg2-binary (via SQLAlchemy ORM)
-  - Tables: `sources`, `bronze_discussions`, `silver_discussions`, `silver_content` (see `src/aggre/db.py`)
+  - Tables: `sources`, `silver_discussions`, `silver_content` (see `src/aggre/db.py`)
   - Migrations: Alembic (run via `alembic upgrade head`, automated in Docker)
 
 **File Storage:**

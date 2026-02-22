@@ -9,7 +9,7 @@ import sqlalchemy as sa
 import structlog
 import trafilatura
 
-from aggre.bronze import read_bronze_by_url, write_bronze_by_url
+from aggre.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.config import AppConfig
 from aggre.db import SilverContent, _update_content, now_iso
 from aggre.http import create_http_client
@@ -73,6 +73,12 @@ def _download_one(
 
     if any(url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
         content_skipped(engine, content_id)
+        return 1
+
+    # Bronze read-through cache: skip HTTP fetch if already downloaded
+    if bronze_exists_by_url("content", url, "response", "html"):
+        content_downloaded(engine, content_id)
+        log.info("content_fetcher.bronze_hit", url=url)
         return 1
 
     try:

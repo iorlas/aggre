@@ -69,7 +69,7 @@ class HuggingfaceCollector(BaseCollector):
         conn: sa.Connection,
         source_id: int,
         paper_id: str,
-        item: dict,
+        item: dict[str, object],
     ) -> int | None:
         paper = item.get("paper", {})
 

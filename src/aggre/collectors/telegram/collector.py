@@ -11,7 +11,7 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 from aggre.collectors.base import BaseCollector
-from aggre.collectors.telegram.config import TelegramConfig
+from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
 from aggre.settings import Settings
 
 # Columns to update on re-insert (views/forwards change over time)
@@ -66,7 +66,16 @@ class TelegramCollector(BaseCollector):
 
         return total_new
 
-    async def _collect_channel(self, client, engine, source_id, tg_source, config, settings, log) -> int:
+    async def _collect_channel(
+        self,
+        client: TelegramClient,
+        engine: sa.engine.Engine,
+        source_id: int,
+        tg_source: TelegramSource,
+        config: TelegramConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
+    ) -> int:
         messages = await client.get_messages(tg_source.username, limit=config.fetch_limit)
 
         new_count = 0

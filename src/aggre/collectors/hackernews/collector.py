@@ -162,7 +162,7 @@ class HackernewsCollector(BaseCollector):
         conn: sa.Connection,
         source_id: int,
         ext_id: str,
-        hit: dict,
+        hit: dict[str, object],
     ) -> int | None:
         story_url = hit.get("url") or f"https://news.ycombinator.com/item?id={ext_id}"
         hn_url = f"https://news.ycombinator.com/item?id={ext_id}"

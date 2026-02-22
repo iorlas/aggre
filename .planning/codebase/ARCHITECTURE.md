@@ -125,7 +125,7 @@
 3. For each content:
    - Skip YouTube/PDF domains
    - HTTP GET with browser User-Agent via create_http_client()
-   - Store raw_html in SilverContent (PENDING → DOWNLOADED)
+   - Store raw HTML in bronze filesystem via write_bronze_by_url() (PENDING → DOWNLOADED)
    - Transition to FetchStatus.FAILED on exception
 4. Extract HTML text phase:
    - Query SilverContent where fetch_status=DOWNLOADED
@@ -233,7 +233,7 @@ Each state machine tracks progress asynchronously. A single SilverContent can be
 **download_content():**
 - Location: `src/aggre/content_fetcher.py`
 - Triggers: CLI download command
-- Responsibilities: HTTP GET, store raw_html, handle skips/errors
+- Responsibilities: HTTP GET, store raw HTML in bronze filesystem, handle skips/errors
 
 **extract_html_text():**
 - Location: `src/aggre/content_fetcher.py`

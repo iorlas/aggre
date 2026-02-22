@@ -133,7 +133,7 @@ def normalize_url(url: str) -> str | None:
 **Size:** Functions typically 10-50 lines; long functions factored into helpers with leading underscore
 
 **Parameters:**
-- Explicit over implicit: use keyword-only arguments for clarity (`def func(*, raw_html: str)`)
+- Explicit over implicit: use keyword-only arguments for clarity (`def func(*, body_text: str)`)
 - Database operations always take `engine: sa.engine.Engine` and `log: structlog.stdlib.BoundLogger`
 - Collectors always take `(engine, config, log)`
 - Batch operations take `batch_limit: int = 50` parameter with sensible default

@@ -28,7 +28,7 @@ class LobstersCollector(BaseCollector):
     source_type = "lobsters"
 
     def __init__(self) -> None:
-        self._domain_cache: dict[str, list[dict]] = {}
+        self._domain_cache: dict[str, list[dict[str, object]]] = {}
 
     def collect(self, engine: sa.engine.Engine, config: LobstersConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
         if not config.sources:
@@ -195,7 +195,7 @@ class LobstersCollector(BaseCollector):
         conn: sa.Connection,
         source_id: int,
         short_id: str,
-        story: dict,
+        story: dict[str, object],
     ) -> int | None:
         story_url = story.get("url") or story.get("comments_url", "")
         comments_url = story.get("comments_url", "")

@@ -86,11 +86,10 @@
 - Current mitigation: Assumes proxy_url is set by administrator in .env; runtime errors would fail the collection cycle
 - Recommendations: Validate proxy URL format on config load (check for valid scheme, host); add proxy connection test on startup; sanitize proxy URLs in error logs
 
-**Raw HTML Storage Without Sanitization:**
-- Risk: Downloaded HTML is stored as-is in raw_html column without any sanitization. If this data is later displayed or processed without escaping, it could be a vector for injection or XSS if exposed via API.
-- Files: `src/aggre/content_fetcher.py:70`, `src/aggre/db.py:52`
-- Current mitigation: raw_html is extracted into body_text by trafilatura (which strips HTML); raw_html field is not currently exposed
-- Recommendations: Document that raw_html must never be returned via API; add runtime assertion if API is added; consider not storing raw_html at all (only body_text)
+**Raw HTML Storage:**
+- Raw HTML is stored in bronze filesystem (`data/bronze/content/{url_hash}/response.html`), not in PostgreSQL.
+- Risk is mitigated: HTML is extracted into body_text by trafilatura (which strips HTML). Raw HTML stays in bronze (immutable filesystem layer), never served directly.
+- Files: `src/aggre/content_fetcher.py`, `src/aggre/bronze.py`
 
 **JSON Parsing Without Size Limits:**
 - Risk: Comments are stored as raw JSON strings. If a discussion has thousands of comments, the JSON could be very large and cause memory pressure during parsing.

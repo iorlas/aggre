@@ -57,3 +57,27 @@ User said "screw backward compatibility, feel free to nuke code, data, anything.
 ## [fetch-status] — keep DOWNLOADED state — because two-phase content processing is still needed
 
 Content fetching has two phases: HTTP download (raw HTML → bronze filesystem) then text extraction (trafilatura → silver body_text). DOWNLOADED marks "HTML in bronze, text not yet extracted." Simpler than trying to make it single-phase.
+
+---
+
+# Compliance Validation Decisions
+
+## [typing] — dict[str, object] over bare dict in collector _store_discussion — because bare dict is implicit Any
+
+Collector methods `_store_discussion()` used bare `dict` for API response parameters (`hit: dict`, `post_data: dict`, `story: dict`, `item: dict`). Bare `dict` is equivalent to `dict[Any, Any]` which violates the no-Any guideline. Changed to `dict[str, object]` — JSON parsed data has string keys and heterogeneous values. Same fix applied to `_fetch_json` return type and `_domain_cache` annotation.
+
+## [typing] — RetryCallState over bare parameter in _should_retry — because untyped params violate explicit dependencies rule
+
+`_should_retry(retry_state)` had no type annotation. The parameter is tenacity's `RetryCallState`. Imported and annotated properly. Same principle applied to `_collect_channel` in telegram collector — all 7 parameters were untyped.
+
+## [medallion] — bronze pre-check in content_fetcher — because read-through cache pattern requires checking before fetching
+
+`_download_one()` called `client.get(url)` without checking if the HTML was already in bronze. Added `bronze_exists_by_url()` check before the HTTP call. If bronze has the content, skip the HTTP fetch and mark as DOWNLOADED directly. This completes the read-through cache pattern prescribed by medallion guidelines.
+
+## [docs] — removed bronze_discussions and raw_html from semantic-model.md — because schema drifted after bronze filesystem migration
+
+`docs/semantic-model.md` still referenced `bronze_discussions` table, `raw_html` column, and `bronze_discussion_id` FK — all removed during the Dagster migration. Updated to match actual schema in `db.py`. Also updated `.planning/codebase/` analysis docs with stale references.
+
+## [dagster] — keep Dagster files without `from __future__ import annotations` — because Dagster decorators inspect type hints at decoration time
+
+Dagster's `@op`, `@sensor`, and `@schedule` decorators resolve type annotations at decoration time. With PEP 563 deferred annotations, these decorators fail because they can't resolve string annotations. Each affected file has a comment documenting this. Not a compliance violation — it's a documented framework limitation.

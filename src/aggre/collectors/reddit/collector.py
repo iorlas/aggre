@@ -10,6 +10,7 @@ import httpx
 import sqlalchemy as sa
 import structlog
 from tenacity import (
+    RetryCallState,
     retry,
     stop_after_attempt,
     wait_exponential,
@@ -26,7 +27,7 @@ from aggre.urls import ensure_content
 _UPSERT_COLS = ("title", "author", "url", "content_text", "meta", "score", "comment_count")
 
 
-def _should_retry(retry_state) -> bool:
+def _should_retry(retry_state: RetryCallState) -> bool:
     exc = retry_state.outcome.exception()
     return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503)
 
@@ -55,7 +56,7 @@ def _rate_limit_sleep(resp: httpx.Response, min_delay: float, log: structlog.std
     stop=stop_after_attempt(7),
     wait=wait_exponential(multiplier=2, min=4, max=120),
 )
-def _fetch_json(client: httpx.Client, url: str, log: structlog.stdlib.BoundLogger) -> tuple[dict, httpx.Response]:
+def _fetch_json(client: httpx.Client, url: str, log: structlog.stdlib.BoundLogger) -> tuple[dict[str, object], httpx.Response]:
     """Fetch JSON from URL, respecting Retry-After on 429s."""
     resp = client.get(url)
     if resp.status_code == 429:
@@ -182,7 +183,7 @@ class RedditCollector(BaseCollector):
         conn: sa.Connection,
         source_id: int,
         ext_id: str,
-        post_data: dict,
+        post_data: dict[str, object],
         subreddit: str,
     ) -> int | None:
         published_at = datetime.fromtimestamp(post_data.get("created_utc", 0), tz=UTC).isoformat()

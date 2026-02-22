@@ -19,6 +19,8 @@ Read the relevant docs first:
 
 ## Dev Commands
 
-- Run tests: `pytest tests/` (requires PostgreSQL — see `AGGRE_TEST_DATABASE_URL`)
+- Run tests: `make test` or `uv run pytest tests/` (requires PostgreSQL — see `AGGRE_TEST_DATABASE_URL`)
 - Run migrations: `alembic upgrade head`
-- Lint: `ruff check src/`
+- Lint: `make lint` (runs ruff check, ruff format --check, ty check)
+- Dagster dev: `uv run dagster dev` (starts Dagster UI at http://localhost:3000)
+- Dagster validate: `uv run dagster definitions validate`

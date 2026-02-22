@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import httpx
@@ -39,7 +40,7 @@ def _make_client(response: MagicMock) -> MagicMock:
 
 
 class TestFetchItemJson:
-    def test_cache_miss(self, tmp_path: object) -> None:
+    def test_cache_miss(self, tmp_path: Path) -> None:
         """No cache — fetches from HTTP, writes to bronze, returns data."""
         data = {"title": "Test Story", "points": 42}
         client = _make_client(_mock_json_response(data))
@@ -58,7 +59,7 @@ class TestFetchItemJson:
         client.get.assert_called_once_with("https://hn.algolia.com/api/v1/items/12345")
         log.info.assert_called_once()
 
-    def test_cache_hit(self, tmp_path: object) -> None:
+    def test_cache_hit(self, tmp_path: Path) -> None:
         """Pre-populated bronze — HTTP not called, returns cached data."""
         data = {"title": "Cached Story", "points": 99}
         write_bronze_json("hackernews", "12345", data, bronze_root=tmp_path)
@@ -78,7 +79,7 @@ class TestFetchItemJson:
         assert result == data
         client.get.assert_not_called()
 
-    def test_writes_to_correct_path(self, tmp_path: object) -> None:
+    def test_writes_to_correct_path(self, tmp_path: Path) -> None:
         """Verify file written at {source_type}/{external_id}/raw.json."""
         data = {"id": "abc", "value": 1}
         client = _make_client(_mock_json_response(data))
@@ -91,7 +92,7 @@ class TestFetchItemJson:
         parsed = json.loads(path.read_text())
         assert parsed == data
 
-    def test_raises_on_http_error(self, tmp_path: object) -> None:
+    def test_raises_on_http_error(self, tmp_path: Path) -> None:
         """HTTP error propagates to caller."""
         resp = MagicMock(spec=httpx.Response)
         resp.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -114,7 +115,7 @@ class TestFetchItemJson:
 
 
 class TestFetchUrlText:
-    def test_cache_miss(self, tmp_path: object) -> None:
+    def test_cache_miss(self, tmp_path: Path) -> None:
         """Fetches HTML, writes to bronze, returns text."""
         html = "<html><body>Hello World</body></html>"
         client = _make_client(_mock_text_response(html))
@@ -132,7 +133,7 @@ class TestFetchUrlText:
         client.get.assert_called_once_with("https://example.com/article")
         log.info.assert_called_once()
 
-    def test_cache_hit(self, tmp_path: object) -> None:
+    def test_cache_hit(self, tmp_path: Path) -> None:
         """Pre-populated bronze — no HTTP call, returns cached text."""
         html = "<html><body>Cached</body></html>"
         url = "https://example.com/cached-page"
@@ -153,7 +154,7 @@ class TestFetchUrlText:
         assert result == html
         client.get.assert_not_called()
 
-    def test_uses_url_hash(self, tmp_path: object) -> None:
+    def test_uses_url_hash(self, tmp_path: Path) -> None:
         """Verify directory name is the URL hash."""
         html = "<html>content</html>"
         url = "https://example.com/some/long/path?query=1"

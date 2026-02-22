@@ -9,19 +9,7 @@ from aggre.collectors.base import SearchableCollector
 from aggre.config import AppConfig
 from aggre.db import SilverContent, now_iso, update_content
 
-HN_SKIP_DOMAINS = frozenset(
-    {
-        "youtube.com",
-        "m.youtube.com",
-        "youtu.be",
-        "i.redd.it",
-        "v.redd.it",
-        "linkedin.com",
-        "www.linkedin.com",
-    }
-)
-
-LOBSTERS_SKIP_DOMAINS = frozenset(
+ENRICHMENT_SKIP_DOMAINS = frozenset(
     {
         "youtube.com",
         "m.youtube.com",
@@ -74,10 +62,9 @@ def enrich_content_discussions(
         log.info("enrich.searching", url=content_url)
 
         failed = False
-        skip_hn = domain and domain in HN_SKIP_DOMAINS
-        skip_lobsters = domain and domain in LOBSTERS_SKIP_DOMAINS
+        skip_domain = domain and domain in ENRICHMENT_SKIP_DOMAINS
 
-        if not skip_hn:
+        if not skip_domain:
             try:
                 hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings, log)
                 totals["hackernews"] += hn_found
@@ -85,7 +72,7 @@ def enrich_content_discussions(
                 log.exception("enrich.hn_search_failed", url=content_url)
                 failed = True
 
-        if not skip_lobsters:
+        if not skip_domain:
             try:
                 lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings, log)
                 totals["lobsters"] += lobsters_found

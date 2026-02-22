@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import time
 
-import httpx
 import sqlalchemy as sa
 import structlog
 
 from aggre.collectors.base import BaseCollector
-from aggre.config import AppConfig
+from aggre.collectors.hackernews.config import HackernewsConfig
 from aggre.http import create_http_client
+from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
 
@@ -26,20 +26,20 @@ class HackernewsCollector(BaseCollector):
 
     source_type = "hackernews"
 
-    def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
-        if not config.hackernews:
+    def collect(self, engine: sa.engine.Engine, config: HackernewsConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+        if not config.sources:
             return 0
 
         total_new = 0
-        rate_limit = config.settings.hn_rate_limit
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        rate_limit = settings.hn_rate_limit
+        client = create_http_client(proxy_url=settings.proxy_url or None)
 
         try:
-            for hn_source in config.hackernews:
+            for hn_source in config.sources:
                 log.info("hackernews.collecting", name=hn_source.name)
                 source_id = self._ensure_source(engine, hn_source.name)
 
-                url = f"{HN_ALGOLIA_BASE}/search_by_date?tags=story,front_page&hitsPerPage={config.settings.hn_fetch_limit}"
+                url = f"{HN_ALGOLIA_BASE}/search_by_date?tags=story,front_page&hitsPerPage={config.fetch_limit}"
                 time.sleep(rate_limit)
 
                 try:
@@ -72,7 +72,8 @@ class HackernewsCollector(BaseCollector):
     def collect_comments(
         self,
         engine: sa.engine.Engine,
-        config: AppConfig,
+        config: HackernewsConfig,
+        settings: Settings,
         log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
@@ -86,8 +87,8 @@ class HackernewsCollector(BaseCollector):
             return 0
 
         log.info("hackernews.fetching_comments", pending=len(rows))
-        rate_limit = config.settings.hn_rate_limit
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        rate_limit = settings.hn_rate_limit
+        client = create_http_client(proxy_url=settings.proxy_url or None)
         fetched = 0
 
         try:
@@ -117,10 +118,10 @@ class HackernewsCollector(BaseCollector):
         return fetched
 
     def search_by_url(
-        self, url: str, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger,
+        self, url: str, engine: sa.engine.Engine, config: HackernewsConfig, settings: Settings, log: structlog.stdlib.BoundLogger,
     ) -> int:
-        rate_limit = config.settings.hn_rate_limit
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        rate_limit = settings.hn_rate_limit
+        client = create_http_client(proxy_url=settings.proxy_url or None)
         new_count = 0
 
         try:

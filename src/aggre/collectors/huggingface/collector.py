@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 
-import httpx
 import sqlalchemy as sa
 import structlog
 
 from aggre.collectors.base import BaseCollector
-from aggre.config import AppConfig
+from aggre.collectors.huggingface.config import HuggingfaceConfig
 from aggre.db import SilverContent
 from aggre.http import create_http_client
+from aggre.settings import Settings
 from aggre.urls import ensure_content
 
 HF_API_URL = "https://huggingface.co/api/daily_papers"
@@ -25,20 +25,20 @@ class HuggingfaceCollector(BaseCollector):
 
     source_type = "huggingface"
 
-    def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
-        if not config.huggingface:
+    def collect(self, engine: sa.engine.Engine, config: HuggingfaceConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+        if not config.sources:
             return 0
 
         total_new = 0
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        client = create_http_client(proxy_url=settings.proxy_url or None)
 
         try:
-            for hf_source in config.huggingface:
+            for hf_source in config.sources:
                 log.info("huggingface.collecting", name=hf_source.name)
                 source_id = self._ensure_source(engine, hf_source.name)
 
                 try:
-                    resp = client.get(HF_API_URL, params={"limit": config.settings.huggingface_fetch_limit})
+                    resp = client.get(HF_API_URL, params={"limit": config.fetch_limit})
                     resp.raise_for_status()
                     papers = resp.json()
                 except Exception:

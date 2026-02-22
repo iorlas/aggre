@@ -8,13 +8,14 @@ from unittest.mock import MagicMock, patch
 import sqlalchemy as sa
 
 from aggre.collectors.huggingface import HuggingfaceCollector
-from aggre.config import AppConfig, HuggingfaceSource, Settings
+from aggre.config import AppConfig, HuggingfaceConfig, HuggingfaceSource
+from aggre.settings import Settings
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config() -> AppConfig:
     return AppConfig(
-        huggingface=[HuggingfaceSource(name="HuggingFace Papers")],
+        huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]),
         settings=Settings(),
     )
 
@@ -61,9 +62,9 @@ class TestHuggingfaceCollectorDiscussions:
 
         paper = _make_paper()
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([paper])
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
@@ -95,10 +96,10 @@ class TestHuggingfaceCollectorDiscussions:
 
         paper = _make_paper()
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([paper])
-            count1 = collector.collect(engine, config, log)
-            count2 = collector.collect(engine, config, log)
+            count1 = collector.collect(engine, config.huggingface, config.settings, log)
+            count2 = collector.collect(engine, config.huggingface, config.settings, log)
 
         assert count1 == 1
         assert count2 == 0
@@ -114,9 +115,9 @@ class TestHuggingfaceCollectorDiscussions:
             _make_paper(paper_id="2401.33333", title="Third"),
         ]
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client(papers)
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.huggingface, config.settings, log)
 
         assert count == 3
 
@@ -128,17 +129,17 @@ class TestHuggingfaceCollectorDiscussions:
         bad_paper = {"paper": {"title": "No ID"}}
         good_paper = _make_paper()
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([bad_paper, good_paper])
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
     def test_no_config_returns_zero(self, engine):
-        config = AppConfig(settings=Settings())
+        config = AppConfig(huggingface=HuggingfaceConfig(sources=[]), settings=Settings())
         log = MagicMock()
         collector = HuggingfaceCollector()
-        assert collector.collect(engine, config, log) == 0
+        assert collector.collect(engine, config.huggingface, config.settings, log) == 0
 
     def test_handles_fetch_error(self, engine):
         config = _make_config()
@@ -148,9 +149,9 @@ class TestHuggingfaceCollectorDiscussions:
         client = MagicMock()
         client.get.side_effect = Exception("network error")
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = client
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.huggingface, config.settings, log)
 
         assert count == 0
 
@@ -161,9 +162,9 @@ class TestHuggingfaceCollectorDiscussions:
 
         paper = _make_paper(authors=[])
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([paper])
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
@@ -178,9 +179,9 @@ class TestHuggingfaceSource:
         log = MagicMock()
         collector = HuggingfaceCollector()
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([])
-            collector.collect(engine, config, log)
+            collector.collect(engine, config.huggingface, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -193,10 +194,10 @@ class TestHuggingfaceSource:
         log = MagicMock()
         collector = HuggingfaceCollector()
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([])
-            collector.collect(engine, config, log)
-            collector.collect(engine, config, log)
+            collector.collect(engine, config.huggingface, config.settings, log)
+            collector.collect(engine, config.huggingface, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

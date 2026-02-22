@@ -6,77 +6,25 @@ from pathlib import Path
 
 import yaml
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="AGGRE_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    database_url: str = "postgresql+psycopg2://localhost/aggre"
-    log_dir: str = "./data/logs"
-    youtube_temp_dir: str = "./data/tmp/videos"
-    whisper_model: str = "large-v3-turbo"
-    whisper_model_cache: str = "./data/models"
-    reddit_rate_limit: float = 3.0
-    hn_rate_limit: float = 1.0
-    lobsters_rate_limit: float = 2.0
-    telegram_api_id: int = 0
-    telegram_api_hash: str = ""
-    telegram_session: str = ""  # StringSession base64 string
-    telegram_rate_limit: float = 2.0  # seconds between channel fetches
-    hn_fetch_limit: int = 100
-    youtube_fetch_limit: int = 5
-    telegram_fetch_limit: int = 100
-    reddit_fetch_limit: int = 100
-    huggingface_fetch_limit: int = 100
-    proxy_url: str = ""
-
-
-class RssSource(BaseModel):
-    name: str
-    url: str
-
-
-class RedditSource(BaseModel):
-    subreddit: str
-
-
-class YoutubeSource(BaseModel):
-    channel_id: str
-    name: str
-
-
-class HackernewsSource(BaseModel):
-    name: str = "Hacker News"
-
-
-class LobstersSource(BaseModel):
-    name: str = "Lobsters"
-    tags: list[str] = []
-
-
-class HuggingfaceSource(BaseModel):
-    name: str = "HuggingFace Papers"
-
-
-class TelegramSource(BaseModel):
-    username: str  # channel @handle without @ (e.g. "durov")
-    name: str  # display name for Source table
+from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource  # noqa: F401
+from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource  # noqa: F401
+from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource  # noqa: F401
+from aggre.collectors.reddit.config import RedditConfig, RedditSource  # noqa: F401
+from aggre.collectors.rss.config import RssConfig, RssSource  # noqa: F401
+from aggre.collectors.telegram.config import TelegramConfig, TelegramSource  # noqa: F401
+from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource  # noqa: F401
+from aggre.settings import Settings
 
 
 class AppConfig(BaseModel):
-    rss: list[RssSource] = []
-    reddit: list[RedditSource] = []
-    youtube: list[YoutubeSource] = []
-    hackernews: list[HackernewsSource] = []
-    lobsters: list[LobstersSource] = []
-    huggingface: list[HuggingfaceSource] = []
-    telegram: list[TelegramSource] = []
+    youtube: YoutubeConfig = YoutubeConfig()
+    reddit: RedditConfig = RedditConfig()
+    hackernews: HackernewsConfig = HackernewsConfig()
+    lobsters: LobstersConfig = LobstersConfig()
+    rss: RssConfig = RssConfig()
+    huggingface: HuggingfaceConfig = HuggingfaceConfig()
+    telegram: TelegramConfig = TelegramConfig()
     settings: Settings = Settings()
 
 

@@ -8,6 +8,7 @@ import inspect
 import click
 import sqlalchemy as sa
 
+from aggre.collectors import COLLECTORS
 from aggre.config import load_config
 from aggre.db import SilverContent, SilverDiscussion, Source, get_engine
 from aggre.logging import setup_logging
@@ -31,7 +32,7 @@ def cli(ctx: click.Context, config_path: str) -> None:
 @cli.command("collect")
 @click.option(
     "--source", "source_type",
-    type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface", "telegram"]),
+    type=click.Choice(list(COLLECTORS.keys())),
     help="Collect only this source type.",
 )
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
@@ -43,23 +44,7 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "collect")
 
-    from aggre.collectors.hackernews import HackernewsCollector
-    from aggre.collectors.huggingface import HuggingfaceCollector
-    from aggre.collectors.lobsters import LobstersCollector
-    from aggre.collectors.reddit import RedditCollector
-    from aggre.collectors.rss import RssCollector
-    from aggre.collectors.telegram import TelegramCollector
-    from aggre.collectors.youtube import YoutubeCollector
-
-    collectors = {
-        "rss": RssCollector(),
-        "reddit": RedditCollector(),
-        "youtube": YoutubeCollector(),
-        "hackernews": HackernewsCollector(),
-        "lobsters": LobstersCollector(),
-        "huggingface": HuggingfaceCollector(),
-        "telegram": TelegramCollector(),
-    }
+    collectors = {name: cls() for name, cls in COLLECTORS.items()}
 
     active_collectors = collectors
     if source_type:
@@ -69,7 +54,7 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
         total = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(active_collectors)) as executor:
             futures = {
-                executor.submit(collector.collect, engine, cfg, log): name
+                executor.submit(collector.collect, engine, getattr(cfg, name), cfg.settings, log): name
                 for name, collector in active_collectors.items()
             }
             for future in concurrent.futures.as_completed(futures):
@@ -86,7 +71,10 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
                 coll = active_collectors.get(src_name) or collectors.get(src_name)
                 if coll and hasattr(coll, "collect_comments"):
                     try:
-                        comments_fetched = coll.collect_comments(engine, cfg, log, batch_limit=comment_batch)
+                        comments_fetched = coll.collect_comments(
+                            engine, getattr(cfg, src_name), cfg.settings, log,
+                            batch_limit=comment_batch,
+                        )
                         log.info("collect.comments_complete", source=src_name, comments_fetched=comments_fetched)
                     except Exception:
                         log.exception("collect.comments_error", source=src_name)
@@ -163,8 +151,8 @@ def enrich_content_discussions_cmd(ctx, batch, loop, interval):
     cfg = ctx.obj["config"]
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "enrich-content-discussions")
-    from aggre.collectors.hackernews import HackernewsCollector
-    from aggre.collectors.lobsters import LobstersCollector
+    from aggre.collectors.hackernews.collector import HackernewsCollector
+    from aggre.collectors.lobsters.collector import LobstersCollector
     from aggre.enrichment import enrich_content_discussions
     run_loop(
         fn=lambda: enrich_content_discussions(
@@ -203,10 +191,10 @@ def backfill(ctx: click.Context, source_type: str) -> None:
     log = setup_logging(cfg.settings.log_dir, "backfill")
 
     if source_type == "youtube":
-        from aggre.collectors.youtube import YoutubeCollector
+        from aggre.collectors.youtube.collector import YoutubeCollector
 
         collector = YoutubeCollector()
-        count = collector.collect(engine, cfg, log, backfill=True)
+        count = collector.collect(engine, cfg.youtube, cfg.settings, log, backfill=True)
         log.info("backfill.complete", source=source_type, discussions=count)
 
 
@@ -308,9 +296,15 @@ def status(ctx: click.Context) -> None:
                 click.echo(f"  {row[0]}: {row[1]}")
 
         # Transcription queue (on SilverContent)
-        pending = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.PENDING)).scalar()
-        failed = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.FAILED)).scalar()
-        completed = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.COMPLETED)).scalar()
+        pending = conn.execute(
+            sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.PENDING)
+        ).scalar()
+        failed = conn.execute(
+            sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.FAILED)
+        ).scalar()
+        completed = conn.execute(
+            sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.COMPLETED)
+        ).scalar()
         click.echo("\n=== Transcription Queue ===")
         click.echo(f"  Pending: {pending}  |  Completed: {completed}  |  Failed: {failed}")
 
@@ -334,7 +328,7 @@ _MAX_DRAIN_ITERATIONS = 100  # Safety cap; prevents infinite loops if a stage ne
 
 @cli.command("run-once")
 @click.option("--source-ttl", default=0, type=int, help="Skip sources fetched within this many minutes (0 = always collect).")
-@click.option("--source", "source_type", type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface", "telegram"]), help="Collect only this source type.")
+@click.option("--source", "source_type", type=click.Choice(list(COLLECTORS.keys())), help="Collect only this source type.")
 @click.option("--skip-transcribe", is_flag=True, help="Skip the transcription stage.")
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
 @click.option("--enrich-batch", default=10000, type=int, help="Max URLs to enrich per run (0 = skip enrichment).")
@@ -342,13 +336,8 @@ _MAX_DRAIN_ITERATIONS = 100  # Safety cap; prevents infinite loops if a stage ne
 def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, enrich_batch):
     """Run the full pipeline once and exit."""
     from aggre.collectors.base import all_sources_recent
-    from aggre.collectors.hackernews import HackernewsCollector
-    from aggre.collectors.huggingface import HuggingfaceCollector
-    from aggre.collectors.lobsters import LobstersCollector
-    from aggre.collectors.reddit import RedditCollector
-    from aggre.collectors.rss import RssCollector
-    from aggre.collectors.telegram import TelegramCollector
-    from aggre.collectors.youtube import YoutubeCollector
+    from aggre.collectors.hackernews.collector import HackernewsCollector
+    from aggre.collectors.lobsters.collector import LobstersCollector
     from aggre.content_fetcher import download_content, extract_html_text
     from aggre.enrichment import enrich_content_discussions
     from aggre.transcriber import transcribe as do_transcribe
@@ -357,15 +346,7 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, e
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "run-once")
 
-    collectors = {
-        "rss": RssCollector(),
-        "reddit": RedditCollector(),
-        "youtube": YoutubeCollector(),
-        "hackernews": HackernewsCollector(),
-        "lobsters": LobstersCollector(),
-        "huggingface": HuggingfaceCollector(),
-        "telegram": TelegramCollector(),
-    }
+    collectors = {name: cls() for name, cls in COLLECTORS.items()}
 
     active_collectors = collectors
     if source_type:
@@ -385,10 +366,11 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, e
             log.info("run_once.source_skipped", source=name, reason="recent")
             continue
         try:
+            source_config = getattr(cfg, name)
             collect_kwargs = {}
             if source_ttl > 0 and "source_ttl_minutes" in inspect.signature(collector.collect).parameters:
                 collect_kwargs["source_ttl_minutes"] = source_ttl
-            count = collector.collect(engine, cfg, log, **collect_kwargs)
+            count = collector.collect(engine, source_config, cfg.settings, log, **collect_kwargs)
             sources_collected += 1
             total_new_discussions += count
             log.info("run_once.source_collected", source=name, new_discussions=count)
@@ -402,7 +384,7 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, e
             coll = active_collectors.get(src_name) or collectors.get(src_name)
             if coll and hasattr(coll, "collect_comments"):
                 try:
-                    coll.collect_comments(engine, cfg, log, batch_limit=comment_batch)
+                    coll.collect_comments(engine, getattr(cfg, src_name), cfg.settings, log, batch_limit=comment_batch)
                 except Exception:
                     log.exception("run_once.comments_error", source=src_name)
 
@@ -451,7 +433,8 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, e
     transcribe_line = "skipped" if skip_transcribe else f"{total_transcribed} transcribed"
     click.echo("")
     click.echo("=== Run Complete ===")
-    sources_line = f"Sources:  {sources_collected + sources_skipped + sources_failed} checked, {sources_collected} collected, {sources_skipped} skipped (recent)"
+    total_checked = sources_collected + sources_skipped + sources_failed
+    sources_line = f"Sources:  {total_checked} checked, {sources_collected} collected, {sources_skipped} skipped (recent)"
     if sources_failed:
         sources_line += f", {sources_failed} failed"
     click.echo(sources_line)

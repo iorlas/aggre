@@ -7,12 +7,12 @@ from unittest.mock import patch
 import sqlalchemy as sa
 
 from aggre.collectors.rss import RssCollector
-from aggre.config import AppConfig, RssSource
+from aggre.config import AppConfig, RssConfig, RssSource
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config(*rss_sources):
-    return AppConfig(rss=list(rss_sources))
+    return AppConfig(rss=RssConfig(sources=list(rss_sources)))
 
 
 def _fake_entry(**kwargs):
@@ -80,9 +80,9 @@ class TestRssCollector:
         )
         feed = _fake_feed([entry])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed) as mock_parse:
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed) as mock_parse:
             collector = RssCollector()
-            count = collector.collect(engine, config, self._log())
+            count = collector.collect(engine, config.rss, config.settings, self._log())
 
         assert count == 1
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
@@ -112,10 +112,10 @@ class TestRssCollector:
         entry = _fake_entry(id="post-1", title="First Post")
         feed = _fake_feed([entry])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count1 = collector.collect(engine, config, self._log())
-            count2 = collector.collect(engine, config, self._log())
+            count1 = collector.collect(engine, config.rss, config.settings, self._log())
+            count2 = collector.collect(engine, config.rss, config.settings, self._log())
 
         assert count1 == 1
         assert count2 == 0
@@ -131,9 +131,9 @@ class TestRssCollector:
 
         feed = _fake_feed([])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collector.collect(engine, config, self._log())
+            collector.collect(engine, config.rss, config.settings, self._log())
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -146,10 +146,10 @@ class TestRssCollector:
 
         feed = _fake_feed([])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collector.collect(engine, config, self._log())
-            collector.collect(engine, config, self._log())
+            collector.collect(engine, config.rss, config.settings, self._log())
+            collector.collect(engine, config.rss, config.settings, self._log())
 
         with engine.connect() as conn:
             count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
@@ -160,9 +160,9 @@ class TestRssCollector:
 
         feed = _fake_feed([_fake_entry()])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collector.collect(engine, config, self._log())
+            collector.collect(engine, config.rss, config.settings, self._log())
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(Source.last_fetched_at)).fetchone()
@@ -178,9 +178,9 @@ class TestRssCollector:
         ]
         feed = _fake_feed(entries)
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = collector.collect(engine, config, self._log())
+            count = collector.collect(engine, config.rss, config.settings, self._log())
 
         assert count == 3
 
@@ -196,9 +196,9 @@ class TestRssCollector:
         entry = _fake_entry(id=None, link="https://example.com/post-42")
         feed = _fake_feed([entry])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = collector.collect(engine, config, self._log())
+            count = collector.collect(engine, config.rss, config.settings, self._log())
 
         assert count == 1
 
@@ -220,9 +220,9 @@ class TestRssCollector:
                 return feed_a
             return feed_b
 
-        with patch("aggre.collectors.rss.feedparser.parse", side_effect=mock_parse):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", side_effect=mock_parse):
             collector = RssCollector()
-            count = collector.collect(engine, config, self._log())
+            count = collector.collect(engine, config.rss, config.settings, self._log())
 
         assert count == 2
 

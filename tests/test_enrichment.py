@@ -7,16 +7,17 @@ from unittest.mock import MagicMock
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.config import AppConfig, HackernewsSource, LobstersSource, RssSource, Settings
+from aggre.config import AppConfig, HackernewsConfig, HackernewsSource, LobstersConfig, LobstersSource, RssConfig, RssSource
+from aggre.settings import Settings
 from aggre.db import SilverContent
 from aggre.enrichment import enrich_content_discussions
 
 
 def _make_config() -> AppConfig:
     return AppConfig(
-        hackernews=[HackernewsSource()],
-        lobsters=[LobstersSource()],
-        rss=[RssSource(name="Test", url="https://example.com/feed")],
+        hackernews=HackernewsConfig(sources=[HackernewsSource()]),
+        lobsters=LobstersConfig(sources=[LobstersSource()]),
+        rss=RssConfig(sources=[RssSource(name="Test", url="https://example.com/feed")]),
         settings=Settings(hn_rate_limit=0.0, lobsters_rate_limit=0.0),
     )
 
@@ -55,10 +56,10 @@ class TestEnrichment:
         assert results == {"hackernews": 2, "lobsters": 1, "processed": 1}
 
         mock_hn.search_by_url.assert_called_once_with(
-            "https://example.com/article", engine, config, log
+            "https://example.com/article", engine, config.hackernews, config.settings, log
         )
         mock_lob.search_by_url.assert_called_once_with(
-            "https://example.com/article", engine, config, log
+            "https://example.com/article", engine, config.lobsters, config.settings, log
         )
 
         # Check enriched_at was set on SilverContent

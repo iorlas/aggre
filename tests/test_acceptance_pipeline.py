@@ -12,6 +12,10 @@ from aggre.collectors.hackernews import HackernewsCollector
 from aggre.collectors.lobsters import LobstersCollector
 from aggre.collectors.reddit import RedditCollector
 from aggre.collectors.rss import RssCollector
+from aggre.collectors.hackernews.config import HackernewsConfig
+from aggre.collectors.lobsters.config import LobstersConfig
+from aggre.collectors.reddit.config import RedditConfig
+from aggre.collectors.rss.config import RssConfig
 from aggre.config import (
     AppConfig,
     HackernewsSource,
@@ -243,7 +247,7 @@ class TestCommentsAsJsonReddit:
 
     def test_comments_stored_as_json(self, engine):
         config = AppConfig(
-            reddit=[RedditSource(subreddit="python")],
+            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
             settings=Settings(reddit_rate_limit=0.0),
         )
         log = MagicMock()
@@ -254,10 +258,10 @@ class TestCommentsAsJsonReddit:
         listing = _reddit_listing(post)
         post_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
-            collector.collect(engine, config, log)
+            collector.collect(engine, config.reddit, config.settings, log)
 
         # Step 2: collect_comments
         c1 = _reddit_comment(comment_id="rc1", body="First!")
@@ -265,10 +269,10 @@ class TestCommentsAsJsonReddit:
         comment_resp = _reddit_comment_listing(c1, c2)
         comment_responses = {"comments/abc123.json": comment_resp}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
-            fetched = collector.collect_comments(engine, config, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         assert fetched == 1
 
@@ -296,7 +300,7 @@ class TestCommentsAsJsonHackernews:
 
     def test_comments_stored_as_json(self, engine):
         config = AppConfig(
-            hackernews=[HackernewsSource(name="Hacker News")],
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             settings=Settings(hn_rate_limit=0.0),
         )
         log = MagicMock()
@@ -306,10 +310,10 @@ class TestCommentsAsJsonHackernews:
         hit = _hn_hit()
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(responses)
-            collector.collect(engine, config, log)
+            collector.collect(engine, config.hackernews, config.settings, log)
 
         # Step 2: collect_comments
         c1 = _hn_comment_child(comment_id=100, text="HN first!")
@@ -317,10 +321,10 @@ class TestCommentsAsJsonHackernews:
         item_resp = _hn_item_response(object_id="12345", children=[c1, c2])
         comment_responses = {"items/12345": item_resp}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(comment_responses)
-            fetched = collector.collect_comments(engine, config, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
         assert fetched == 1
 
@@ -349,7 +353,7 @@ class TestCommentsAsJsonLobsters:
 
     def test_comments_stored_as_json(self, engine):
         config = AppConfig(
-            lobsters=[LobstersSource(name="Lobsters")],
+            lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]),
             settings=Settings(lobsters_rate_limit=0.0),
         )
         log = MagicMock()
@@ -359,10 +363,10 @@ class TestCommentsAsJsonLobsters:
         story = _lobsters_story()
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.lobsters.time.sleep"):
+        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.lobsters.collector.time.sleep"):
             mock_cls.return_value = _lobsters_mock_client(responses)
-            collector.collect(engine, config, log)
+            collector.collect(engine, config.lobsters, config.settings, log)
 
         # Step 2: collect_comments
         c1 = _lobsters_comment(short_id="lc1", comment="Lobsters first!")
@@ -370,10 +374,10 @@ class TestCommentsAsJsonLobsters:
         detail = _lobsters_story_detail(short_id="lob123", comments=[c1, c2])
         comment_responses = {"s/lob123.json": detail}
 
-        with patch("aggre.collectors.lobsters.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.lobsters.time.sleep"):
+        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.lobsters.collector.time.sleep"):
             mock_cls.return_value = _lobsters_mock_client(comment_responses)
-            fetched = collector.collect_comments(engine, config, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
 
         assert fetched == 1
 
@@ -406,7 +410,7 @@ class TestFullPipelineFlow:
 
     def test_rss_pipeline_creates_full_chain(self, engine):
         config = AppConfig(
-            rss=[RssSource(name="Blog", url="https://blog.example.com/feed.xml")],
+            rss=RssConfig(sources=[RssSource(name="Blog", url="https://blog.example.com/feed.xml")]),
             settings=Settings(),
         )
         log = MagicMock()
@@ -420,9 +424,9 @@ class TestFullPipelineFlow:
         )
         feed = _rss_feed([entry])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             rss = RssCollector()
-            count = rss.collect(engine, config, log)
+            count = rss.collect(engine, config.rss, config.settings, log)
 
         assert count == 1
 
@@ -454,6 +458,7 @@ class TestFullPipelineFlow:
         mock_resp = MagicMock()
         mock_resp.text = "<html><body><p>Full article body here</p></body></html>"
         mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "text/html"}
         mock_resp.raise_for_status = MagicMock()
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
@@ -503,7 +508,7 @@ class TestFullPipelineFlow:
     def test_reddit_pipeline_with_comments(self, engine):
         """Reddit collect -> collect_comments -> verify discussion with comments."""
         config = AppConfig(
-            reddit=[RedditSource(subreddit="python")],
+            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
             settings=Settings(reddit_rate_limit=0.0),
         )
         log = MagicMock()
@@ -514,10 +519,10 @@ class TestFullPipelineFlow:
         listing = _reddit_listing(post)
         post_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.reddit, config.settings, log)
 
         assert count == 1
 
@@ -526,10 +531,10 @@ class TestFullPipelineFlow:
         comment_resp = _reddit_comment_listing(c1)
         comment_responses = {"comments/abc123.json": comment_resp}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
-            fetched = collector.collect_comments(engine, config, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         assert fetched == 1
 
@@ -577,6 +582,7 @@ class TestContentFetcherIntegration:
         mock_resp = MagicMock()
         mock_resp.text = "<html><body>Content</body></html>"
         mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "text/html"}
         mock_resp.raise_for_status = MagicMock()
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
@@ -663,6 +669,7 @@ class TestContentFetcherIntegration:
             resp = MagicMock()
             resp.text = "<html><body>Good content</body></html>"
             resp.status_code = 200
+            resp.headers = {"content-type": "text/html"}
             resp.raise_for_status = MagicMock()
             return resp
 

@@ -6,13 +6,13 @@ import json
 import time
 from urllib.parse import urlparse
 
-import httpx
 import sqlalchemy as sa
 import structlog
 
 from aggre.collectors.base import BaseCollector
-from aggre.config import AppConfig
+from aggre.collectors.lobsters.config import LobstersConfig
 from aggre.http import create_http_client
+from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
 
@@ -30,16 +30,16 @@ class LobstersCollector(BaseCollector):
     def __init__(self) -> None:
         self._domain_cache: dict[str, list[dict]] = {}
 
-    def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
-        if not config.lobsters:
+    def collect(self, engine: sa.engine.Engine, config: LobstersConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+        if not config.sources:
             return 0
 
         total_new = 0
-        rate_limit = config.settings.lobsters_rate_limit
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        rate_limit = settings.lobsters_rate_limit
+        client = create_http_client(proxy_url=settings.proxy_url or None)
 
         try:
-            for lob_source in config.lobsters:
+            for lob_source in config.sources:
                 log.info("lobsters.collecting", name=lob_source.name)
                 source_id = self._ensure_source(engine, lob_source.name)
 
@@ -84,7 +84,8 @@ class LobstersCollector(BaseCollector):
     def collect_comments(
         self,
         engine: sa.engine.Engine,
-        config: AppConfig,
+        config: LobstersConfig,
+        settings: Settings,
         log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
@@ -98,8 +99,8 @@ class LobstersCollector(BaseCollector):
             return 0
 
         log.info("lobsters.fetching_comments", pending=len(rows))
-        rate_limit = config.settings.lobsters_rate_limit
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        rate_limit = settings.lobsters_rate_limit
+        client = create_http_client(proxy_url=settings.proxy_url or None)
         fetched = 0
 
         try:
@@ -129,7 +130,7 @@ class LobstersCollector(BaseCollector):
         return fetched
 
     def search_by_url(
-        self, url: str, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger,
+        self, url: str, engine: sa.engine.Engine, config: LobstersConfig, settings: Settings, log: structlog.stdlib.BoundLogger,
     ) -> int:
         parsed = urlparse(url)
         domain = parsed.netloc
@@ -138,8 +139,8 @@ class LobstersCollector(BaseCollector):
 
         # Use cached domain stories, or fetch and cache
         if domain not in self._domain_cache:
-            rate_limit = config.settings.lobsters_rate_limit
-            client = create_http_client(proxy_url=config.settings.proxy_url or None)
+            rate_limit = settings.lobsters_rate_limit
+            client = create_http_client(proxy_url=settings.proxy_url or None)
             try:
                 search_url = f"{LOBSTERS_BASE}/domains/{domain}.json"
                 time.sleep(rate_limit)

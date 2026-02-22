@@ -9,13 +9,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import sqlalchemy as sa
 
 from aggre.collectors.telegram import TelegramCollector
-from aggre.config import AppConfig, Settings, TelegramSource
+from aggre.config import AppConfig, TelegramConfig, TelegramSource
+from aggre.settings import Settings
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 
 def _make_config(channels: list[TelegramSource] | None = None) -> AppConfig:
     return AppConfig(
-        telegram=channels or [TelegramSource(username="testchannel", name="Test Channel")],
+        telegram=TelegramConfig(
+            sources=channels or [TelegramSource(username="testchannel", name="Test Channel")],
+        ),
         settings=Settings(
             telegram_api_id=12345,
             telegram_api_hash="abcdef",
@@ -61,10 +64,10 @@ class TestTelegramCollectorDiscussions:
 
         msg = _make_message(msg_id=42, text="First line\nSecond line", views=500, forwards=10)
 
-        with patch("aggre.collectors.telegram.StringSession"), \
-             patch("aggre.collectors.telegram.TelegramClient") as mock_cls:
+        with patch("aggre.collectors.telegram.collector.StringSession"), \
+             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
             mock_cls.return_value = _mock_client({"testchannel": [msg]})
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.telegram, config.settings, log)
 
         assert count == 1
 
@@ -94,11 +97,11 @@ class TestTelegramCollectorDiscussions:
 
         msg = _make_message(msg_id=1)
 
-        with patch("aggre.collectors.telegram.StringSession"), \
-             patch("aggre.collectors.telegram.TelegramClient") as mock_cls:
+        with patch("aggre.collectors.telegram.collector.StringSession"), \
+             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
             mock_cls.return_value = _mock_client({"testchannel": [msg]})
-            count1 = collector.collect(engine, config, log)
-            count2 = collector.collect(engine, config, log)
+            count1 = collector.collect(engine, config.telegram, config.settings, log)
+            count2 = collector.collect(engine, config.telegram, config.settings, log)
 
         assert count1 == 1
         assert count2 == 0
@@ -117,10 +120,10 @@ class TestTelegramCollectorDiscussions:
             "chan2": [_make_message(msg_id=2, text="From chan2")],
         }
 
-        with patch("aggre.collectors.telegram.StringSession"), \
-             patch("aggre.collectors.telegram.TelegramClient") as mock_cls:
+        with patch("aggre.collectors.telegram.collector.StringSession"), \
+             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
             mock_cls.return_value = _mock_client(messages)
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.telegram, config.settings, log)
 
         assert count == 2
 
@@ -140,10 +143,10 @@ class TestTelegramCollectorDiscussions:
         msg_empty = _make_message(msg_id=1, text=None)
         msg_good = _make_message(msg_id=2, text="Has text")
 
-        with patch("aggre.collectors.telegram.StringSession"), \
-             patch("aggre.collectors.telegram.TelegramClient") as mock_cls:
+        with patch("aggre.collectors.telegram.collector.StringSession"), \
+             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
             mock_cls.return_value = _mock_client({"testchannel": [msg_empty, msg_good]})
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.telegram, config.settings, log)
 
         assert count == 1
 
@@ -153,19 +156,19 @@ class TestTelegramCollectorDiscussions:
             assert items[0].external_id == "testchannel:2"
 
     def test_no_config_returns_zero(self, engine):
-        config = AppConfig(settings=Settings())
+        config = AppConfig(telegram=TelegramConfig(sources=[]), settings=Settings())
         log = MagicMock()
         collector = TelegramCollector()
-        assert collector.collect(engine, config, log) == 0
+        assert collector.collect(engine, config.telegram, config.settings, log) == 0
 
     def test_not_configured_returns_zero(self, engine):
         config = AppConfig(
-            telegram=[TelegramSource(username="test", name="Test")],
+            telegram=TelegramConfig(sources=[TelegramSource(username="test", name="Test")]),
             settings=Settings(telegram_api_id=0, telegram_session=""),
         )
         log = MagicMock()
         collector = TelegramCollector()
-        assert collector.collect(engine, config, log) == 0
+        assert collector.collect(engine, config.telegram, config.settings, log) == 0
 
     def test_updates_score_on_rerun(self, engine):
         config = _make_config()
@@ -174,18 +177,18 @@ class TestTelegramCollectorDiscussions:
 
         msg_v1 = _make_message(msg_id=1, text="Post", views=100, forwards=5)
 
-        with patch("aggre.collectors.telegram.StringSession"), \
-             patch("aggre.collectors.telegram.TelegramClient") as mock_cls:
+        with patch("aggre.collectors.telegram.collector.StringSession"), \
+             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
             mock_cls.return_value = _mock_client({"testchannel": [msg_v1]})
-            collector.collect(engine, config, log)
+            collector.collect(engine, config.telegram, config.settings, log)
 
         # Second run with updated views
         msg_v2 = _make_message(msg_id=1, text="Post", views=999, forwards=50)
 
-        with patch("aggre.collectors.telegram.StringSession"), \
-             patch("aggre.collectors.telegram.TelegramClient") as mock_cls:
+        with patch("aggre.collectors.telegram.collector.StringSession"), \
+             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
             mock_cls.return_value = _mock_client({"testchannel": [msg_v2]})
-            count = collector.collect(engine, config, log)
+            count = collector.collect(engine, config.telegram, config.settings, log)
 
         # Dedup returns 0 for new count, but score should be updated
         assert count == 0
@@ -205,10 +208,10 @@ class TestTelegramSource:
         log = MagicMock()
         collector = TelegramCollector()
 
-        with patch("aggre.collectors.telegram.StringSession"), \
-             patch("aggre.collectors.telegram.TelegramClient") as mock_cls:
+        with patch("aggre.collectors.telegram.collector.StringSession"), \
+             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
             mock_cls.return_value = _mock_client({"testchannel": []})
-            collector.collect(engine, config, log)
+            collector.collect(engine, config.telegram, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

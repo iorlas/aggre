@@ -98,13 +98,13 @@ class TestAllSourcesRecent:
 def _collector_patches(mocks: dict[str, MagicMock] | None = None) -> list:
     """Return a list of patch context managers for all collector constructors."""
     modules = {
-        "rss": "aggre.collectors.rss.RssCollector",
-        "reddit": "aggre.collectors.reddit.RedditCollector",
-        "youtube": "aggre.collectors.youtube.YoutubeCollector",
-        "hackernews": "aggre.collectors.hackernews.HackernewsCollector",
-        "lobsters": "aggre.collectors.lobsters.LobstersCollector",
-        "huggingface": "aggre.collectors.huggingface.HuggingfaceCollector",
-        "telegram": "aggre.collectors.telegram.TelegramCollector",
+        "rss": "aggre.collectors.rss.collector.RssCollector",
+        "reddit": "aggre.collectors.reddit.collector.RedditCollector",
+        "youtube": "aggre.collectors.youtube.collector.YoutubeCollector",
+        "hackernews": "aggre.collectors.hackernews.collector.HackernewsCollector",
+        "lobsters": "aggre.collectors.lobsters.collector.LobstersCollector",
+        "huggingface": "aggre.collectors.huggingface.collector.HuggingfaceCollector",
+        "telegram": "aggre.collectors.telegram.collector.TelegramCollector",
     }
     mocks = mocks or {}
     patches = []
@@ -121,7 +121,7 @@ def _make_env(engine, tmp_path: Path) -> tuple[str, dict[str, str]]:
     db_url = engine.url.render_as_string(hide_password=False)
     config_path = str(tmp_path / "config.yaml")
     Path(config_path).write_text(
-        "rss:\n  - name: Test\n    url: https://example.com/feed.xml\n"
+        "rss:\n  sources:\n    - name: Test\n      url: https://example.com/feed.xml\n"
     )
     env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
     return config_path, env

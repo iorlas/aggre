@@ -113,6 +113,85 @@ Properties:
 - The wrapper is the "bronze interface" — all bronze access for that data type goes through it.
 - Guidelines prescribe the pattern, not the mechanism — coding agent picks decorator, adapter, context manager, or explicit check based on the client's interface.
 
+### Python-Specific Wrapper Prescriptions
+
+Five categories based on library type. Each prescribes the interception point, bronze storage, what to persist, and pitfalls.
+
+**HTTP API clients (httpx)** — you control the HTTP call.
+
+Interception: wrap the `client.get()`/`client.post()` call. Check bronze before calling, write bronze after.
+
+Bronze: directory-per-item. Raw JSON/HTML response body. Not headers, not status codes.
+
+Two keying strategies:
+
+- **Item-keyed** (fetching a known item: HN item by ID, Reddit post by ID): key = `(source_type, external_id)`. Simple, preferred when an external ID exists.
+- **Request-keyed** (fetching arbitrary URLs: article HTML, RSS feed listing, enrichment searches): key = hash of semantically significant request fields. Include: HTTP method, normalized URL, significant query params, body (if POST). Exclude: auth tokens, session cookies, tracking params, cache-busting params — these don't affect response content.
+
+URL normalization before keying: strip tracking params (`utm_*`), normalize scheme/host case, sort query params. The caller decides which params are significant — the wrapper just takes a key.
+
+Bronze path for request-keyed calls: `data/bronze/{source_type}/{url_hash}/response.{ext}` (hash because URLs are too long/messy for directory names).
+
+Retry logic (tenacity) goes inside the wrapper, not outside. A successful retry writes to bronze.
+
+Why not hishel/requests-cache: bronze is at semantic level (item/request-keyed with exclusions), not HTTP transport level (verbatim URL). Same URL returns different data over time; auth params change without affecting content.
+
+**Download tools (yt-dlp, any media downloader)** — produce files on disk.
+
+Interception: check if bronze path exists → skip download if yes → download to bronze path directly if no.
+
+Bronze: directory-per-item. `data/bronze/{source_type}/{external_id}/audio.opus`.
+
+**Never delete downloaded media after processing.** Bronze is immutable. Videos get taken down; re-download is slow or impossible.
+
+Download directly to bronze path, not temp dir. Eliminates orphaned temp files.
+
+Partial downloads: atomic write (`{path}.tmp`, rename on completion). `.tmp` = cache miss.
+
+Persist only the final format after conversion (e.g., opus after ffmpeg, not the intermediate webm).
+
+**Local ML inference (faster-whisper, any local model)** — not external, but expensive + raw output is richer than silver needs.
+
+Interception: check if bronze output exists → read if yes → run inference + write to bronze if no.
+
+Bronze: directory-per-item. Full model output at `data/bronze/{source_type}/{external_id}/whisper.json`.
+
+**Persist everything the model returns.** Segments, timestamps, confidence, language, model version, params. Silver extracts only what it needs.
+
+Cache key: `(input_file_hash, model_name, model_params)`. Model change → cache miss.
+
+Why cache local inference: takes minutes, full output has info silver discards but gold may need, re-runs after code changes should be free.
+
+Pitfall: caching only the silver-extracted subset loses segments/timestamps permanently.
+
+**LLM API clients (openai, anthropic)** — content-addressed cache, maps to existing LLM Invocations prescription.
+
+Interception: hash inputs → check SQLite → call API on miss → write on miss.
+
+Bronze: SQLite. `data/bronze/llm_cache.sqlite`. Key = `hash(model + prompt + params)`.
+
+Persist full request + response JSON + metadata. Not just the extracted answer.
+
+Hash only deterministic inputs (not timestamp, request ID).
+
+Prompt change → cache miss. Include full prompt text in hash, not a prompt name.
+
+**Opaque client libraries (feedparser, telethon, any lib that manages its own I/O)** — you don't control the transport.
+
+Interception: **post-call.** Let the library fetch. Immediately persist output to bronze.
+
+No pre-call cache check by default — you can't skip the library's internal fetch. Opt into pre-call check only for immutable sources.
+
+Bronze: directory-per-item. Store parsed output as JSON.
+
+Accept the redundant fetch. If skipping fetches matters, switch to a controllable HTTP client.
+
+Pitfall: serializing opaque library objects. Extract a plain dict before bronze write.
+
+Why not replace feedparser's HTTP: tightly coupled (redirects, encoding, format negotiation). Cost of redundant fetches is low.
+
+**What does NOT need a wrapper** — pure-function libraries (trafilatura, json parsing, text processing). Deterministic, fast, no external data. No bronze involvement.
+
 ## Workers
 
 Two valid patterns. Both **always use bronze as intermediary** — the difference is orchestration, not whether bronze is used.
@@ -175,6 +254,12 @@ Scheduled asset materialization. Reprocess all historical data.
 - Item-scoped artifact? → directory-per-item
 - Expensive source? → separate fetch/transform pipes
 - Cheap source? → combined pipe (bronze-checked)
+- HTTP client you control? → HTTP API client wrapper (pre-call check)
+- Tool that downloads files? → download tool wrapper (bronze path, never delete)
+- Local ML inference? → ML inference wrapper (full output to bronze)
+- Cloud LLM API? → LLM wrapper (content-addressed SQLite)
+- Library manages its own I/O? → opaque client wrapper (post-call persist)
+- Pure local transform? → no wrapper needed
 
 ## What to Avoid and Why
 
@@ -188,6 +273,10 @@ Scheduled asset materialization. Reprocess all historical data.
 - **Combined pipe that skips bronze**: always check/write bronze, even in combined flow. Bronze is never optional.
 - **DuckDB for point-lookup caches**: column-oriented, wrong tool for key-value lookups. Use SQLite.
 - **Direct external service calls**: always go through a bronze-aware wrapper for cacheability and auditability.
+- **Deleting downloaded media after processing**: bronze is immutable. Keep audio/video permanently. Re-download is slow or impossible (content gets taken down).
+- **Caching only silver-extracted subset of ML output**: always cache full model output (segments, timestamps, confidence). Information loss is permanent — gold may need what silver discards.
+- **Wrapping pure-function libraries with bronze logic**: libraries like trafilatura, json parsing, text processing are deterministic and fast. No external data, no caching needed. Over-engineering.
+- **HTTP-level caches (hishel, requests-cache) as bronze replacement**: bronze is semantic (item-keyed with exclusions), not HTTP transport (verbatim URL-keyed). Same URL returns different data over time; auth params change without affecting content. Use bronze-aware wrappers instead.
 
 ## Terms Mapping
 

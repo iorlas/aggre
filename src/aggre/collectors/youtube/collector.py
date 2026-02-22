@@ -9,8 +9,9 @@ import structlog
 import yt_dlp
 
 from aggre.collectors.base import BaseCollector
-from aggre.config import AppConfig
+from aggre.collectors.youtube.config import YoutubeConfig
 from aggre.db import SilverContent
+from aggre.settings import Settings
 from aggre.statuses import TranscriptionStatus
 from aggre.urls import ensure_content
 
@@ -26,14 +27,15 @@ class YoutubeCollector(BaseCollector):
     def collect(
         self,
         engine: sa.engine.Engine,
-        config: AppConfig,
+        config: YoutubeConfig,
+        settings: Settings,
         log: structlog.stdlib.BoundLogger,
         backfill: bool = False,
         source_ttl_minutes: int = 0,
     ) -> int:
         total_new = 0
 
-        for yt_source in config.youtube:
+        for yt_source in config.sources:
             log.info(
                 "youtube.collecting",
                 name=yt_source.name,
@@ -46,15 +48,19 @@ class YoutubeCollector(BaseCollector):
                 log.info("youtube.source_skipped", name=yt_source.name, reason="recent")
                 continue
 
+            fetch_limit = None if backfill else self._get_fetch_limit(
+                engine, source_id, config.init_fetch_limit, config.fetch_limit
+            )
+
             url = f"https://www.youtube.com/channel/{yt_source.channel_id}/videos"
             ydl_opts = {
                 "quiet": True,
                 "no_warnings": True,
                 "ignoreerrors": True,
-                "playlistend": None if backfill else config.settings.youtube_fetch_limit,
+                "playlistend": fetch_limit,
             }
-            if config.settings.proxy_url:
-                ydl_opts["proxy"] = config.settings.proxy_url
+            if settings.proxy_url:
+                ydl_opts["proxy"] = settings.proxy_url
                 ydl_opts["source_address"] = "0.0.0.0"
 
             try:

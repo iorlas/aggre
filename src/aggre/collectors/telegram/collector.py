@@ -11,7 +11,8 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 from aggre.collectors.base import BaseCollector
-from aggre.config import AppConfig
+from aggre.collectors.telegram.config import TelegramConfig
+from aggre.settings import Settings
 
 # Columns to update on re-insert (views/forwards change over time)
 _UPSERT_COLS = ("title", "content_text", "score", "meta")
@@ -22,19 +23,20 @@ class TelegramCollector(BaseCollector):
 
     source_type = "telegram"
 
-    def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
-        if not config.telegram:
+    def collect(self, engine: sa.engine.Engine, config: TelegramConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+        if not config.sources:
             return 0
 
-        settings = config.settings
         if not settings.telegram_api_id or not settings.telegram_session:
             log.warning("telegram.not_configured")
             return 0
 
-        return asyncio.run(self._collect_async(engine, config, log))
+        return asyncio.run(self._collect_async(engine, config, settings, log))
 
-    async def _collect_async(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
-        settings = config.settings
+    async def _collect_async(
+        self, engine: sa.engine.Engine, config: TelegramConfig,
+        settings: Settings, log: structlog.stdlib.BoundLogger,
+    ) -> int:
         client = TelegramClient(
             StringSession(settings.telegram_session),
             settings.telegram_api_id,
@@ -44,12 +46,12 @@ class TelegramCollector(BaseCollector):
 
         total_new = 0
         try:
-            for tg_source in config.telegram:
+            for tg_source in config.sources:
                 log.info("telegram.collecting", username=tg_source.username)
                 source_id = self._ensure_source(engine, tg_source.name)
 
                 try:
-                    count = await self._collect_channel(client, engine, source_id, tg_source, config, log)
+                    count = await self._collect_channel(client, engine, source_id, tg_source, config, settings, log)
                     total_new += count
                 except Exception:
                     log.exception("telegram.channel_error", username=tg_source.username)
@@ -61,9 +63,8 @@ class TelegramCollector(BaseCollector):
 
         return total_new
 
-    async def _collect_channel(self, client, engine, source_id, tg_source, config, log) -> int:
-        settings = config.settings
-        messages = await client.get_messages(tg_source.username, limit=settings.telegram_fetch_limit)
+    async def _collect_channel(self, client, engine, source_id, tg_source, config, settings, log) -> int:
+        messages = await client.get_messages(tg_source.username, limit=config.fetch_limit)
 
         new_count = 0
         with engine.begin() as conn:

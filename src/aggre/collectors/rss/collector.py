@@ -9,8 +9,9 @@ import sqlalchemy as sa
 import structlog
 
 from aggre.collectors.base import BaseCollector
-from aggre.config import AppConfig
+from aggre.collectors.rss.config import RssConfig
 from aggre.db import SilverContent
+from aggre.settings import Settings
 from aggre.urls import ensure_content
 
 # Columns to update on re-insert (titles/content always fresh)
@@ -22,10 +23,10 @@ class RssCollector(BaseCollector):
 
     source_type = "rss"
 
-    def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
+    def collect(self, engine: sa.engine.Engine, config: RssConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
         total_new = 0
 
-        for rss_source in config.rss:
+        for rss_source in config.sources:
             log.info("rss.collecting", name=rss_source.name, url=rss_source.url)
 
             source_id = self._ensure_source(engine, rss_source.name, {"url": rss_source.url})

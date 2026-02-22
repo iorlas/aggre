@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.hackernews import HackernewsCollector
-from aggre.collectors.lobsters import LobstersCollector
+from aggre.collectors.hackernews.collector import HackernewsCollector
+from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.config import AppConfig
 from aggre.db import SilverContent, _update_content, now_iso
 
@@ -68,7 +68,7 @@ def enrich_content_discussions(
 
         if not skip_hn:
             try:
-                hn_found = hn_collector.search_by_url(content_url, engine, config, log)
+                hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings, log)
                 totals["hackernews"] += hn_found
             except Exception:
                 log.exception("enrich.hn_search_failed", url=content_url)
@@ -76,7 +76,7 @@ def enrich_content_discussions(
 
         if not skip_lobsters:
             try:
-                lobsters_found = lobsters_collector.search_by_url(content_url, engine, config, log)
+                lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings, log)
                 totals["lobsters"] += lobsters_found
             except Exception:
                 log.exception("enrich.lobsters_search_failed", url=content_url)

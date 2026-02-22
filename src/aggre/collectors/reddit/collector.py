@@ -16,8 +16,9 @@ from tenacity import (
 )
 
 from aggre.collectors.base import BaseCollector
-from aggre.config import AppConfig
+from aggre.collectors.reddit.config import RedditConfig
 from aggre.http import create_http_client
+from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
 
@@ -72,14 +73,14 @@ class RedditCollector(BaseCollector):
 
     source_type = "reddit"
 
-    def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
+    def collect(self, engine: sa.engine.Engine, config: RedditConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
         """Fetch post listings only. Comments are fetched separately via collect_comments()."""
         total_new = 0
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
-        rate_limit = config.settings.reddit_rate_limit
+        client = create_http_client(proxy_url=settings.proxy_url or None)
+        rate_limit = settings.reddit_rate_limit
 
         try:
-            for reddit_source in config.reddit:
+            for reddit_source in config.sources:
                 sub = reddit_source.subreddit
                 log.info("reddit.collecting", subreddit=sub)
 
@@ -88,7 +89,7 @@ class RedditCollector(BaseCollector):
                 # Fetch hot + new listings, dedup by external_id
                 posts_by_id: dict[str, dict] = {}
                 for sort in ("hot", "new"):
-                    url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit={config.settings.reddit_fetch_limit}"
+                    url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit={config.fetch_limit}"
                     time.sleep(rate_limit)
                     try:
                         data, resp = _fetch_json(client, url, log)
@@ -123,7 +124,8 @@ class RedditCollector(BaseCollector):
     def collect_comments(
         self,
         engine: sa.engine.Engine,
-        config: AppConfig,
+        config: RedditConfig,
+        settings: Settings,
         log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
@@ -138,8 +140,8 @@ class RedditCollector(BaseCollector):
             return 0
 
         log.info("reddit.fetching_comments", pending=len(rows))
-        rate_limit = config.settings.reddit_rate_limit
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        rate_limit = settings.reddit_rate_limit
+        client = create_http_client(proxy_url=settings.proxy_url or None)
         fetched = 0
 
         try:

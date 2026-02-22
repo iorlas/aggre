@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.config import AppConfig, Settings
+from aggre.config import AppConfig
+from aggre.settings import Settings
 from aggre.content_fetcher import download_content, extract_html_text
 from aggre.db import SilverContent
 

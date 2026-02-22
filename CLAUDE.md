@@ -7,6 +7,7 @@ Aggre collects discussions from multiple sources (Hacker News, Reddit, Lobsters,
 Read the relevant docs first:
 
 - **Always read:** `docs/semantic-model.md` — entity definitions, ubiquitous language, status lifecycles
+- **Before writing Python code:** `docs/python-guidelines.md` — module design, typing, tooling, imports
 - **Before writing code:** `.planning/codebase/CONVENTIONS.md` — code style, naming, imports, error handling
 - **Before writing tests:** `.planning/codebase/TESTING.md` — fixtures, mocking patterns, factories
 - **Before adding features:** `.planning/codebase/ARCHITECTURE.md` — layers, data flow, entry points

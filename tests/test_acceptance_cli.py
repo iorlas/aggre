@@ -272,7 +272,7 @@ class TestCliCollect:
 
         config_path = str(tmp_path / "config.yaml")
         Path(config_path).write_text(
-            "rss:\n  - name: Test\n    url: https://example.com/feed.xml\n"
+            "rss:\n  sources:\n    - name: Test\n      url: https://example.com/feed.xml\n"
         )
 
         mock_rss_collector = MagicMock()
@@ -280,14 +280,18 @@ class TestCliCollect:
 
         runner = CliRunner()
         env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
+        mock_rss_cls = MagicMock(return_value=mock_rss_collector)
+        mock_collectors = {
+            "rss": mock_rss_cls,
+            "reddit": MagicMock,
+            "youtube": MagicMock,
+            "hackernews": MagicMock,
+            "lobsters": MagicMock,
+            "huggingface": MagicMock,
+            "telegram": MagicMock,
+        }
         with patch.dict(os.environ, env), \
-             patch("aggre.collectors.rss.RssCollector", return_value=mock_rss_collector), \
-             patch("aggre.collectors.reddit.RedditCollector", return_value=MagicMock()), \
-             patch("aggre.collectors.youtube.YoutubeCollector", return_value=MagicMock()), \
-             patch("aggre.collectors.hackernews.HackernewsCollector", return_value=MagicMock()), \
-             patch("aggre.collectors.lobsters.LobstersCollector", return_value=MagicMock()), \
-             patch("aggre.collectors.huggingface.HuggingfaceCollector", return_value=MagicMock()), \
-             patch("aggre.collectors.telegram.TelegramCollector", return_value=MagicMock()), \
+             patch("aggre.cli.COLLECTORS", mock_collectors), \
              patch("aggre.content_fetcher.download_content", return_value=0) as mock_download, \
              patch("aggre.enrichment.enrich_content_discussions", return_value={}) as mock_enrich:
             result = runner.invoke(cli, ["--config", config_path, "collect", "--source", "rss"])

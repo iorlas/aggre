@@ -69,7 +69,9 @@ def transcribe(
         )
         .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
         .where(
-            SilverContent.transcription_status.in_((TranscriptionStatus.PENDING, TranscriptionStatus.DOWNLOADING, TranscriptionStatus.TRANSCRIBING)),
+            SilverContent.transcription_status.in_((
+                TranscriptionStatus.PENDING, TranscriptionStatus.DOWNLOADING, TranscriptionStatus.TRANSCRIBING,
+            )),
             SilverDiscussion.source_type == "youtube",
         )
         .order_by(SilverContent.created_at.asc())

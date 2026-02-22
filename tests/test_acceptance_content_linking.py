@@ -15,14 +15,20 @@ from aggre.collectors.rss import RssCollector
 from aggre.collectors.youtube import YoutubeCollector
 from aggre.config import (
     AppConfig,
+    HackernewsConfig,
     HackernewsSource,
+    HuggingfaceConfig,
     HuggingfaceSource,
+    LobstersConfig,
     LobstersSource,
+    RedditConfig,
     RedditSource,
+    RssConfig,
     RssSource,
-    Settings,
+    YoutubeConfig,
     YoutubeSource,
 )
+from aggre.settings import Settings
 from aggre.db import SilverContent, SilverDiscussion
 
 
@@ -74,7 +80,7 @@ def _rss_fake_feed(entries, feed_title="Test Feed"):
 
 class TestRssContentLinking:
     def test_creates_silver_content_with_correct_url_and_domain(self, engine):
-        config = AppConfig(rss=[RssSource(name="Blog", url="https://example.com/feed")])
+        config = AppConfig(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
 
         entry = _rss_fake_entry(
             id="post-1",
@@ -82,8 +88,8 @@ class TestRssContentLinking:
         )
         feed = _rss_fake_feed([entry])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
-            RssCollector().collect(engine, config, _log())
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+            RssCollector().collect(engine, config.rss, config.settings, _log())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -145,7 +151,7 @@ def _reddit_fake_get(mock_responses):
 class TestRedditContentLinking:
     def test_link_post_creates_silver_content(self, engine):
         config = AppConfig(
-            reddit=[RedditSource(subreddit="python")],
+            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
             settings=Settings(reddit_rate_limit=0.0),
         )
 
@@ -153,12 +159,12 @@ class TestRedditContentLinking:
         listing = _reddit_make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
             mock_cls.return_value = client
-            RedditCollector().collect(engine, config, MagicMock())
+            RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -173,7 +179,7 @@ class TestRedditContentLinking:
     def test_self_post_no_silver_content(self, engine):
         """Self-posts (is_self=True) should NOT create a SilverContent row."""
         config = AppConfig(
-            reddit=[RedditSource(subreddit="python")],
+            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
             settings=Settings(reddit_rate_limit=0.0),
         )
 
@@ -181,12 +187,12 @@ class TestRedditContentLinking:
         listing = _reddit_make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
             mock_cls.return_value = client
-            RedditCollector().collect(engine, config, MagicMock())
+            RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_count = conn.execute(sa.select(sa.func.count()).select_from(SilverContent)).scalar()
@@ -198,7 +204,7 @@ class TestRedditContentLinking:
 
     def test_score_and_comment_count_populated(self, engine):
         config = AppConfig(
-            reddit=[RedditSource(subreddit="python")],
+            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
             settings=Settings(reddit_rate_limit=0.0),
         )
 
@@ -208,12 +214,12 @@ class TestRedditContentLinking:
         listing = _reddit_make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
             mock_cls.return_value = client
-            RedditCollector().collect(engine, config, MagicMock())
+            RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
@@ -261,17 +267,17 @@ def _hn_mock_client(responses):
 class TestHackernewsContentLinking:
     def test_creates_silver_content_for_external_url(self, engine):
         config = AppConfig(
-            hackernews=[HackernewsSource(name="HN")],
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]),
             settings=Settings(hn_rate_limit=0.0),
         )
 
         hit = _hn_make_hit(url="https://example.com/article")
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, config, MagicMock())
+            HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -286,7 +292,7 @@ class TestHackernewsContentLinking:
     def test_no_silver_content_for_ask_hn(self, engine):
         """Ask HN stories with no external URL should NOT create SilverContent."""
         config = AppConfig(
-            hackernews=[HackernewsSource(name="HN")],
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]),
             settings=Settings(hn_rate_limit=0.0),
         )
 
@@ -294,10 +300,10 @@ class TestHackernewsContentLinking:
         hit["url"] = None  # Ask HN / Show HN with no external URL
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, config, MagicMock())
+            HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_count = conn.execute(sa.select(sa.func.count()).select_from(SilverContent)).scalar()
@@ -309,7 +315,7 @@ class TestHackernewsContentLinking:
 
     def test_score_and_comment_count_populated(self, engine):
         config = AppConfig(
-            hackernews=[HackernewsSource(name="HN")],
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]),
             settings=Settings(hn_rate_limit=0.0),
         )
 
@@ -318,10 +324,10 @@ class TestHackernewsContentLinking:
         hit["num_comments"] = 50
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, config, MagicMock())
+            HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
@@ -367,17 +373,17 @@ def _lob_mock_client(responses):
 class TestLobstersContentLinking:
     def test_creates_silver_content_for_external_url(self, engine):
         config = AppConfig(
-            lobsters=[LobstersSource(name="Lobsters")],
+            lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]),
             settings=Settings(lobsters_rate_limit=0.0),
         )
 
         story = _lob_make_story(url="https://example.com/article")
         responses = {"hottest.json": [story], "newest.json": [story]}
 
-        with patch("aggre.collectors.lobsters.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.lobsters.time.sleep"):
+        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.lobsters.collector.time.sleep"):
             mock_cls.return_value = _lob_mock_client(responses)
-            LobstersCollector().collect(engine, config, MagicMock())
+            LobstersCollector().collect(engine, config.lobsters, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -391,17 +397,17 @@ class TestLobstersContentLinking:
 
     def test_score_and_comment_count_populated(self, engine):
         config = AppConfig(
-            lobsters=[LobstersSource(name="Lobsters")],
+            lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]),
             settings=Settings(lobsters_rate_limit=0.0),
         )
 
         story = _lob_make_story(score=77, comment_count=14)
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.lobsters.time.sleep"):
+        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.lobsters.collector.time.sleep"):
             mock_cls.return_value = _lob_mock_client(responses)
-            LobstersCollector().collect(engine, config, MagicMock())
+            LobstersCollector().collect(engine, config.lobsters, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
@@ -427,8 +433,8 @@ def _yt_make_entry(video_id="vid001", title="YT Video"):
 class TestYoutubeContentLinking:
     def test_creates_silver_content(self, engine):
         config = AppConfig(
-            youtube=[YoutubeSource(channel_id="UC_test", name="Test Channel")],
-            settings=Settings(youtube_fetch_limit=10),
+            youtube=YoutubeConfig(sources=[YoutubeSource(channel_id="UC_test", name="Test Channel")], fetch_limit=10),
+            settings=Settings(),
         )
 
         mock_ydl = MagicMock()
@@ -436,8 +442,8 @@ class TestYoutubeContentLinking:
         mock_ydl.__enter__ = lambda s: s
         mock_ydl.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.collectors.youtube.yt_dlp.YoutubeDL", return_value=mock_ydl):
-            YoutubeCollector().collect(engine, config, _log())
+        with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
+            YoutubeCollector().collect(engine, config.youtube, config.settings, _log())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -484,13 +490,13 @@ def _hf_mock_client(papers):
 class TestHuggingfaceContentLinking:
     def test_creates_silver_content(self, engine):
         config = AppConfig(
-            huggingface=[HuggingfaceSource(name="HF Papers")],
+            huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HF Papers")]),
             settings=Settings(),
         )
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _hf_mock_client([_hf_make_paper()])
-            HuggingfaceCollector().collect(engine, config, MagicMock())
+            HuggingfaceCollector().collect(engine, config.huggingface, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -504,13 +510,13 @@ class TestHuggingfaceContentLinking:
 
     def test_score_and_comment_count_populated(self, engine):
         config = AppConfig(
-            huggingface=[HuggingfaceSource(name="HF Papers")],
+            huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HF Papers")]),
             settings=Settings(),
         )
 
-        with patch("aggre.collectors.huggingface.httpx.Client") as mock_cls:
+        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _hf_mock_client([_hf_make_paper(upvotes=99, num_comments=7)])
-            HuggingfaceCollector().collect(engine, config, MagicMock())
+            HuggingfaceCollector().collect(engine, config.huggingface, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
@@ -529,25 +535,25 @@ class TestCrossSourceDedup:
         shared_url = "https://example.com/article"
 
         # 1. Run RSS collector
-        rss_config = AppConfig(rss=[RssSource(name="Blog", url="https://example.com/feed")])
+        rss_config = AppConfig(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
         entry = _rss_fake_entry(id="rss-1", link=shared_url)
         feed = _rss_fake_feed([entry])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
-            RssCollector().collect(engine, rss_config, _log())
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+            RssCollector().collect(engine, rss_config.rss, rss_config.settings, _log())
 
         # 2. Run HackerNews collector
         hn_config = AppConfig(
-            hackernews=[HackernewsSource(name="HN")],
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]),
             settings=Settings(hn_rate_limit=0.0),
         )
         hit = _hn_make_hit(object_id="hn-42", url=shared_url)
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, hn_config, MagicMock())
+            HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
         # 3. Verify: exactly 1 SilverContent, 2 SilverDiscussions
         with engine.connect() as conn:
@@ -569,29 +575,29 @@ class TestCrossSourceDedup:
 
         # 1. Run Lobsters collector
         lob_config = AppConfig(
-            lobsters=[LobstersSource(name="Lobsters")],
+            lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]),
             settings=Settings(lobsters_rate_limit=0.0),
         )
         story = _lob_make_story(short_id="lob-1", url=shared_url)
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.lobsters.time.sleep"):
+        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.lobsters.collector.time.sleep"):
             mock_cls.return_value = _lob_mock_client(responses)
-            LobstersCollector().collect(engine, lob_config, MagicMock())
+            LobstersCollector().collect(engine, lob_config.lobsters, lob_config.settings, MagicMock())
 
         # 2. Run HN collector
         hn_config = AppConfig(
-            hackernews=[HackernewsSource(name="HN")],
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]),
             settings=Settings(hn_rate_limit=0.0),
         )
         hit = _hn_make_hit(object_id="hn-55", url=shared_url)
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, hn_config, MagicMock())
+            HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
         # 3. Verify
         with engine.connect() as conn:
@@ -608,25 +614,25 @@ class TestCrossSourceDedup:
     def test_url_normalization_dedup(self, engine):
         """URLs that differ only by www. prefix / trailing slash should share SilverContent."""
         # RSS with "https://www.example.com/article/"
-        rss_config = AppConfig(rss=[RssSource(name="Blog", url="https://example.com/feed")])
+        rss_config = AppConfig(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
         entry = _rss_fake_entry(id="rss-norm", link="https://www.example.com/article/")
         feed = _rss_fake_feed([entry])
 
-        with patch("aggre.collectors.rss.feedparser.parse", return_value=feed):
-            RssCollector().collect(engine, rss_config, _log())
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+            RssCollector().collect(engine, rss_config.rss, rss_config.settings, _log())
 
         # HN with "https://example.com/article" (no www, no trailing slash)
         hn_config = AppConfig(
-            hackernews=[HackernewsSource(name="HN")],
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]),
             settings=Settings(hn_rate_limit=0.0),
         )
         hit = _hn_make_hit(object_id="hn-norm", url="https://example.com/article")
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.hackernews.time.sleep"):
+        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
+             patch("aggre.collectors.hackernews.collector.time.sleep"):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, hn_config, MagicMock())
+            HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_count = conn.execute(sa.select(sa.func.count()).select_from(SilverContent)).scalar()

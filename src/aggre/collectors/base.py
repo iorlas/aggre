@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol, Sequence
+from typing import Any, Protocol
 
 import sqlalchemy as sa
 import structlog
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source, now_iso
+from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 
 
@@ -49,7 +50,7 @@ def all_sources_recent(engine: sa.engine.Engine, source_type: str, ttl_minutes: 
 class Collector(Protocol):
     """Protocol that all collectors must implement."""
 
-    def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
+    def collect(self, engine: sa.engine.Engine, config: Any, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
         """Fetch new items from the source. Returns count of new items stored."""
         ...
 
@@ -57,8 +58,8 @@ class Collector(Protocol):
 class SearchableCollector(Collector, Protocol):
     """Collector that supports searching for discussions by URL."""
 
-    def search_by_url(self, url: str, engine: sa.engine.Engine, config: AppConfig,
-                      log: structlog.stdlib.BoundLogger) -> int:
+    def search_by_url(self, url: str, engine: sa.engine.Engine, config: Any,
+                      settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
         """Search for discussions about a URL. Returns count of new items stored."""
         ...
 
@@ -102,6 +103,18 @@ class BaseCollector:
                 sa.update(Source).where(Source.id == source_id)
                 .values(last_fetched_at=now_iso())
             )
+
+    def _is_initialized(self, engine: sa.engine.Engine, source_id: int) -> bool:
+        """True if source has been fetched at least once."""
+        with engine.connect() as conn:
+            last = conn.execute(
+                sa.select(Source.last_fetched_at).where(Source.id == source_id)
+            ).scalar()
+        return last is not None
+
+    def _get_fetch_limit(self, engine: sa.engine.Engine, source_id: int, init_limit: int, normal_limit: int) -> int:
+        """Return init_limit on first-ever fetch, normal_limit otherwise."""
+        return normal_limit if self._is_initialized(engine, source_id) else init_limit
 
     def _is_source_recent(self, engine: sa.engine.Engine, source_id: int, ttl_minutes: int) -> bool:
         """True if this source was fetched within ttl_minutes.

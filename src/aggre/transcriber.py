@@ -10,7 +10,7 @@ import yt_dlp
 from faster_whisper import WhisperModel
 
 from aggre.config import AppConfig
-from aggre.db import SilverContent, SilverDiscussion, _update_content
+from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.statuses import TranscriptionStatus
 from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
 
@@ -19,24 +19,24 @@ from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_br
 
 def transcription_downloading(engine: sa.engine.Engine, content_id: int) -> None:
     """PENDING → DOWNLOADING"""
-    _update_content(engine, content_id, transcription_status=TranscriptionStatus.DOWNLOADING)
+    update_content(engine, content_id, transcription_status=TranscriptionStatus.DOWNLOADING)
 
 
 def transcription_transcribing(engine: sa.engine.Engine, content_id: int) -> None:
     """DOWNLOADING → TRANSCRIBING"""
-    _update_content(engine, content_id, transcription_status=TranscriptionStatus.TRANSCRIBING)
+    update_content(engine, content_id, transcription_status=TranscriptionStatus.TRANSCRIBING)
 
 
 def transcription_completed(engine: sa.engine.Engine, content_id: int, *, body_text: str, detected_language: str) -> None:
     """TRANSCRIBING → COMPLETED"""
-    _update_content(
+    update_content(
         engine, content_id, body_text=body_text, transcription_status=TranscriptionStatus.COMPLETED, detected_language=detected_language
     )
 
 
 def transcription_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
     """any → FAILED"""
-    _update_content(engine, content_id, transcription_status=TranscriptionStatus.FAILED, transcription_error=error)
+    update_content(engine, content_id, transcription_status=TranscriptionStatus.FAILED, transcription_error=error)
 
 
 def create_whisper_model(config: AppConfig) -> WhisperModel:

@@ -100,7 +100,7 @@ def get_engine(database_url: str) -> sa.engine.Engine:
     return sa.create_engine(database_url, echo=False)
 
 
-def _update_content(engine: sa.engine.Engine, content_id: int, **values: str | int | None) -> None:
-    """Internal: update a SilverContent row by id in its own transaction."""
+def update_content(engine: sa.engine.Engine, content_id: int, **values: str | int | None) -> None:
+    """Update a SilverContent row by id in its own transaction."""
     with engine.begin() as conn:
         conn.execute(sa.update(SilverContent).where(SilverContent.id == content_id).values(**values))

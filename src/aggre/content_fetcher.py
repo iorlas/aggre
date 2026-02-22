@@ -10,7 +10,7 @@ import structlog
 import trafilatura
 
 from aggre.config import AppConfig
-from aggre.db import SilverContent, _update_content, now_iso
+from aggre.db import SilverContent, now_iso, update_content
 from aggre.statuses import FetchStatus
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.utils.http import create_http_client
@@ -39,22 +39,22 @@ def _is_text_content_type(content_type: str) -> bool:
 
 def content_skipped(engine: sa.engine.Engine, content_id: int) -> None:
     """PENDING → SKIPPED (YouTube, PDF, etc.)"""
-    _update_content(engine, content_id, fetch_status=FetchStatus.SKIPPED, fetched_at=now_iso())
+    update_content(engine, content_id, fetch_status=FetchStatus.SKIPPED, fetched_at=now_iso())
 
 
 def content_downloaded(engine: sa.engine.Engine, content_id: int) -> None:
     """PENDING → DOWNLOADED (HTML saved to bronze)"""
-    _update_content(engine, content_id, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
+    update_content(engine, content_id, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
 
 
 def content_fetched(engine: sa.engine.Engine, content_id: int, *, body_text: str | None, title: str | None) -> None:
     """DOWNLOADED → FETCHED"""
-    _update_content(engine, content_id, body_text=body_text, title=title, fetch_status=FetchStatus.FETCHED, fetched_at=now_iso())
+    update_content(engine, content_id, body_text=body_text, title=title, fetch_status=FetchStatus.FETCHED, fetched_at=now_iso())
 
 
 def content_fetch_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
     """any → FAILED"""
-    _update_content(engine, content_id, fetch_status=FetchStatus.FAILED, fetch_error=error, fetched_at=now_iso())
+    update_content(engine, content_id, fetch_status=FetchStatus.FAILED, fetch_error=error, fetched_at=now_iso())
 
 
 def _download_one(

@@ -7,7 +7,7 @@ import structlog
 
 from aggre.collectors.base import SearchableCollector
 from aggre.config import AppConfig
-from aggre.db import SilverContent, _update_content, now_iso
+from aggre.db import SilverContent, now_iso, update_content
 
 HN_SKIP_DOMAINS = frozenset(
     {
@@ -94,7 +94,7 @@ def enrich_content_discussions(
                 failed = True
 
         if not failed:
-            _update_content(engine, row.id, enriched_at=now_iso())
+            update_content(engine, row.id, enriched_at=now_iso())
 
     log.info("enrich.complete", totals=totals)
     return totals

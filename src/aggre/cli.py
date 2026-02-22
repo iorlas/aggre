@@ -5,7 +5,7 @@ from __future__ import annotations
 import click
 
 from aggre.config import load_config
-from aggre.db import get_engine
+from aggre.utils.db import get_engine
 
 
 @click.group()

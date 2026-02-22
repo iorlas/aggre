@@ -12,7 +12,7 @@ from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
 from aggre.db import SilverContent
-from aggre.enrichment import enrich_content_discussions
+from aggre.pipeline.enrichment import enrich_content_discussions
 from aggre.settings import Settings
 
 

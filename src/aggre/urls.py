@@ -9,24 +9,10 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.db import SilverContent
+from aggre.utils.urls import extract_domain, strip_tracking_params
 
-TRACKING_PARAMS = frozenset(
-    {
-        "utm_source",
-        "utm_medium",
-        "utm_campaign",
-        "utm_term",
-        "utm_content",
-        "fbclid",
-        "gclid",
-        "msclkid",
-        "ref",
-        "source",
-        "campaign",
-        "_ga",
-        "_gid",
-    }
-)
+# Domain-specific normalizers that fully own query handling (skip generic cleaning)
+_DOMAIN_OWNED_QUERY = frozenset({"arxiv.org", "youtube.com", "github.com", "reddit.com", "news.ycombinator.com"})
 
 
 def normalize_url(url: str | None) -> str | None:
@@ -57,7 +43,6 @@ def normalize_url(url: str | None) -> str | None:
 
     # Domain-specific normalization
     if "arxiv.org" in netloc:
-        # Strip version suffix from arxiv URLs (e.g., /abs/2301.12345v2 -> /abs/2301.12345)
         path = re.sub(r"v\d+$", "", path)
         query = ""
 
@@ -76,15 +61,12 @@ def normalize_url(url: str | None) -> str | None:
             query = ""
 
     elif "github.com" in netloc:
-        # Remove .git suffix
         path = re.sub(r"\.git$", "", path)
-        # Remove /tree/branch patterns
         path = re.sub(r"/tree/[^/]+/?$", "", path)
         query = ""
 
     elif "reddit.com" in netloc:
         netloc = "reddit.com"
-        # Normalize to /r/{sub}/comments/{id}
         m = re.match(r"(/r/[^/]+/comments/[^/]+)", path)
         if m:
             path = m.group(1)
@@ -101,26 +83,14 @@ def normalize_url(url: str | None) -> str | None:
         params = parse_qs(query)
         params.pop("source", None)
         params.pop("sk", None)
-        # Fall through to generic param cleaning below
+        query = strip_tracking_params(urlencode(params, doseq=True) if params else "")
 
     else:
-        # Generic: remove tracking params, sort remaining
-        params = parse_qs(query, keep_blank_values=True)
-        cleaned = {k: v for k, v in params.items() if k.lower() not in TRACKING_PARAMS}
-        query = urlencode(sorted(cleaned.items()), doseq=True) if cleaned else ""
+        query = strip_tracking_params(query)
 
-    # For domains that already set query above, skip generic cleaning
-    if (
-        query
-        and "arxiv.org" not in netloc
-        and "youtube.com" not in netloc
-        and "github.com" not in netloc
-        and "reddit.com" not in netloc
-        and "news.ycombinator.com" not in netloc
-    ):
-        params = parse_qs(query, keep_blank_values=True)
-        cleaned = {k: v for k, v in params.items() if k.lower() not in TRACKING_PARAMS}
-        query = urlencode(sorted(cleaned.items()), doseq=True) if cleaned else ""
+    # Generic tracking-param cleanup for domains that don't fully own query handling
+    if query and not any(d in netloc for d in _DOMAIN_OWNED_QUERY):
+        query = strip_tracking_params(query)
 
     # Remove trailing slash
     path = path.rstrip("/") or "/"
@@ -128,19 +98,7 @@ def normalize_url(url: str | None) -> str | None:
         path = ""
 
     # Remove fragment
-    result = urlunparse((scheme, netloc, path, "", query, ""))
-    return result
-
-
-def extract_domain(url: str | None) -> str | None:
-    """Extract the domain from a URL, stripping www. prefix."""
-    if not url:
-        return None
-    parsed = urlparse(url)
-    netloc = parsed.netloc.lower()
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
-    return netloc or None
+    return urlunparse((scheme, netloc, path, "", query, ""))
 
 
 def ensure_content(conn: sa.Connection, raw_url: str) -> int | None:

@@ -159,6 +159,8 @@ class TestRedditContentLinking:
         with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
             RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
 
@@ -186,6 +188,8 @@ class TestRedditContentLinking:
         with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
             RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
 
@@ -212,6 +216,8 @@ class TestRedditContentLinking:
         with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
             RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
 
@@ -256,6 +262,8 @@ def _hn_mock_client(responses):
         return resp
 
     client.get.side_effect = fake_get
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 
@@ -369,6 +377,8 @@ def _lob_mock_client(responses):
         return resp
 
     client.get.side_effect = fake_get
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 
@@ -492,6 +502,8 @@ def _hf_mock_client(papers):
     resp.status_code = 200
     resp.json.return_value = papers
     client.get.return_value = resp
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 

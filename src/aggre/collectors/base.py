@@ -13,10 +13,11 @@ import structlog
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.db import SilverDiscussion, Source, now_iso
+from aggre.db import SilverDiscussion, Source
 from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
+from aggre.utils.db import now_iso
 
 
 class Collector(Protocol):

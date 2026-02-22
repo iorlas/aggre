@@ -9,21 +9,16 @@ import structlog
 import trafilatura
 
 from aggre.config import AppConfig
-from aggre.db import SilverContent, now_iso, update_content
+from aggre.db import SilverContent, update_content
+from aggre.pipeline.content_downloader import content_fetch_failed
 from aggre.statuses import FetchStatus
 from aggre.utils.bronze import read_bronze_by_url
-
-# -- Fetch state transitions --------------------------------------------------
+from aggre.utils.db import now_iso
 
 
 def content_fetched(engine: sa.engine.Engine, content_id: int, *, body_text: str | None, title: str | None) -> None:
     """DOWNLOADED → FETCHED"""
     update_content(engine, content_id, body_text=body_text, title=title, fetch_status=FetchStatus.FETCHED, fetched_at=now_iso())
-
-
-def content_fetch_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
-    """any → FAILED"""
-    update_content(engine, content_id, fetch_status=FetchStatus.FAILED, fetch_error=error, fetched_at=now_iso())
 
 
 def extract_html_text(

@@ -9,9 +9,10 @@ import sqlalchemy as sa
 import structlog
 
 from aggre.config import AppConfig
-from aggre.db import SilverContent, now_iso, update_content
+from aggre.db import SilverContent, update_content
 from aggre.statuses import FetchStatus
 from aggre.utils.bronze import bronze_exists_by_url, write_bronze_by_url
+from aggre.utils.db import now_iso
 from aggre.utils.http import create_http_client
 
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
@@ -131,18 +132,17 @@ def download_content(
 
     log.info("content_downloader.download_starting", batch_size=len(rows))
     processed = 0
-    client = create_http_client(
-        proxy_url=config.settings.proxy_url or None,
-        follow_redirects=True,
-    )
 
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_download_one, client, engine, log, row.id, row.canonical_url, row.domain) for row in rows]
-            for future in concurrent.futures.as_completed(futures):
-                processed += future.result()
-    finally:
-        client.close()
+    with (
+        create_http_client(
+            proxy_url=config.settings.proxy_url or None,
+            follow_redirects=True,
+        ) as client,
+        concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor,
+    ):
+        futures = [executor.submit(_download_one, client, engine, log, row.id, row.canonical_url, row.domain) for row in rows]
+        for future in concurrent.futures.as_completed(futures):
+            processed += future.result()
 
     log.info("content_downloader.download_complete", processed=processed)
     return processed

@@ -7,7 +7,8 @@ import os
 import pytest
 import sqlalchemy as sa
 
-from aggre.db import Base, get_engine
+from aggre.db import Base
+from aggre.utils.db import get_engine
 
 
 @pytest.fixture(scope="session")

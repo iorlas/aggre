@@ -52,6 +52,8 @@ def _mock_httpx_client(papers: list[dict]):
     resp.status_code = 200
     resp.json.return_value = papers
     client.get.return_value = resp
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 
@@ -144,6 +146,8 @@ class TestHuggingfaceCollectorDiscussions:
 
         client = MagicMock()
         client.get.side_effect = Exception("network error")
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = client

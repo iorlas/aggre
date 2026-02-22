@@ -1,16 +1,9 @@
-"""Database engine, ORM models, and connection management."""
+"""ORM models, indexes, and content update helper."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-def now_iso() -> str:
-    """Current UTC time as ISO 8601 string."""
-    return datetime.now(UTC).isoformat()
 
 
 class Base(DeclarativeBase):
@@ -93,11 +86,6 @@ sa.Index(
 )
 sa.Index("idx_silver_discussions_url", SilverDiscussion.url, postgresql_where=SilverDiscussion.url.isnot(None))
 sa.Index("idx_silver_discussions_content_id", SilverDiscussion.content_id, postgresql_where=SilverDiscussion.content_id.isnot(None))
-
-
-def get_engine(database_url: str) -> sa.engine.Engine:
-    """Create a SQLAlchemy engine for the given database URL."""
-    return sa.create_engine(database_url, echo=False)
 
 
 def update_content(engine: sa.engine.Engine, content_id: int, **values: str | int | None) -> None:

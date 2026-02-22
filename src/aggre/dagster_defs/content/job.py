@@ -9,8 +9,8 @@ import dagster as dg
 from dagster import OpExecutionContext
 
 from aggre.config import load_config
-from aggre.content_downloader import download_content
-from aggre.content_extractor import extract_html_text
+from aggre.pipeline.content_downloader import download_content
+from aggre.pipeline.content_extractor import extract_html_text
 from aggre.utils.logging import setup_logging
 
 

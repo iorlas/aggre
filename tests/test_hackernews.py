@@ -77,6 +77,8 @@ def _mock_httpx_client(responses: dict):
         return resp
 
     client.get.side_effect = fake_get
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 

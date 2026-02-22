@@ -17,9 +17,9 @@ from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
-from aggre.content_downloader import download_content
-from aggre.content_extractor import extract_html_text
 from aggre.db import SilverContent, SilverDiscussion
+from aggre.pipeline.content_downloader import download_content
+from aggre.pipeline.content_extractor import extract_html_text
 from aggre.settings import Settings
 
 # ---------------------------------------------------------------------------
@@ -136,6 +136,8 @@ def _hn_mock_client(responses):
         return resp
 
     client.get.side_effect = fake_get
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 
@@ -190,6 +192,8 @@ def _lobsters_mock_client(responses):
         return resp
 
     client.get.side_effect = fake_get
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 
@@ -258,7 +262,10 @@ class TestCommentsAsJsonReddit:
         post_responses = {"hot.json": listing, "new.json": listing}
 
         with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
+            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
+            mock_cls.return_value = client
             collector.collect(engine, config.reddit, config.settings, log)
 
         # Step 2: collect_comments
@@ -268,7 +275,10 @@ class TestCommentsAsJsonReddit:
         comment_responses = {"comments/abc123.json": comment_resp}
 
         with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
+            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
+            mock_cls.return_value = client
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         assert fetched == 1
@@ -458,8 +468,10 @@ class TestFullPipelineFlow:
         mock_resp.raise_for_status = MagicMock()
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             downloaded = download_content(engine, config, log)
 
         assert downloaded == 1
@@ -471,8 +483,8 @@ class TestFullPipelineFlow:
 
         # Step 4: Extract text from downloaded HTML
         with (
-            patch("aggre.content_extractor.trafilatura.extract", return_value="Full article body here"),
-            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Full article body here"),
+            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Great Article - Full"
@@ -508,7 +520,10 @@ class TestFullPipelineFlow:
         post_responses = {"hot.json": listing, "new.json": listing}
 
         with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
+            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
+            mock_cls.return_value = client
             count = collector.collect(engine, config.reddit, config.settings, log)
 
         assert count == 1
@@ -519,7 +534,10 @@ class TestFullPipelineFlow:
         comment_responses = {"comments/abc123.json": comment_resp}
 
         with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
+            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
+            mock_cls.return_value = client
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         assert fetched == 1
@@ -568,8 +586,10 @@ class TestContentFetcherIntegration:
         mock_resp.raise_for_status = MagicMock()
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 2
@@ -581,8 +601,8 @@ class TestContentFetcherIntegration:
                 assert row.fetch_status == "downloaded"
 
         with (
-            patch("aggre.content_extractor.trafilatura.extract", return_value="Extracted text"),
-            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Extracted text"),
+            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Article Title"
@@ -623,8 +643,10 @@ class TestContentFetcherIntegration:
 
         mock_client = MagicMock()
         mock_client.get.side_effect = Exception("Connection timeout")
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
@@ -656,8 +678,10 @@ class TestContentFetcherIntegration:
 
         mock_client = MagicMock()
         mock_client.get.side_effect = side_effect_get
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 3
@@ -677,8 +701,8 @@ class TestContentFetcherIntegration:
 
         # Now extract the downloaded one
         with (
-            patch("aggre.content_extractor.trafilatura.extract", return_value="Good body"),
-            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Good body"),
+            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Good Title"

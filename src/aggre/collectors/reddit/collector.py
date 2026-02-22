@@ -77,10 +77,9 @@ class RedditCollector(BaseCollector):
     def collect(self, engine: sa.engine.Engine, config: RedditConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
         """Fetch post listings only. Comments are fetched separately via collect_comments()."""
         total_new = 0
-        client = create_http_client(proxy_url=settings.proxy_url or None)
         rate_limit = settings.reddit_rate_limit
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for reddit_source in config.sources:
                 sub = reddit_source.subreddit
                 log.info("reddit.collecting", subreddit=sub)
@@ -117,8 +116,6 @@ class RedditCollector(BaseCollector):
 
                 log.info("reddit.discussions_stored", subreddit=sub, new=len(new_post_ids), total_seen=len(posts_by_id))
                 self._update_last_fetched(engine, source_id)
-        finally:
-            client.close()
 
         return total_new
 
@@ -142,10 +139,9 @@ class RedditCollector(BaseCollector):
 
         log.info("reddit.fetching_comments", pending=len(rows))
         rate_limit = settings.reddit_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
         fetched = 0
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for row in rows:
                 discussion_id = row.id
                 ext_id = row.external_id
@@ -173,8 +169,6 @@ class RedditCollector(BaseCollector):
                 fetched += 1
 
             log.info("reddit.comments_fetched", fetched=fetched, total_pending=len(rows))
-        finally:
-            client.close()
 
         return fetched
 

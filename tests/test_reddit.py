@@ -115,6 +115,8 @@ class TestRedditCollectorDiscussions:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
 
@@ -157,6 +159,8 @@ class TestRedditCollectorDiscussions:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
 
@@ -188,6 +192,8 @@ class TestRedditCollectorDiscussions:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
 
@@ -227,6 +233,8 @@ class TestRedditCollectorDiscussions:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = tracking_get
             mock_client_cls.return_value = client_instance
 
@@ -259,6 +267,8 @@ class TestRedditCollectorComments:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
             collector.collect(engine, config.reddit, config.settings, log)
@@ -274,6 +284,8 @@ class TestRedditCollectorComments:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
             mock_client_cls.return_value = client_instance
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
@@ -313,6 +325,8 @@ class TestRedditCollectorComments:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
             collector.collect(engine, config.reddit, config.settings, log)
@@ -329,6 +343,8 @@ class TestRedditCollectorComments:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
             mock_client_cls.return_value = client_instance
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=2)
@@ -375,6 +391,8 @@ class TestRedditCollectorComments:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
             collector.collect(engine, config.reddit, config.settings, log)
@@ -395,6 +413,8 @@ class TestRedditCollectorComments:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
             mock_client_cls.return_value = client_instance
             collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
@@ -444,6 +464,8 @@ class TestRedditCollectorRateLimit:
             patch("aggre.collectors.reddit.collector.time.sleep", side_effect=fake_sleep),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = fake_get
             mock_client_cls.return_value = client_instance
 
@@ -543,6 +565,8 @@ class TestRedditCollectorSources:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_client_cls.return_value = client_instance
 
@@ -569,6 +593,8 @@ class TestRedditCollectorSources:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_client_cls.return_value = client_instance
 
@@ -597,6 +623,8 @@ class TestRedditCollectorProxy:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_factory.return_value = client_instance
 
@@ -617,6 +645,8 @@ class TestRedditCollectorProxy:
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_factory.return_value = client_instance
 

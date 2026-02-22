@@ -7,7 +7,8 @@ import structlog
 
 from aggre.collectors.base import SearchableCollector
 from aggre.config import AppConfig
-from aggre.db import SilverContent, now_iso, update_content
+from aggre.db import SilverContent, update_content
+from aggre.utils.db import now_iso
 
 ENRICHMENT_SKIP_DOMAINS = frozenset(
     {

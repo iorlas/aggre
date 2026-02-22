@@ -30,9 +30,8 @@ class HuggingfaceCollector(BaseCollector):
             return 0
 
         total_new = 0
-        client = create_http_client(proxy_url=settings.proxy_url or None)
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for hf_source in config.sources:
                 log.info("huggingface.collecting", name=hf_source.name)
                 source_id = self._ensure_source(engine, hf_source.name)
@@ -59,8 +58,6 @@ class HuggingfaceCollector(BaseCollector):
 
                 log.info("huggingface.discussions_stored", new=total_new, total_seen=len(papers))
                 self._update_last_fetched(engine, source_id)
-        finally:
-            client.close()
 
         return total_new
 

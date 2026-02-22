@@ -9,7 +9,7 @@ import dagster as dg
 from dagster import OpExecutionContext
 
 from aggre.config import load_config
-from aggre.transcriber import transcribe
+from aggre.pipeline.transcriber import transcribe
 from aggre.utils.logging import setup_logging
 
 

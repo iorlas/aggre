@@ -82,6 +82,8 @@ def _mock_httpx_client(responses: dict):
         return resp
 
     client.get.side_effect = fake_get
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
     return client
 
 
@@ -187,6 +189,8 @@ class TestLobstersCollectorDiscussions:
                 return resp
 
             client.get.side_effect = fake_get
+            client.__enter__ = MagicMock(return_value=client)
+            client.__exit__ = MagicMock(return_value=False)
             return client
 
         with (
@@ -437,6 +441,8 @@ class TestLobstersSearchByUrl:
         resp_429 = MagicMock()
         resp_429.status_code = 429
         mock_client.get.return_value = resp_429
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
 
         with (
             patch("aggre.collectors.lobsters.collector.create_http_client", return_value=mock_client),

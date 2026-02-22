@@ -36,9 +36,8 @@ class LobstersCollector(BaseCollector):
 
         total_new = 0
         rate_limit = settings.lobsters_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for lob_source in config.sources:
                 log.info("lobsters.collecting", name=lob_source.name)
                 source_id = self._ensure_source(engine, lob_source.name)
@@ -78,8 +77,6 @@ class LobstersCollector(BaseCollector):
 
                 log.info("lobsters.discussions_stored", new=total_new, total_seen=len(stories_by_id))
                 self._update_last_fetched(engine, source_id)
-        finally:
-            client.close()
 
         return total_new
 
@@ -102,10 +99,9 @@ class LobstersCollector(BaseCollector):
 
         log.info("lobsters.fetching_comments", pending=len(rows))
         rate_limit = settings.lobsters_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
         fetched = 0
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for row in rows:
                 discussion_id = row.id
                 short_id = row.external_id
@@ -126,8 +122,6 @@ class LobstersCollector(BaseCollector):
                 fetched += 1
 
             log.info("lobsters.comments_fetched", fetched=fetched, total_pending=len(rows))
-        finally:
-            client.close()
 
         return fetched
 
@@ -147,24 +141,22 @@ class LobstersCollector(BaseCollector):
         # Use cached domain stories, or fetch and cache
         if domain not in self._domain_cache:
             rate_limit = settings.lobsters_rate_limit
-            client = create_http_client(proxy_url=settings.proxy_url or None)
             try:
-                search_url = f"{LOBSTERS_BASE}/domains/{domain}.json"
-                time.sleep(rate_limit)
+                with create_http_client(proxy_url=settings.proxy_url or None) as client:
+                    search_url = f"{LOBSTERS_BASE}/domains/{domain}.json"
+                    time.sleep(rate_limit)
 
-                resp = client.get(search_url)
-                if resp.status_code in (404, 429):
-                    self._domain_cache[domain] = []
-                    if resp.status_code == 429:
-                        log.warning("lobsters.rate_limited", domain=domain)
-                    return 0
-                resp.raise_for_status()
-                self._domain_cache[domain] = resp.json()
+                    resp = client.get(search_url)
+                    if resp.status_code in (404, 429):
+                        self._domain_cache[domain] = []
+                        if resp.status_code == 429:
+                            log.warning("lobsters.rate_limited", domain=domain)
+                        return 0
+                    resp.raise_for_status()
+                    self._domain_cache[domain] = resp.json()
             except Exception:
                 self._domain_cache[domain] = []
                 raise
-            finally:
-                client.close()
 
         stories = self._domain_cache[domain]
         if not stories:

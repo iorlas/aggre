@@ -8,9 +8,9 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.config import AppConfig
-from aggre.content_downloader import download_content
-from aggre.content_extractor import extract_html_text
 from aggre.db import SilverContent
+from aggre.pipeline.content_downloader import download_content
+from aggre.pipeline.content_extractor import extract_html_text
 from aggre.settings import Settings
 
 
@@ -70,9 +70,11 @@ class TestDownloadContent:
         mock_resp.headers = {"content-type": "text/html"}
 
         mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
@@ -89,9 +91,11 @@ class TestDownloadContent:
         _seed_content(engine, "https://example.com/broken", domain="example.com")
 
         mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.side_effect = Exception("Connection refused")
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
@@ -133,9 +137,11 @@ class TestDownloadContent:
         mock_resp.headers = {"content-type": "text/html"}
 
         mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log, max_workers=3)
 
         assert count == 3
@@ -154,9 +160,11 @@ class TestDownloadContent:
         mock_resp.status_code = 404
 
         mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
@@ -180,9 +188,11 @@ class TestDownloadContent:
         mock_resp.headers = {"content-type": "image/png"}
 
         mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
@@ -202,9 +212,11 @@ class TestDownloadContent:
         mock_resp.headers = {"content-type": "video/mp4"}
 
         mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
@@ -233,8 +245,8 @@ class TestExtractHtmlText:
         write_bronze_by_url("content", "https://example.com/article", "response", html, "html")
 
         with (
-            patch("aggre.content_extractor.trafilatura.extract", return_value="Article content here"),
-            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Article content here"),
+            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Test Article"
@@ -261,7 +273,7 @@ class TestExtractHtmlText:
 
         write_bronze_by_url("content", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
 
-        with patch("aggre.content_extractor.trafilatura.extract", side_effect=Exception("Parse error")):
+        with patch("aggre.pipeline.content_extractor.trafilatura.extract", side_effect=Exception("Parse error")):
             count = extract_html_text(engine, config, log)
 
         assert count == 1
@@ -297,8 +309,8 @@ class TestExtractHtmlText:
             write_bronze_by_url("content", url, "response", f"<html>content {i}</html>", "html")
 
         with (
-            patch("aggre.content_extractor.trafilatura.extract", return_value="text"),
-            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata", return_value=None),
+            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="text"),
+            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata", return_value=None),
         ):
             count = extract_html_text(engine, config, log, batch_limit=3)
 

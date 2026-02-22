@@ -32,9 +32,8 @@ class HackernewsCollector(BaseCollector):
 
         total_new = 0
         rate_limit = settings.hn_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for hn_source in config.sources:
                 log.info("hackernews.collecting", name=hn_source.name)
                 source_id = self._ensure_source(engine, hn_source.name)
@@ -64,8 +63,6 @@ class HackernewsCollector(BaseCollector):
 
                 log.info("hackernews.discussions_stored", new=total_new, total_hits=len(hits))
                 self._update_last_fetched(engine, source_id)
-        finally:
-            client.close()
 
         return total_new
 
@@ -88,10 +85,9 @@ class HackernewsCollector(BaseCollector):
 
         log.info("hackernews.fetching_comments", pending=len(rows))
         rate_limit = settings.hn_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
         fetched = 0
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for row in rows:
                 discussion_id = row.id
                 ext_id = row.external_id
@@ -112,8 +108,6 @@ class HackernewsCollector(BaseCollector):
                 fetched += 1
 
             log.info("hackernews.comments_fetched", fetched=fetched, total_pending=len(rows))
-        finally:
-            client.close()
 
         return fetched
 
@@ -126,10 +120,9 @@ class HackernewsCollector(BaseCollector):
         log: structlog.stdlib.BoundLogger,
     ) -> int:
         rate_limit = settings.hn_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
         new_count = 0
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             search_url = f"{HN_ALGOLIA_BASE}/search?query={url}&tags=story&restrictSearchableAttributes=url"
             time.sleep(rate_limit)
 
@@ -152,8 +145,6 @@ class HackernewsCollector(BaseCollector):
                     discussion_id = self._store_discussion(conn, source_id, object_id, hit)
                     if discussion_id is not None:
                         new_count += 1
-        finally:
-            client.close()
 
         return new_count
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import dagster as dg
 import sqlalchemy as sa
 
-from aggre.db import get_engine
+from aggre.utils.db import get_engine
 
 
 class DatabaseResource(dg.ConfigurableResource):

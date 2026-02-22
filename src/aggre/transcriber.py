@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import json
 
 import sqlalchemy as sa
 import structlog
 import yt_dlp
 from faster_whisper import WhisperModel
 
+from aggre.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
 from aggre.config import AppConfig
 from aggre.db import SilverContent, SilverDiscussion, _update_content
 from aggre.statuses import TranscriptionStatus
@@ -90,16 +91,24 @@ def transcribe(
         external_id = item.external_id
         log.info("transcribing_video", external_id=external_id, title=item.title)
 
-        audio_path: Path | None = None
+        # Cache check: if whisper.json exists in bronze, skip transcription
+        if bronze_exists("youtube", external_id, "whisper", "json"):
+            log.info("transcription_cached", external_id=external_id)
+            cached = json.loads(read_bronze("youtube", external_id, "whisper", "json"))
+            transcript = cached["transcript"] if isinstance(cached, dict) else ""
+            language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
+            transcription_completed(engine, content_id, body_text=transcript, detected_language=language)
+            processed += 1
+            continue
 
         try:
             # Mark as downloading
             transcription_downloading(engine, content_id)
 
-            # Download audio
-            temp_dir = Path(config.settings.youtube_temp_dir)
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            output_path = str(temp_dir / f"{external_id}.%(ext)s")
+            # Download audio to bronze
+            audio_dest = bronze_path("youtube", external_id, "audio", "opus")
+            audio_dest.parent.mkdir(parents=True, exist_ok=True)
+            output_path = str(audio_dest.parent / f"{external_id}.%(ext)s")
 
             ydl_opts = {
                 "format": "bestaudio/best",
@@ -121,14 +130,18 @@ def transcribe(
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([f"https://www.youtube.com/watch?v={external_id}"])
 
-            # Find the downloaded file
-            candidates = list(temp_dir.glob(f"{external_id}.*"))
+            # Find the downloaded file and move to bronze path
+            candidates = list(audio_dest.parent.glob(f"{external_id}.*"))
             if not candidates:
                 raise FileNotFoundError(f"No downloaded file found for {external_id}")
-            audio_path = candidates[0]
+            audio_file = candidates[0]
+
+            # If the downloaded file isn't already at the target path, rename it
+            if audio_file != audio_dest:
+                audio_file.rename(audio_dest)
 
             # Check audio file size (500MB limit)
-            file_size = audio_path.stat().st_size
+            file_size = audio_dest.stat().st_size
             if file_size > 500 * 1024 * 1024:
                 log.warning("audio_file_too_large", external_id=external_id, size_mb=file_size / (1024 * 1024))
                 transcription_failed(engine, content_id, error="Audio file exceeds 500MB limit")
@@ -140,8 +153,16 @@ def transcribe(
             # Transcribe — create model on first use if not provided
             if model is None:
                 model = create_whisper_model(config)
-            segments, info = model.transcribe(str(audio_path))
+            segments, info = model.transcribe(str(audio_dest))
             transcript = " ".join(seg.text for seg in segments)
+
+            # Write full whisper output to bronze
+            whisper_output = {
+                "transcript": transcript,
+                "language": info.language,
+                "language_probability": info.language_probability,
+            }
+            write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
 
             # Store result on SilverContent (body_text holds the transcript)
             transcription_completed(engine, content_id, body_text=transcript, detected_language=info.language)
@@ -152,9 +173,5 @@ def transcribe(
         except Exception as exc:
             log.exception("transcription_failed", external_id=external_id)
             transcription_failed(engine, content_id, error=str(exc))
-
-        finally:
-            if audio_path and audio_path.exists():
-                audio_path.unlink()
 
     return processed

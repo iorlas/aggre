@@ -13,13 +13,12 @@ from aggre.db import SilverContent
 from aggre.settings import Settings
 
 
-def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending", raw_html: str | None = None):
+def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending"):
     with engine.begin() as conn:
         stmt = pg_insert(SilverContent).values(
             canonical_url=url,
             domain=domain,
             fetch_status=fetch_status,
-            raw_html=raw_html,
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
         result = conn.execute(stmt)
@@ -80,7 +79,6 @@ class TestDownloadContent:
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.fetch_status == "downloaded"
-            assert row.raw_html == "<html><body><p>Article content here</p></body></html>"
             assert row.fetched_at is not None
 
     def test_handles_download_error(self, engine):
@@ -221,12 +219,17 @@ class TestExtractHtmlText:
         log = MagicMock()
         assert extract_html_text(engine, config, log) == 0
 
-    def test_extracts_text_from_downloaded(self, engine):
+    def test_extracts_text_from_downloaded(self, engine, tmp_path):
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
         html = "<html><body><p>Article content here</p></body></html>"
-        _seed_content(engine, "https://example.com/article", domain="example.com", fetch_status="downloaded", raw_html=html)
+        _seed_content(engine, "https://example.com/article", domain="example.com", fetch_status="downloaded")
+
+        # Write HTML to bronze so extract can read it
+        from aggre.bronze import write_bronze_by_url
+
+        write_bronze_by_url("content", "https://example.com/article", "response", html, "html")
 
         with (
             patch("aggre.content_fetcher.trafilatura.extract", return_value="Article content here"),
@@ -251,7 +254,11 @@ class TestExtractHtmlText:
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
-        _seed_content(engine, "https://example.com/bad-html", domain="example.com", fetch_status="downloaded", raw_html="<html>bad</html>")
+        _seed_content(engine, "https://example.com/bad-html", domain="example.com", fetch_status="downloaded")
+
+        from aggre.bronze import write_bronze_by_url
+
+        write_bronze_by_url("content", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
 
         with patch("aggre.content_fetcher.trafilatura.extract", side_effect=Exception("Parse error")):
             count = extract_html_text(engine, config, log)
@@ -276,14 +283,17 @@ class TestExtractHtmlText:
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
+        from aggre.bronze import write_bronze_by_url
+
         for i in range(5):
+            url = f"https://example.com/article-{i}"
             _seed_content(
                 engine,
-                f"https://example.com/article-{i}",
+                url,
                 domain="example.com",
                 fetch_status="downloaded",
-                raw_html=f"<html>content {i}</html>",
             )
+            write_bronze_by_url("content", url, "response", f"<html>content {i}</html>", "html")
 
         with (
             patch("aggre.content_fetcher.trafilatura.extract", return_value="text"),

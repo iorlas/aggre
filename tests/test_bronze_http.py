@@ -46,8 +46,12 @@ class TestFetchItemJson:
         log = MagicMock()
 
         result = fetch_item_json(
-            "hackernews", "12345", "https://hn.algolia.com/api/v1/items/12345",
-            client, log, bronze_root=tmp_path,
+            "hackernews",
+            "12345",
+            "https://hn.algolia.com/api/v1/items/12345",
+            client,
+            log,
+            bronze_root=tmp_path,
         )
 
         assert result == data
@@ -63,8 +67,12 @@ class TestFetchItemJson:
         log = MagicMock()
 
         result = fetch_item_json(
-            "hackernews", "12345", "https://hn.algolia.com/api/v1/items/12345",
-            client, log, bronze_root=tmp_path,
+            "hackernews",
+            "12345",
+            "https://hn.algolia.com/api/v1/items/12345",
+            client,
+            log,
+            bronze_root=tmp_path,
         )
 
         assert result == data
@@ -87,15 +95,21 @@ class TestFetchItemJson:
         """HTTP error propagates to caller."""
         resp = MagicMock(spec=httpx.Response)
         resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404 Not Found", request=MagicMock(), response=resp,
+            "404 Not Found",
+            request=MagicMock(),
+            response=resp,
         )
         client = _make_client(resp)
         log = MagicMock()
 
         with pytest.raises(httpx.HTTPStatusError):
             fetch_item_json(
-                "hackernews", "99999", "https://hn.algolia.com/api/v1/items/99999",
-                client, log, bronze_root=tmp_path,
+                "hackernews",
+                "99999",
+                "https://hn.algolia.com/api/v1/items/99999",
+                client,
+                log,
+                bronze_root=tmp_path,
             )
 
 
@@ -107,7 +121,11 @@ class TestFetchUrlText:
         log = MagicMock()
 
         result = fetch_url_text(
-            "fetch", "https://example.com/article", client, log, bronze_root=tmp_path,
+            "fetch",
+            "https://example.com/article",
+            client,
+            log,
+            bronze_root=tmp_path,
         )
 
         assert result == html
@@ -119,7 +137,12 @@ class TestFetchUrlText:
         html = "<html><body>Cached</body></html>"
         url = "https://example.com/cached-page"
         write_bronze(
-            "fetch", url_hash(url), "response", html, "html", bronze_root=tmp_path,
+            "fetch",
+            url_hash(url),
+            "response",
+            html,
+            "html",
+            bronze_root=tmp_path,
         )
 
         client = _make_client(_mock_text_response("<html>wrong</html>"))

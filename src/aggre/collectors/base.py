@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Protocol
 
 import sqlalchemy as sa
@@ -12,7 +13,8 @@ import structlog
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.db import BronzeDiscussion, SilverDiscussion, Source, now_iso
+from aggre.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
+from aggre.db import SilverDiscussion, Source, now_iso
 from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 
@@ -79,18 +81,9 @@ class BaseCollector:
             result = conn.execute(sa.insert(Source).values(type=self.source_type, name=name, config=cfg))
             return result.inserted_primary_key[0]
 
-    def _store_raw_item(self, conn: sa.Connection, ext_id: str, raw_data: object) -> int | None:
-        """Insert a BronzeDiscussion. Returns id if new, None if duplicate."""
-        stmt = pg_insert(BronzeDiscussion).values(
-            source_type=self.source_type,
-            external_id=ext_id,
-            raw_data=json.dumps(raw_data) if not isinstance(raw_data, str) else raw_data,
-        )
-        stmt = stmt.on_conflict_do_nothing(index_elements=["source_type", "external_id"])
-        result = conn.execute(stmt)
-        if result.rowcount == 0:
-            return None
-        return result.inserted_primary_key[0]
+    def _write_bronze(self, external_id: str, raw_data: object, *, bronze_root: Path = DEFAULT_BRONZE_ROOT) -> Path:
+        """Write raw item data to bronze filesystem."""
+        return write_bronze_json(self.source_type, external_id, raw_data, bronze_root=bronze_root)
 
     def _update_last_fetched(self, engine: sa.engine.Engine, source_id: int) -> None:
         """Update the last_fetched_at timestamp on a Source."""

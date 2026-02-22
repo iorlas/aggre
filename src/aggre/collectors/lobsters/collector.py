@@ -67,10 +67,12 @@ class LobstersCollector(BaseCollector):
                         if short_id and short_id not in stories_by_id:
                             stories_by_id[short_id] = story
 
+                for short_id, story in stories_by_id.items():
+                    self._write_bronze(short_id, story)
+
                 with engine.begin() as conn:
                     for short_id, story in stories_by_id.items():
-                        raw_id = self._store_raw_item(conn, short_id, story)
-                        discussion_id = self._store_discussion(conn, source_id, raw_id, short_id, story)
+                        discussion_id = self._store_discussion(conn, source_id, short_id, story)
                         if discussion_id is not None:
                             total_new += 1
 
@@ -181,8 +183,8 @@ class LobstersCollector(BaseCollector):
                 if not short_id:
                     continue
 
-                raw_id = self._store_raw_item(conn, short_id, story)
-                discussion_id = self._store_discussion(conn, source_id, raw_id, short_id, story)
+                self._write_bronze(short_id, story)
+                discussion_id = self._store_discussion(conn, source_id, short_id, story)
                 if discussion_id is not None:
                     new_count += 1
 
@@ -192,7 +194,6 @@ class LobstersCollector(BaseCollector):
         self,
         conn: sa.Connection,
         source_id: int,
-        raw_id: int | None,
         short_id: str,
         story: dict,
     ) -> int | None:
@@ -212,7 +213,6 @@ class LobstersCollector(BaseCollector):
 
         values = dict(
             source_id=source_id,
-            bronze_discussion_id=raw_id,
             source_type="lobsters",
             external_id=short_id,
             title=story.get("title"),

@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from aggre.collectors.reddit.collector import RedditCollector, _rate_limit_sleep
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.config import AppConfig
-from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.db import SilverDiscussion, Source
 from aggre.settings import Settings
 
 
@@ -123,11 +123,6 @@ class TestRedditCollectorDiscussions:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
-            assert len(raws) == 1
-            assert raws[0].external_id == "t3_abc123"
-            assert raws[0].source_type == "reddit"
-
             items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Post"
@@ -170,9 +165,6 @@ class TestRedditCollectorDiscussions:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
-            assert len(raws) == 1
-
             items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
 

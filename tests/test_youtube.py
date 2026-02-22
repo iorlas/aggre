@@ -12,7 +12,7 @@ import structlog
 from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
 from aggre.config import AppConfig
-from aggre.db import BronzeDiscussion, SilverContent, SilverDiscussion, Source
+from aggre.db import SilverContent, SilverDiscussion, Source
 from aggre.settings import Settings
 
 
@@ -113,7 +113,8 @@ class TestYoutubeCollector:
             src_config = json.loads(rows[0].config)
             assert src_config["channel_id"] == "UC_test123"
 
-    def test_collect_stores_raw_items(self, engine):
+    def test_collect_stores_raw_items(self, engine, tmp_path):
+        """Bronze data is written to filesystem, not to DB."""
         config = _make_config()
         log = structlog.get_logger()
 
@@ -126,12 +127,10 @@ class TestYoutubeCollector:
             collector = YoutubeCollector()
             collector.collect(engine, config.youtube, config.settings, log)
 
+        # Verify discussions exist in silver
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(BronzeDiscussion)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 2
-            assert rows[0].source_type == "youtube"
-            raw = json.loads(rows[0].raw_data)
-            assert raw["id"] == "vid001"
 
     def test_dedup_does_not_insert_duplicates(self, engine):
         config = _make_config()

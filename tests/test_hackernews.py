@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.config import AppConfig
-from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.db import SilverDiscussion, Source
 from aggre.settings import Settings
 
 
@@ -99,11 +99,6 @@ class TestHackernewsCollectorDiscussions:
         assert count == 1
 
         with engine.connect() as conn:
-            raws = conn.execute(sa.select(BronzeDiscussion)).fetchall()
-            assert len(raws) == 1
-            assert raws[0].external_id == "12345"
-            assert raws[0].source_type == "hackernews"
-
             items = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Story"
@@ -138,7 +133,6 @@ class TestHackernewsCollectorDiscussions:
         assert count2 == 0
 
         with engine.connect() as conn:
-            assert conn.execute(sa.select(sa.func.count()).select_from(BronzeDiscussion)).scalar() == 1
             assert conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar() == 1
 
     def test_multiple_stories(self, engine):

@@ -52,8 +52,8 @@ class HuggingfaceCollector(BaseCollector):
                         if not paper_id:
                             continue
 
-                        raw_id = self._store_raw_item(conn, paper_id, item)
-                        discussion_id = self._store_discussion(conn, source_id, raw_id, paper_id, item)
+                        self._write_bronze(paper_id, item)
+                        discussion_id = self._store_discussion(conn, source_id, paper_id, item)
                         if discussion_id is not None:
                             total_new += 1
 
@@ -68,7 +68,6 @@ class HuggingfaceCollector(BaseCollector):
         self,
         conn: sa.Connection,
         source_id: int,
-        raw_id: int | None,
         paper_id: str,
         item: dict,
     ) -> int | None:
@@ -95,7 +94,6 @@ class HuggingfaceCollector(BaseCollector):
 
         values = dict(
             source_id=source_id,
-            bronze_discussion_id=raw_id,
             source_type="huggingface",
             external_id=paper_id,
             title=paper.get("title"),

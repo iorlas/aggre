@@ -29,17 +29,6 @@ class Source(Base):
     last_fetched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
-class BronzeDiscussion(Base):
-    __tablename__ = "bronze_discussions"
-    __table_args__ = (sa.UniqueConstraint("source_type", "external_id"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    external_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    raw_data: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    fetched_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
-
-
 class SilverContent(Base):
     __tablename__ = "silver_content"
 
@@ -48,7 +37,6 @@ class SilverContent(Base):
     domain: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     title: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     body_text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    raw_html: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     fetch_status: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="pending")
     fetch_error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     fetched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
@@ -67,7 +55,6 @@ class SilverDiscussion(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     source_id: Mapped[int | None] = mapped_column(sa.ForeignKey("sources.id"), nullable=True)
-    bronze_discussion_id: Mapped[int | None] = mapped_column(sa.ForeignKey("bronze_discussions.id"), nullable=True)
     content_id: Mapped[int | None] = mapped_column(sa.ForeignKey("silver_content.id"), nullable=True)
     source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     external_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -83,10 +70,6 @@ class SilverDiscussion(Base):
     score: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     comment_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
-
-# Bronze indexes
-sa.Index("idx_bronze_discussions_source_type", BronzeDiscussion.source_type)
-sa.Index("idx_bronze_discussions_external", BronzeDiscussion.source_type, BronzeDiscussion.external_id)
 
 # SilverContent indexes
 sa.Index("idx_silver_content_domain", SilverContent.domain, postgresql_where=SilverContent.domain.isnot(None))

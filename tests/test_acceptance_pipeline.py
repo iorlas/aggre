@@ -18,7 +18,7 @@ from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
 from aggre.content_fetcher import download_content, extract_html_text
-from aggre.db import BronzeDiscussion, SilverContent, SilverDiscussion
+from aggre.db import SilverContent, SilverDiscussion
 from aggre.settings import Settings
 
 # ---------------------------------------------------------------------------
@@ -434,13 +434,6 @@ class TestFullPipelineFlow:
 
         assert count == 1
 
-        # Verify BronzeDiscussion exists
-        with engine.connect() as conn:
-            bronze = conn.execute(sa.select(BronzeDiscussion)).fetchall()
-            assert len(bronze) == 1
-            assert bronze[0].source_type == "rss"
-            assert bronze[0].external_id == "rss-1"
-
         # Verify SilverDiscussion exists with content_id
         with engine.connect() as conn:
             disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
@@ -474,7 +467,6 @@ class TestFullPipelineFlow:
         with engine.connect() as conn:
             content = conn.execute(sa.select(SilverContent)).fetchone()
             assert content.fetch_status == "downloaded"
-            assert content.raw_html is not None
 
         # Step 4: Extract text from downloaded HTML
         with (
@@ -489,7 +481,7 @@ class TestFullPipelineFlow:
 
         assert extracted == 1
 
-        # Verify full chain: BronzeDiscussion -> SilverDiscussion -> SilverContent
+        # Verify full chain: SilverDiscussion -> SilverContent
         with engine.connect() as conn:
             disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert disc.content_id is not None
@@ -499,11 +491,6 @@ class TestFullPipelineFlow:
             assert content.body_text == "Full article body here"
             assert content.title == "Great Article - Full"
             assert content.fetched_at is not None
-
-            # Bronze post is linked
-            bp = conn.execute(sa.select(BronzeDiscussion).where(BronzeDiscussion.id == disc.bronze_discussion_id)).fetchone()
-            assert bp is not None
-            assert bp.source_type == "rss"
 
     def test_reddit_pipeline_with_comments(self, engine):
         """Reddit collect -> collect_comments -> verify discussion with comments."""
@@ -545,10 +532,6 @@ class TestFullPipelineFlow:
             assert disc.comment_count == 1
 
             assert disc.comments_status == "done"
-
-            bronze = conn.execute(sa.select(BronzeDiscussion)).fetchone()
-            assert bronze is not None
-            assert disc.bronze_discussion_id == bronze.id
 
 
 # ===========================================================================
@@ -595,7 +578,6 @@ class TestContentFetcherIntegration:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
             for row in rows:
                 assert row.fetch_status == "downloaded"
-                assert row.raw_html == "<html><body>Content</body></html>"
 
         with (
             patch("aggre.content_fetcher.trafilatura.extract", return_value="Extracted text"),
@@ -684,7 +666,6 @@ class TestContentFetcherIntegration:
 
             # good article — downloaded (not yet extracted)
             assert rows[0].fetch_status == "downloaded"
-            assert rows[0].raw_html == "<html><body>Good content</body></html>"
 
             # youtube skipped
             assert rows[1].fetch_status == "skipped"

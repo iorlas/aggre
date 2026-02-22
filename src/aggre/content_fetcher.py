@@ -9,6 +9,7 @@ import sqlalchemy as sa
 import structlog
 import trafilatura
 
+from aggre.bronze import read_bronze_by_url, write_bronze_by_url
 from aggre.config import AppConfig
 from aggre.db import SilverContent, _update_content, now_iso
 from aggre.http import create_http_client
@@ -41,9 +42,9 @@ def content_skipped(engine: sa.engine.Engine, content_id: int) -> None:
     _update_content(engine, content_id, fetch_status=FetchStatus.SKIPPED, fetched_at=now_iso())
 
 
-def content_downloaded(engine: sa.engine.Engine, content_id: int, *, raw_html: str) -> None:
-    """PENDING → DOWNLOADED"""
-    _update_content(engine, content_id, raw_html=raw_html, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
+def content_downloaded(engine: sa.engine.Engine, content_id: int) -> None:
+    """PENDING → DOWNLOADED (HTML saved to bronze)"""
+    _update_content(engine, content_id, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
 
 
 def content_fetched(engine: sa.engine.Engine, content_id: int, *, body_text: str | None, title: str | None) -> None:
@@ -64,7 +65,7 @@ def _download_one(
     url: str,
     domain: str | None,
 ) -> int:
-    """Download a single URL and store raw_html. Returns 1 on success, 0 on skip."""
+    """Download a single URL and store HTML in bronze. Returns 1 on success, 0 on skip."""
     # Pre-request skips: YouTube (saves bandwidth), PDFs
     if domain and domain in SKIP_DOMAINS:
         content_skipped(engine, content_id)
@@ -92,7 +93,8 @@ def _download_one(
             content_skipped(engine, content_id)
             return 1
 
-        content_downloaded(engine, content_id, raw_html=resp.text)
+        write_bronze_by_url("content", url, "response", resp.text, "html")
+        content_downloaded(engine, content_id)
         log.info("content_fetcher.downloaded", url=url)
         return 1
 
@@ -155,7 +157,7 @@ def extract_html_text(
     """Extract text from downloaded HTML using trafilatura (single-threaded, CPU-bound)."""
     with engine.connect() as conn:
         rows = conn.execute(
-            sa.select(SilverContent.id, SilverContent.canonical_url, SilverContent.raw_html)
+            sa.select(SilverContent.id, SilverContent.canonical_url)
             .where(SilverContent.fetch_status == FetchStatus.DOWNLOADED)
             .order_by(SilverContent.created_at.asc())
             .limit(batch_limit)
@@ -171,7 +173,7 @@ def extract_html_text(
     for row in rows:
         content_id = row.id
         url = row.canonical_url
-        html = row.raw_html
+        html = read_bronze_by_url("content", url, "response", "html")
 
         try:
             # Extract text with 90s timeout

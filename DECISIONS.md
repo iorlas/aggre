@@ -29,3 +29,31 @@ The `run_loop` function takes a callable and logs its return value. Changed `Cal
 ## [typing] — str | None for normalize_url/extract_domain — because callers pass None and the functions handle it
 
 `normalize_url(url: str)` and `extract_domain(url: str)` both start with `if not url: return None`, but were typed as `str`-only. Tests pass `None` (which is realistic — URL fields are nullable). Changed to `str | None` to match actual behavior and fix ty type errors.
+
+---
+
+# Dagster Migration Decisions
+
+## [orchestration] — Dagster over Airflow/Prefect — because medallion guidelines prescribe Dagster sensors + cursors
+
+The medallion guidelines document explicitly prescribes Dagster sensors with `context.cursor` for incremental processing, Dagster assets for data artifacts, and Dagster schedules for batch/backfill. No reason to evaluate alternatives when the architecture doc already decided.
+
+## [dagster-layout] — src/aggre/dagster_defs/ over separate dagster project — because single package keeps shared code accessible
+
+Dagster definitions live inside the aggre package as `dagster_defs/` sub-package. This avoids cross-package imports for shared code (db.py, bronze.py, collectors/). The `[tool.dagster]` config in pyproject.toml points to this module.
+
+## [bronze-storage] — directory-per-item over flat files — because medallion guidelines prescribe this pattern
+
+Raw API responses stored as `data/bronze/{source_type}/{external_id}/raw.json`. Each item gets its own directory to colocate related artifacts (raw JSON, audio, whisper output). SQLite reserved for content-addressed caches per guidelines.
+
+## [db-migration] — nuke all Alembic migrations — because backward compatibility explicitly abandoned
+
+User said "screw backward compatibility, feel free to nuke code, data, anything." All existing migrations deleted. Single fresh `001_initial.py` with clean schema (no bronze_discussions, no raw_html).
+
+## [bronze-removal] — drop bronze_discussions table — because raw data belongs in filesystem per medallion guidelines
+
+`bronze_discussions` stored raw API JSON in PostgreSQL. Medallion guidelines: "Bronze: raw external data. Filesystem. Immutable." Moved to `data/bronze/{source_type}/{external_id}/raw.json`. PostgreSQL only holds silver (transformed, queryable).
+
+## [fetch-status] — keep DOWNLOADED state — because two-phase content processing is still needed
+
+Content fetching has two phases: HTTP download (raw HTML → bronze filesystem) then text extraction (trafilatura → silver body_text). DOWNLOADED marks "HTML in bronze, text not yet extracted." Simpler than trying to make it single-phase.

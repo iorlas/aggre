@@ -58,12 +58,12 @@ class TestAlembicMigration:
         table_names = set(inspector.get_table_names())
 
         # Tables that SHOULD exist after upgrade head
-        assert "bronze_discussions" in table_names  # renamed from bronze_posts by migration 002
         assert "silver_content" in table_names
         assert "silver_discussions" in table_names
         assert "sources" in table_names
 
-        # Tables that should NOT exist (dropped or renamed)
+        # Tables that should NOT exist (removed)
+        assert "bronze_discussions" not in table_names
         assert "silver_comments" not in table_names
         assert "bronze_comments" not in table_names
         assert "silver_posts" not in table_names

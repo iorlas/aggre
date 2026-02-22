@@ -49,10 +49,9 @@ class RssCollector(BaseCollector):
                     continue
 
                 raw_data = json.dumps(dict(entry))
+                self._write_bronze(external_id, raw_data)
 
                 with engine.begin() as conn:
-                    raw_id = self._store_raw_item(conn, external_id, raw_data)
-
                     # Extract content fields
                     content_text = entry.get("summary") or ""
                     if not content_text:
@@ -75,7 +74,6 @@ class RssCollector(BaseCollector):
 
                     values = dict(
                         source_id=source_id,
-                        bronze_discussion_id=raw_id,
                         source_type="rss",
                         external_id=external_id,
                         title=entry.get("title"),

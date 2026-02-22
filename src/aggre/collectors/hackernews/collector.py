@@ -57,8 +57,8 @@ class HackernewsCollector(BaseCollector):
                         if not object_id:
                             continue
 
-                        raw_id = self._store_raw_item(conn, object_id, hit)
-                        discussion_id = self._store_discussion(conn, source_id, raw_id, object_id, hit)
+                        self._write_bronze(object_id, hit)
+                        discussion_id = self._store_discussion(conn, source_id, object_id, hit)
                         if discussion_id is not None:
                             total_new += 1
 
@@ -148,8 +148,8 @@ class HackernewsCollector(BaseCollector):
                     if not object_id:
                         continue
 
-                    raw_id = self._store_raw_item(conn, object_id, hit)
-                    discussion_id = self._store_discussion(conn, source_id, raw_id, object_id, hit)
+                    self._write_bronze(object_id, hit)
+                    discussion_id = self._store_discussion(conn, source_id, object_id, hit)
                     if discussion_id is not None:
                         new_count += 1
         finally:
@@ -161,7 +161,6 @@ class HackernewsCollector(BaseCollector):
         self,
         conn: sa.Connection,
         source_id: int,
-        raw_id: int | None,
         ext_id: str,
         hit: dict,
     ) -> int | None:
@@ -179,7 +178,6 @@ class HackernewsCollector(BaseCollector):
 
         values = dict(
             source_id=source_id,
-            bronze_discussion_id=raw_id,
             source_type="hackernews",
             external_id=ext_id,
             title=hit.get("title"),

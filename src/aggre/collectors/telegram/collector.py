@@ -96,11 +96,10 @@ class TelegramCollector(BaseCollector):
                     "forwards": forwards,
                 }
 
-                raw_id = self._store_raw_item(conn, external_id, raw_data)
+                self._write_bronze(external_id, raw_data)
 
                 values = dict(
                     source_id=source_id,
-                    bronze_discussion_id=raw_id,
                     source_type="telegram",
                     external_id=external_id,
                     title=title,

@@ -91,10 +91,9 @@ class YoutubeCollector(BaseCollector):
                 )
 
                 raw_data = json.dumps(entry)
+                self._write_bronze(external_id, raw_data)
 
                 with engine.begin() as conn:
-                    raw_id = self._store_raw_item(conn, external_id, raw_data)
-
                     video_url = f"https://www.youtube.com/watch?v={external_id}"
 
                     # Create content entry for the video URL
@@ -127,7 +126,6 @@ class YoutubeCollector(BaseCollector):
 
                     values = dict(
                         source_id=source_id,
-                        bronze_discussion_id=raw_id,
                         source_type="youtube",
                         external_id=external_id,
                         title=entry.get("title"),

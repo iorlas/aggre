@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
-from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.db import SilverDiscussion, Source
 
 
 def _make_config(*rss_sources):
@@ -89,12 +89,6 @@ class TestRssCollector:
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
 
         with engine.connect() as conn:
-            # Check bronze_discussions
-            rows = conn.execute(sa.select(BronzeDiscussion)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].source_type == "rss"
-            assert rows[0].external_id == "post-1"
-
             # Check silver_discussions
             rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 1
@@ -105,7 +99,6 @@ class TestRssCollector:
             assert rows[0].published_at == "2025-06-01T12:00:00Z"
             assert rows[0].source_type == "rss"
             assert rows[0].external_id == "post-1"
-            assert rows[0].bronze_discussion_id is not None
 
     def test_duplicate_items_skipped(self, engine):
         config = _make_config(RssSource(name="Test Blog", url="https://example.com/feed.xml"))
@@ -122,9 +115,7 @@ class TestRssCollector:
         assert count2 == 0
 
         with engine.connect() as conn:
-            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzeDiscussion)).scalar()
             content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar()
-            assert raw_count == 1
             assert content_count == 1
 
     def test_source_row_created(self, engine):
@@ -186,9 +177,7 @@ class TestRssCollector:
         assert count == 3
 
         with engine.connect() as conn:
-            raw_count = conn.execute(sa.select(sa.func.count()).select_from(BronzeDiscussion)).scalar()
             content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar()
-            assert raw_count == 3
             assert content_count == 3
 
     def test_entry_uses_link_as_fallback_id(self, engine):

@@ -108,8 +108,8 @@ class RedditCollector(BaseCollector):
                 new_post_ids: list[str] = []
                 with engine.begin() as conn:
                     for ext_id, post_data in posts_by_id.items():
-                        raw_id = self._store_raw_item(conn, ext_id, post_data)
-                        discussion_id = self._store_discussion(conn, source_id, raw_id, ext_id, post_data, sub)
+                        self._write_bronze(ext_id, post_data)
+                        discussion_id = self._store_discussion(conn, source_id, ext_id, post_data, sub)
                         if discussion_id is not None:
                             new_post_ids.append(ext_id)
                             total_new += 1
@@ -181,7 +181,6 @@ class RedditCollector(BaseCollector):
         self,
         conn: sa.Connection,
         source_id: int,
-        raw_id: int | None,
         ext_id: str,
         post_data: dict,
         subreddit: str,
@@ -203,7 +202,6 @@ class RedditCollector(BaseCollector):
 
         values = dict(
             source_id=source_id,
-            bronze_discussion_id=raw_id,
             source_type="reddit",
             external_id=ext_id,
             title=post_data.get("title"),

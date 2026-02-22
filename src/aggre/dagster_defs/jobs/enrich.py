@@ -12,7 +12,7 @@ from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.config import load_config
 from aggre.enrichment import enrich_content_discussions
-from aggre.logging import setup_logging
+from aggre.utils.logging import setup_logging
 
 
 @dg.op

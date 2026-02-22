@@ -18,10 +18,10 @@ from tenacity import (
 
 from aggre.collectors.base import BaseCollector
 from aggre.collectors.reddit.config import RedditConfig
-from aggre.http import create_http_client
 from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
+from aggre.utils.http import create_http_client
 
 # Columns to update on re-insert (scores/titles always fresh)
 _UPSERT_COLS = ("title", "author", "url", "content_text", "meta", "score", "comment_count")

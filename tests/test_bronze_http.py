@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from aggre.bronze import url_hash, write_bronze, write_bronze_json
-from aggre.bronze_http import fetch_item_json, fetch_url_text
+from aggre.utils.bronze import url_hash, write_bronze, write_bronze_json
+from aggre.utils.bronze_http import fetch_item_json, fetch_url_text
 
 
 def _mock_json_response(data: object, status_code: int = 200) -> MagicMock:

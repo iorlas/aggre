@@ -227,7 +227,7 @@ class TestExtractHtmlText:
         _seed_content(engine, "https://example.com/article", domain="example.com", fetch_status="downloaded")
 
         # Write HTML to bronze so extract can read it
-        from aggre.bronze import write_bronze_by_url
+        from aggre.utils.bronze import write_bronze_by_url
 
         write_bronze_by_url("content", "https://example.com/article", "response", html, "html")
 
@@ -256,7 +256,7 @@ class TestExtractHtmlText:
 
         _seed_content(engine, "https://example.com/bad-html", domain="example.com", fetch_status="downloaded")
 
-        from aggre.bronze import write_bronze_by_url
+        from aggre.utils.bronze import write_bronze_by_url
 
         write_bronze_by_url("content", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
 
@@ -283,7 +283,7 @@ class TestExtractHtmlText:
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
-        from aggre.bronze import write_bronze_by_url
+        from aggre.utils.bronze import write_bronze_by_url
 
         for i in range(5):
             url = f"https://example.com/article-{i}"

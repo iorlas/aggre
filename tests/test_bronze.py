@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aggre.bronze import (
+from aggre.utils.bronze import (
     bronze_exists,
     bronze_exists_by_url,
     bronze_path,

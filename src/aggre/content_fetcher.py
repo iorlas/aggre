@@ -9,11 +9,11 @@ import sqlalchemy as sa
 import structlog
 import trafilatura
 
-from aggre.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.config import AppConfig
 from aggre.db import SilverContent, _update_content, now_iso
-from aggre.http import create_http_client
 from aggre.statuses import FetchStatus
+from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
+from aggre.utils.http import create_http_client
 
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
 SKIP_EXTENSIONS = (".pdf",)

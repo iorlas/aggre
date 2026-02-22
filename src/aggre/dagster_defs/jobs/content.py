@@ -10,7 +10,7 @@ from dagster import OpExecutionContext
 
 from aggre.config import load_config
 from aggre.content_fetcher import download_content, extract_html_text
-from aggre.logging import setup_logging
+from aggre.utils.logging import setup_logging
 
 
 @dg.op

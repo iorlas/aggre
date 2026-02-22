@@ -10,9 +10,9 @@ import structlog
 from aggre.collectors.base import BaseCollector
 from aggre.collectors.huggingface.config import HuggingfaceConfig
 from aggre.db import SilverContent
-from aggre.http import create_http_client
 from aggre.settings import Settings
 from aggre.urls import ensure_content
+from aggre.utils.http import create_http_client
 
 HF_API_URL = "https://huggingface.co/api/daily_papers"
 

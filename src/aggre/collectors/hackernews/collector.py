@@ -10,10 +10,10 @@ import structlog
 
 from aggre.collectors.base import BaseCollector
 from aggre.collectors.hackernews.config import HackernewsConfig
-from aggre.http import create_http_client
 from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
+from aggre.utils.http import create_http_client
 
 HN_ALGOLIA_BASE = "https://hn.algolia.com/api/v1"
 

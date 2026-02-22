@@ -13,10 +13,10 @@ import structlog
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
 from aggre.db import SilverDiscussion, Source, now_iso
 from aggre.settings import Settings
 from aggre.statuses import CommentsStatus
+from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
 
 
 def all_sources_recent(engine: sa.engine.Engine, source_type: str, ttl_minutes: int) -> bool:

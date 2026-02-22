@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from aggre.collectors import COLLECTORS
 from aggre.config import load_config
 from aggre.db import SilverContent, SilverDiscussion, Source, get_engine
-from aggre.logging import setup_logging
 from aggre.statuses import TranscriptionStatus
+from aggre.utils.logging import setup_logging
 
 
 @click.group()

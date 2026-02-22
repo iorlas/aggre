@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import structlog
 
-from aggre.bronze import (
+from aggre.utils.bronze import (
     DEFAULT_BRONZE_ROOT,
     bronze_exists,
     bronze_exists_by_url,

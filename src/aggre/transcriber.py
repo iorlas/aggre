@@ -9,10 +9,10 @@ import structlog
 import yt_dlp
 from faster_whisper import WhisperModel
 
-from aggre.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
 from aggre.config import AppConfig
 from aggre.db import SilverContent, SilverDiscussion, _update_content
 from aggre.statuses import TranscriptionStatus
+from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
 
 # -- Transcription state transitions -------------------------------------------
 

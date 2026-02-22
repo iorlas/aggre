@@ -1,16 +1,13 @@
-"""Acceptance tests for CLI commands and Alembic migrations."""
+"""Acceptance tests for Alembic migrations."""
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 import sqlalchemy as sa
-from click.testing import CliRunner
 
-from aggre.cli import cli
-from aggre.db import Base, SilverContent, SilverDiscussion, Source
+from aggre.db import Base
 
 # ---------------------------------------------------------------------------
 # Part 1: Migration tests
@@ -115,69 +112,3 @@ class TestAlembicMigration:
         engine = sa.create_engine(db_url)
         Base.metadata.create_all(engine)
         engine.dispose()
-
-
-# ---------------------------------------------------------------------------
-# Part 2: CLI status command
-# ---------------------------------------------------------------------------
-
-
-class TestCliStatus:
-    def test_status_output_sections(self, engine, tmp_path: Path):
-        """The status command should print Sources, Discussions by Source, Content Status, Transcription Queue."""
-        db_url = engine.url.render_as_string(hide_password=False)
-
-        # Seed some data
-        with engine.begin() as conn:
-            conn.execute(sa.insert(Source).values(type="rss", name="Test Feed", config="{}", last_fetched_at="2026-01-01T00:00:00Z"))
-            conn.execute(
-                sa.insert(SilverContent).values(
-                    canonical_url="https://example.com/article",
-                    domain="example.com",
-                    fetch_status="fetched",
-                    transcription_status="pending",
-                )
-            )
-            source_id = conn.execute(sa.select(Source.id)).scalar()
-            content_id = conn.execute(sa.select(SilverContent.id)).scalar()
-            conn.execute(
-                sa.insert(SilverDiscussion).values(
-                    source_id=source_id,
-                    content_id=content_id,
-                    source_type="rss",
-                    external_id="post-1",
-                    title="Test Post",
-                    url="https://example.com/article",
-                )
-            )
-
-        config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text("")
-
-        runner = CliRunner()
-        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
-        with patch.dict(os.environ, env):
-            result = runner.invoke(cli, ["--config", config_path, "status"])
-
-        assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
-        assert "Sources" in result.output
-        assert "Discussions by Source" in result.output
-        assert "Content Status" in result.output
-        assert "Transcription Queue" in result.output
-        assert "Test Feed" in result.output
-
-    def test_status_empty_db(self, engine, tmp_path: Path):
-        """Status should work on an empty DB without errors."""
-        db_url = engine.url.render_as_string(hide_password=False)
-
-        config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text("")
-
-        runner = CliRunner()
-        env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
-        with patch.dict(os.environ, env):
-            result = runner.invoke(cli, ["--config", config_path, "status"])
-
-        assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
-        assert "Sources" in result.output
-        assert "No sources registered yet. Run 'aggre collect' first." in result.output

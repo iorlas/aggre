@@ -131,8 +131,8 @@ class TestRunOnceCommand:
             for p in _collector_patches({"rss": mock_rss}):
                 stack.enter_context(p)
             stack.enter_context(patch("aggre.collectors.base.all_sources_recent", return_value=False))
-            stack.enter_context(patch("aggre.content_fetcher.download_content", side_effect=mock_download))
-            stack.enter_context(patch("aggre.content_fetcher.extract_html_text", side_effect=mock_extract))
+            stack.enter_context(patch("aggre.content_downloader.download_content", side_effect=mock_download))
+            stack.enter_context(patch("aggre.content_extractor.extract_html_text", side_effect=mock_extract))
             stack.enter_context(patch("aggre.transcriber.transcribe", side_effect=mock_transcribe))
             stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", side_effect=mock_enrich))
 
@@ -161,8 +161,8 @@ class TestRunOnceCommand:
             stack.enter_context(patch.dict(os.environ, env))
             for p in _collector_patches({"rss": mock_rss}):
                 stack.enter_context(p)
-            stack.enter_context(patch("aggre.content_fetcher.download_content", return_value=0))
-            stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
+            stack.enter_context(patch("aggre.content_downloader.download_content", return_value=0))
+            stack.enter_context(patch("aggre.content_extractor.extract_html_text", return_value=0))
             stack.enter_context(patch("aggre.transcriber.transcribe", return_value=0))
             stack.enter_context(
                 patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0})
@@ -195,8 +195,8 @@ class TestRunOnceCommand:
             for p in _collector_patches():
                 stack.enter_context(p)
             stack.enter_context(patch("aggre.collectors.base.all_sources_recent", return_value=False))
-            stack.enter_context(patch("aggre.content_fetcher.download_content", return_value=0))
-            stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
+            stack.enter_context(patch("aggre.content_downloader.download_content", return_value=0))
+            stack.enter_context(patch("aggre.content_extractor.extract_html_text", return_value=0))
             mock_tr = stack.enter_context(patch("aggre.transcriber.transcribe", return_value=0))
             stack.enter_context(
                 patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0})
@@ -228,8 +228,8 @@ class TestRunOnceCommand:
             for p in _collector_patches():
                 stack.enter_context(p)
             stack.enter_context(patch("aggre.collectors.base.all_sources_recent", return_value=False))
-            stack.enter_context(patch("aggre.content_fetcher.download_content", side_effect=lambda *a, **kw: next(download_returns)))
-            stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
+            stack.enter_context(patch("aggre.content_downloader.download_content", side_effect=lambda *a, **kw: next(download_returns)))
+            stack.enter_context(patch("aggre.content_extractor.extract_html_text", return_value=0))
             stack.enter_context(
                 patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0})
             )

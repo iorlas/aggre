@@ -17,7 +17,8 @@ from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
-from aggre.content_fetcher import download_content, extract_html_text
+from aggre.content_downloader import download_content
+from aggre.content_extractor import extract_html_text
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.settings import Settings
 
@@ -458,7 +459,7 @@ class TestFullPipelineFlow:
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
             downloaded = download_content(engine, config, log)
 
         assert downloaded == 1
@@ -470,8 +471,8 @@ class TestFullPipelineFlow:
 
         # Step 4: Extract text from downloaded HTML
         with (
-            patch("aggre.content_fetcher.trafilatura.extract", return_value="Full article body here"),
-            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.content_extractor.trafilatura.extract", return_value="Full article body here"),
+            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Great Article - Full"
@@ -568,7 +569,7 @@ class TestContentFetcherIntegration:
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 2
@@ -580,8 +581,8 @@ class TestContentFetcherIntegration:
                 assert row.fetch_status == "downloaded"
 
         with (
-            patch("aggre.content_fetcher.trafilatura.extract", return_value="Extracted text"),
-            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.content_extractor.trafilatura.extract", return_value="Extracted text"),
+            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Article Title"
@@ -623,7 +624,7 @@ class TestContentFetcherIntegration:
         mock_client = MagicMock()
         mock_client.get.side_effect = Exception("Connection timeout")
 
-        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
@@ -656,7 +657,7 @@ class TestContentFetcherIntegration:
         mock_client = MagicMock()
         mock_client.get.side_effect = side_effect_get
 
-        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+        with patch("aggre.content_downloader.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 3
@@ -676,8 +677,8 @@ class TestContentFetcherIntegration:
 
         # Now extract the downloaded one
         with (
-            patch("aggre.content_fetcher.trafilatura.extract", return_value="Good body"),
-            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.content_extractor.trafilatura.extract", return_value="Good body"),
+            patch("aggre.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Good Title"

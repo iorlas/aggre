@@ -1,4 +1,4 @@
-"""Content fetcher — download and extract article text via trafilatura."""
+"""Content downloader — fetch HTML from URLs and store in bronze."""
 
 from __future__ import annotations
 
@@ -7,12 +7,11 @@ import concurrent.futures
 import httpx
 import sqlalchemy as sa
 import structlog
-import trafilatura
 
 from aggre.config import AppConfig
 from aggre.db import SilverContent, now_iso, update_content
 from aggre.statuses import FetchStatus
-from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
+from aggre.utils.bronze import bronze_exists_by_url, write_bronze_by_url
 from aggre.utils.http import create_http_client
 
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
@@ -47,11 +46,6 @@ def content_downloaded(engine: sa.engine.Engine, content_id: int) -> None:
     update_content(engine, content_id, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
 
 
-def content_fetched(engine: sa.engine.Engine, content_id: int, *, body_text: str | None, title: str | None) -> None:
-    """DOWNLOADED → FETCHED"""
-    update_content(engine, content_id, body_text=body_text, title=title, fetch_status=FetchStatus.FETCHED, fetched_at=now_iso())
-
-
 def content_fetch_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
     """any → FAILED"""
     update_content(engine, content_id, fetch_status=FetchStatus.FAILED, fetch_error=error, fetched_at=now_iso())
@@ -78,7 +72,7 @@ def _download_one(
     # Bronze read-through cache: skip HTTP fetch if already downloaded
     if bronze_exists_by_url("content", url, "response", "html"):
         content_downloaded(engine, content_id)
-        log.info("content_fetcher.bronze_hit", url=url)
+        log.info("content_downloader.bronze_hit", url=url)
         return 1
 
     try:
@@ -86,7 +80,7 @@ def _download_one(
 
         # 404/410 — permanently gone, no traceback needed
         if resp.status_code in (404, 410):
-            log.warning("content_fetcher.http_gone", url=url, status=resp.status_code)
+            log.warning("content_downloader.http_gone", url=url, status=resp.status_code)
             content_fetch_failed(engine, content_id, error=f"HTTP {resp.status_code}")
             return 1
 
@@ -95,22 +89,22 @@ def _download_one(
         # Skip binary content (images, videos, etc.)
         content_type = resp.headers.get("content-type", "")
         if content_type and not _is_text_content_type(content_type):
-            log.info("content_fetcher.skipped_non_text", url=url, content_type=content_type)
+            log.info("content_downloader.skipped_non_text", url=url, content_type=content_type)
             content_skipped(engine, content_id)
             return 1
 
         write_bronze_by_url("content", url, "response", resp.text, "html")
         content_downloaded(engine, content_id)
-        log.info("content_fetcher.downloaded", url=url)
+        log.info("content_downloader.downloaded", url=url)
         return 1
 
     except httpx.HTTPStatusError as exc:
-        log.warning("content_fetcher.download_failed", url=url, status=exc.response.status_code)
+        log.warning("content_downloader.download_failed", url=url, status=exc.response.status_code)
         content_fetch_failed(engine, content_id, error=str(exc))
         return 1
 
     except Exception as exc:
-        log.exception("content_fetcher.download_failed", url=url)
+        log.exception("content_downloader.download_failed", url=url)
         content_fetch_failed(engine, content_id, error=str(exc))
         return 1
 
@@ -132,10 +126,10 @@ def download_content(
         ).fetchall()
 
     if not rows:
-        log.info("content_fetcher.no_pending")
+        log.info("content_downloader.no_pending")
         return 0
 
-    log.info("content_fetcher.download_starting", batch_size=len(rows))
+    log.info("content_downloader.download_starting", batch_size=len(rows))
     processed = 0
     client = create_http_client(
         proxy_url=config.settings.proxy_url or None,
@@ -150,60 +144,5 @@ def download_content(
     finally:
         client.close()
 
-    log.info("content_fetcher.download_complete", processed=processed)
-    return processed
-
-
-def extract_html_text(
-    engine: sa.engine.Engine,
-    config: AppConfig,
-    log: structlog.stdlib.BoundLogger,
-    batch_limit: int = 50,
-) -> int:
-    """Extract text from downloaded HTML using trafilatura (single-threaded, CPU-bound)."""
-    with engine.connect() as conn:
-        rows = conn.execute(
-            sa.select(SilverContent.id, SilverContent.canonical_url)
-            .where(SilverContent.fetch_status == FetchStatus.DOWNLOADED)
-            .order_by(SilverContent.created_at.asc())
-            .limit(batch_limit)
-        ).fetchall()
-
-    if not rows:
-        log.info("content_fetcher.no_downloaded")
-        return 0
-
-    log.info("content_fetcher.extract_starting", batch_size=len(rows))
-    processed = 0
-
-    for row in rows:
-        content_id = row.id
-        url = row.canonical_url
-        html = read_bronze_by_url("content", url, "response", "html")
-
-        try:
-            # Extract text with 90s timeout
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(trafilatura.extract, html, include_comments=False, include_tables=False)
-                try:
-                    result = future.result(timeout=90)
-                except concurrent.futures.TimeoutError:
-                    raise TimeoutError("Content extraction timed out after 90s")
-
-            # Extract title from trafilatura metadata
-            extracted_title = None
-            metadata = trafilatura.metadata.extract_metadata(html)
-            if metadata:
-                extracted_title = metadata.title
-
-            content_fetched(engine, content_id, body_text=result, title=extracted_title)
-            processed += 1
-            log.info("content_fetcher.extracted", url=url)
-
-        except Exception as exc:
-            log.exception("content_fetcher.extract_failed", url=url)
-            content_fetch_failed(engine, content_id, error=str(exc))
-            processed += 1
-
-    log.info("content_fetcher.extract_complete", processed=processed)
+    log.info("content_downloader.download_complete", processed=processed)
     return processed

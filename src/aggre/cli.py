@@ -128,7 +128,8 @@ def run_once_cmd(
     from aggre.collectors.base import all_sources_recent
     from aggre.collectors.hackernews.collector import HackernewsCollector
     from aggre.collectors.lobsters.collector import LobstersCollector
-    from aggre.content_fetcher import download_content, extract_html_text
+    from aggre.content_downloader import download_content
+    from aggre.content_extractor import extract_html_text
     from aggre.enrichment import enrich_content_discussions
     from aggre.transcriber import transcribe as do_transcribe
 

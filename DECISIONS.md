@@ -137,3 +137,27 @@ Sensors previously bypassed the shared DatabaseResource and created engines dire
 ## [cleanup] — Removed run-once CLI command (120 lines) and status CLI command (50 lines) — because Dagster UI replaces both
 
 `run-once` reimplemented the entire pipeline in a single sequential loop with drain logic and TTL checks. `status` queried database for queue counts. Both are replaced by Dagster UI (job execution, sensor status, run monitoring). Also removed `all_sources_recent()` helper and `_MAX_DRAIN_ITERATIONS` constant, only used by `run-once`.
+
+---
+
+# Root Cleanup & Utils Enhancement Decisions (2026-02-22)
+
+## [structure] — Created pipeline/ subpackage for content processing modules — because root had 11 files mixing infra and business logic
+
+Moved content_downloader.py, content_extractor.py, transcriber.py, enrichment.py from src/aggre/ root into src/aggre/pipeline/. These are all Layer 2 business logic modules that process SilverContent through status-driven state machines. Root reduced from 11 to 7 files. Updated all imports in dagster_defs/, tests, and cross-module references.
+
+## [utils] — Extracted now_iso() and get_engine() to utils/db.py — because they are generic SQLAlchemy helpers used across 5+ files
+
+`now_iso()` (UTC ISO timestamp) and `get_engine()` (engine factory) were in db.py alongside ORM models. They have zero Aggre-specific logic and are reusable in any SQLAlchemy project. Moving them to utils/db.py aligns with the utils/ contract (no aggre imports except other utils).
+
+## [utils] — Extracted extract_domain() and strip_tracking_params() to utils/urls.py — because URL cleaning is generic and reusable
+
+`extract_domain()` and `TRACKING_PARAMS` lived in urls.py alongside Aggre-specific normalize_url(). Created `strip_tracking_params()` as a new function to eliminate duplicate tracking param cleaning logic that appeared twice in normalize_url (lines 107-110 and 121-123). Added `_DOMAIN_OWNED_QUERY` frozenset to handle domains that fully own their query parameters.
+
+## [dedup] — Consolidated content_fetch_failed to single definition — because it was duplicated identically in two files
+
+`content_fetch_failed()` was defined identically in both content_downloader.py and content_extractor.py. Removed the duplicate from content_extractor.py; it now imports from content_downloader.py. Single source of truth for the any→FAILED state transition.
+
+## [http] — Converted try/finally HTTP client blocks to context managers — because httpx.Client is already a context manager
+
+10 try/finally blocks across 5 files (hackernews/3, reddit/2, lobsters/3, huggingface/1, content_downloader/1) manually called `client.close()` in finally blocks. `create_http_client()` returns an httpx.Client which supports `with` statements natively. Converted all to `with create_http_client(...) as client:`. Eliminated ~30 lines of boilerplate. Required updating all mock HTTP clients in tests to support `__enter__`/`__exit__` protocol.

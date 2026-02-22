@@ -50,27 +50,27 @@
 - Used by: Dagster collection job, enrichment module
 
 **Content Pipeline:**
-- Purpose: Download and extract text from article URLs
-- Location: `src/aggre/content_downloader.py` (HTTP download → bronze), `src/aggre/content_extractor.py` (bronze → silver text)
-- State transitions: PENDING → DOWNLOADED → FETCHED/FAILED/SKIPPED
-- Used by: Dagster content job
-
-**Transcription Pipeline:**
-- Purpose: Download YouTube videos and transcribe to text
-- Location: `src/aggre/transcriber.py`
-- State transitions: PENDING → DOWNLOADING → TRANSCRIBING → COMPLETED/FAILED
-- Used by: Dagster transcription job
-
-**Enrichment Pipeline:**
-- Purpose: Search HN/Lobsters for discussions about content URLs
-- Location: `src/aggre/enrichment.py`
-- Used by: Dagster enrichment job
+- Purpose: Content processing pipeline modules (download, extract, transcribe, enrich)
+- Location: `src/aggre/pipeline/`
+- Contains:
+  - `content_downloader.py` — HTTP download → bronze (parallel, I/O-bound)
+  - `content_extractor.py` — Bronze → silver text extraction via trafilatura (CPU-bound)
+  - `transcriber.py` — YouTube video transcription (yt-dlp + faster-whisper)
+  - `enrichment.py` — Cross-source enrichment (search HN/Lobsters for URLs)
+- State transitions: PENDING → DOWNLOADED → FETCHED/FAILED/SKIPPED (content); PENDING → DOWNLOADING → TRANSCRIBING → COMPLETED/FAILED (transcription)
+- Used by: Dagster content, transcription, and enrichment jobs
 
 **Utilities:**
 - Purpose: Generic reusable helpers with zero Aggre-specific logic
 - Location: `src/aggre/utils/`
-- Contains: Bronze filesystem writer, bronze-aware HTTP wrapper, shared HTTP client, structured logging
-- Pattern: Implements medallion-guidelines.md patterns
+- Contains:
+  - `bronze.py` — Immutable bronze filesystem writer (medallion pattern)
+  - `bronze_http.py` — Bronze-aware HTTP wrapper with read-through cache
+  - `db.py` — SQLAlchemy engine factory (`get_engine`) and UTC timestamp helper (`now_iso`)
+  - `http.py` — Shared HTTP client factory with proxy + User-Agent support (context manager)
+  - `logging.py` — Structured logging setup (structlog dual output: JSON file + console)
+  - `urls.py` — Generic URL tools (`extract_domain`, `strip_tracking_params`)
+- Pattern: Implements medallion-guidelines.md patterns; all functions are pure or side-effect-isolated
 
 ## Data Flow
 
@@ -150,9 +150,10 @@ Three independent state machines run in parallel:
 - Handles: Race conditions via ON CONFLICT DO NOTHING + retry
 
 **State Transition Functions:**
-- Locations: `content_downloader.py`, `content_extractor.py`, `transcriber.py`
+- Locations: `pipeline/content_downloader.py`, `pipeline/content_extractor.py`, `pipeline/transcriber.py`
 - Examples: `content_downloaded()`, `content_fetched()`, `transcription_completed()`
 - Pattern: Each function calls `update_content()` with new status + metadata
+- Note: `content_fetch_failed()` defined once in `content_downloader.py`, imported by `content_extractor.py`
 
 ## Error Handling
 

@@ -14,21 +14,25 @@
 │   ├── statuses.py               # Status enums (FetchStatus, TranscriptionStatus, CommentsStatus)
 │   ├── settings.py               # Pydantic settings with env var overrides
 │   ├── urls.py                   # URL normalization and SilverContent management
-│   ├── content_downloader.py     # HTTP download → bronze (parallel, I/O-bound)
-│   ├── content_extractor.py      # Bronze → silver text extraction (trafilatura)
-│   ├── transcriber.py            # YouTube video transcription (yt-dlp + faster-whisper)
-│   ├── enrichment.py             # Cross-source enrichment (search HN/Lobsters for URLs)
+│   ├── pipeline/                 # Content processing pipeline modules
+│   │   ├── __init__.py
+│   │   ├── content_downloader.py # HTTP download → bronze (parallel, I/O-bound)
+│   │   ├── content_extractor.py  # Bronze → silver text extraction (trafilatura)
+│   │   ├── transcriber.py        # YouTube video transcription (yt-dlp + faster-whisper)
+│   │   └── enrichment.py         # Cross-source enrichment (search HN/Lobsters for URLs)
 │   ├── utils/                    # Generic reusable helpers (no Aggre-specific logic)
 │   │   ├── __init__.py
 │   │   ├── bronze.py             # Bronze filesystem writer (write_bronze_json)
 │   │   ├── bronze_http.py        # Bronze-aware HTTP wrapper (write_bronze_by_url)
+│   │   ├── db.py                 # SQLAlchemy helpers (get_engine, now_iso)
 │   │   ├── http.py               # Shared HTTP client factory (httpx)
-│   │   └── logging.py            # Structured logging setup (structlog + stdlib)
+│   │   ├── logging.py            # Structured logging setup (structlog + stdlib)
+│   │   └── urls.py               # URL utilities (extract_domain, strip_tracking_params)
 │   ├── collectors/               # Source-specific collector plugins
 │   │   ├── __init__.py           # COLLECTORS registry dict
 │   │   ├── base.py               # BaseCollector shared helpers, Collector/SearchableCollector protocols
 │   │   ├── hackernews/           # Hacker News collector (Algolia API, searchable)
-│   │   ├── reddit/               # Reddit collector (PRAW)
+│   │   ├── reddit/               # Reddit collector (HTTP API)
 │   │   ├── rss/                  # RSS/Atom collector (feedparser)
 │   │   ├── youtube/              # YouTube collector (yt-dlp)
 │   │   ├── lobsters/             # Lobsters collector (HTTP API, searchable)
@@ -93,14 +97,19 @@
 ## Directory Purposes
 
 **`src/aggre/`:**
-- Purpose: Main application package
-- Contains: CLI, config, database models, collectors, pipeline modules, utilities, Dagster definitions
+- Purpose: Main application package — infrastructure, config, and models at root; business logic in sub-packages
+- Contains: CLI, config, database models, status enums, URL normalization
 - Key files: `dagster_defs/__init__.py` (primary entry point), `db.py` (schema), `collectors/base.py` (plugin base)
 
+**`src/aggre/pipeline/`:**
+- Purpose: Content processing pipeline modules (Layer 2 business logic)
+- Contains: HTTP download, text extraction, transcription, cross-source enrichment
+- Pattern: Each module processes batches of SilverContent by status, returns count of items processed
+
 **`src/aggre/utils/`:**
-- Purpose: Generic reusable helpers with zero Aggre-specific logic
-- Contains: Bronze filesystem writer, bronze-aware HTTP, shared HTTP client, structured logging
-- Pattern: Implements medallion-guidelines.md patterns
+- Purpose: Generic reusable helpers with zero Aggre-specific logic (future shared library candidate)
+- Contains: Bronze filesystem, bronze HTTP cache, SQLAlchemy helpers, HTTP client factory, structured logging, URL tools
+- Pattern: Implements medallion-guidelines.md patterns; all functions are pure or side-effect-isolated
 
 **`src/aggre/collectors/`:**
 - Purpose: Source-specific API clients
@@ -128,22 +137,26 @@
 
 **Database:**
 - `src/aggre/db.py`: SQLAlchemy ORM models (Source, SilverDiscussion, SilverContent)
+- `src/aggre/utils/db.py`: Generic helpers (get_engine, now_iso)
 - `alembic/`: Database migrations (apply with `alembic upgrade head`)
 
-**Core Logic:**
+**Pipeline:**
+- `src/aggre/pipeline/content_downloader.py`: HTTP download → bronze (download_content)
+- `src/aggre/pipeline/content_extractor.py`: Bronze → silver text extraction (extract_html_text)
+- `src/aggre/pipeline/transcriber.py`: YouTube video transcription (transcribe)
+- `src/aggre/pipeline/enrichment.py`: Cross-source enrichment (enrich_content_discussions)
+
+**Collector Infrastructure:**
 - `src/aggre/collectors/base.py`: BaseCollector with shared methods (_ensure_source, _upsert_discussion, etc.)
 - `src/aggre/urls.py`: URL normalization and SilverContent deduplication (ensure_content)
-- `src/aggre/content_downloader.py`: HTTP download → bronze (download_content)
-- `src/aggre/content_extractor.py`: Bronze → silver text extraction (extract_html_text)
-- `src/aggre/transcriber.py`: YouTube video transcription (transcribe)
-- `src/aggre/enrichment.py`: Cross-source enrichment (enrich_content_discussions)
 
 **Utilities:**
 - `src/aggre/utils/http.py`: Shared HTTP client factory with User-Agent + proxy support
 - `src/aggre/utils/logging.py`: Structured logging setup (structlog with JSON file + console output)
 - `src/aggre/utils/bronze.py`: Bronze filesystem writer (write_bronze_json)
 - `src/aggre/utils/bronze_http.py`: Bronze-aware HTTP wrapper (write_bronze_by_url)
-- `src/aggre/statuses.py`: Status enums (FetchStatus, TranscriptionStatus, CommentsStatus)
+- `src/aggre/utils/db.py`: SQLAlchemy engine factory and UTC timestamp helper
+- `src/aggre/utils/urls.py`: Generic URL tools (extract_domain, strip_tracking_params)
 
 ## Where to Add New Code
 
@@ -158,11 +171,17 @@
 8. Add tests in `tests/test_[source_type].py`
 
 **New Content Pipeline Module:**
-1. Create `src/aggre/[pipeline_stage].py`
+1. Create `src/aggre/pipeline/[pipeline_stage].py`
 2. Main function signature: `(engine, config, log, batch_limit=50) -> int | dict`
 3. Query SilverContent by relevant status, process batches
 4. Add Dagster job + sensor in `src/aggre/dagster_defs/[domain]/`
 5. Create tests in `tests/test_[module].py`
+
+**New Generic Utility:**
+1. Create `src/aggre/utils/[utility].py`
+2. Must have zero imports from `aggre.*` (except other utils)
+3. Document in this file's utils section
+4. Update `src/aggre/utils/__init__.py` `__all__`
 
 **New Dagster Domain:**
 1. Create `src/aggre/dagster_defs/[domain]/` with `__init__.py`, `job.py`, `sensor.py`

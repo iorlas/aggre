@@ -1,8 +1,7 @@
-"""Click CLI with commands: collect, transcribe, backfill, status."""
+"""Click CLI with commands: status, telegram-auth, run-once."""
 
 from __future__ import annotations
 
-import concurrent.futures
 import inspect
 
 import click
@@ -13,7 +12,6 @@ from aggre.config import load_config
 from aggre.db import SilverContent, SilverDiscussion, Source, get_engine
 from aggre.logging import setup_logging
 from aggre.statuses import TranscriptionStatus
-from aggre.worker import run_loop, worker_options
 
 
 @click.group()
@@ -27,65 +25,6 @@ def cli(ctx: click.Context, config_path: str) -> None:
 
     engine = get_engine(cfg.settings.database_url)
     ctx.obj["engine"] = engine
-
-
-@cli.command("collect")
-@click.option(
-    "--source",
-    "source_type",
-    type=click.Choice(list(COLLECTORS.keys())),
-    help="Collect only this source type.",
-)
-@click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
-@worker_options(default_interval=3600, include_batch=False)
-@click.pass_context
-def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int, loop: bool, interval: int) -> None:
-    """Collect discussions from configured sources."""
-    cfg = ctx.obj["config"]
-    engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "collect")
-
-    collectors = {name: cls() for name, cls in COLLECTORS.items()}
-
-    active_collectors = collectors
-    if source_type:
-        active_collectors = {source_type: collectors[source_type]}
-
-    def _cycle() -> int:
-        total = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(active_collectors)) as executor:
-            futures = {
-                executor.submit(collector.collect, engine, getattr(cfg, name), cfg.settings, log): name
-                for name, collector in active_collectors.items()
-            }
-            for future in concurrent.futures.as_completed(futures):
-                name = futures[future]
-                try:
-                    count = future.result()
-                    total += count
-                    log.info("collect.source_complete", source=name, new_discussions=count)
-                except Exception:
-                    log.exception("collect.source_error", source=name)
-
-        for src_name in ("reddit", "hackernews", "lobsters"):
-            if source_type in (None, src_name) and comment_batch > 0:
-                coll = active_collectors.get(src_name) or collectors.get(src_name)
-                if coll and hasattr(coll, "collect_comments"):
-                    try:
-                        comments_fetched = coll.collect_comments(
-                            engine,
-                            getattr(cfg, src_name),
-                            cfg.settings,
-                            log,
-                            batch_limit=comment_batch,
-                        )
-                        log.info("collect.comments_complete", source=src_name, comments_fetched=comments_fetched)
-                    except Exception:
-                        log.exception("collect.comments_error", source=src_name)
-
-        return total
-
-    run_loop(fn=_cycle, loop=loop, interval=interval, log=log, name="collect")
 
 
 @cli.command("telegram-auth")
@@ -114,163 +53,6 @@ def telegram_auth(ctx: click.Context) -> None:
 
     session = asyncio.run(_auth())
     click.echo(f"\nAdd this to your .env file:\nAGGRE_TELEGRAM_SESSION={session}")
-
-
-@cli.command("download")
-@worker_options(default_interval=10, default_batch=50)
-@click.option("--workers", default=5, type=int, help="Concurrent download threads.")
-@click.pass_context
-def download_cmd(ctx: click.Context, batch: int, workers: int, loop: bool, interval: int) -> None:
-    """Download pending content URLs."""
-    cfg = ctx.obj["config"]
-    engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "download")
-    from aggre.content_fetcher import download_content
-
-    run_loop(
-        fn=lambda: download_content(engine, cfg, log, batch_limit=batch, max_workers=workers),
-        loop=loop,
-        interval=interval,
-        log=log,
-        name="download",
-    )
-
-
-@cli.command("extract-html-text")
-@worker_options(default_interval=10, default_batch=50)
-@click.pass_context
-def extract_html_text_cmd(ctx: click.Context, batch: int, loop: bool, interval: int) -> None:
-    """Extract text from downloaded HTML content."""
-    cfg = ctx.obj["config"]
-    engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "extract-html-text")
-    from aggre.content_fetcher import extract_html_text
-
-    run_loop(
-        fn=lambda: extract_html_text(engine, cfg, log, batch_limit=batch),
-        loop=loop,
-        interval=interval,
-        log=log,
-        name="extract_html_text",
-    )
-
-
-@cli.command("enrich-content-discussions")
-@worker_options(default_interval=60, default_batch=50)
-@click.pass_context
-def enrich_content_discussions_cmd(ctx: click.Context, batch: int, loop: bool, interval: int) -> None:
-    """Discover cross-source discussions for content URLs."""
-    cfg = ctx.obj["config"]
-    engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "enrich-content-discussions")
-    from aggre.collectors.hackernews.collector import HackernewsCollector
-    from aggre.collectors.lobsters.collector import LobstersCollector
-    from aggre.enrichment import enrich_content_discussions
-
-    run_loop(
-        fn=lambda: enrich_content_discussions(
-            engine,
-            cfg,
-            log,
-            batch_limit=batch,
-            hn_collector=HackernewsCollector(),
-            lobsters_collector=LobstersCollector(),
-        ),
-        loop=loop,
-        interval=interval,
-        log=log,
-        name="enrich",
-    )
-
-
-@cli.command()
-@worker_options(default_interval=10, default_batch=0)
-@click.pass_context
-def transcribe(ctx: click.Context, batch: int, loop: bool, interval: int) -> None:
-    """Transcribe pending YouTube videos."""
-    cfg = ctx.obj["config"]
-    engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "transcribe")
-
-    from aggre.transcriber import transcribe as do_transcribe
-
-    run_loop(
-        fn=lambda: do_transcribe(engine, cfg, log, batch_limit=batch),
-        loop=loop,
-        interval=interval,
-        log=log,
-        name="transcribe",
-    )
-
-
-@cli.command()
-@click.argument("source_type", type=click.Choice(["youtube"]))
-@click.pass_context
-def backfill(ctx: click.Context, source_type: str) -> None:
-    """Backfill full history for a source type."""
-    cfg = ctx.obj["config"]
-    engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "backfill")
-
-    if source_type == "youtube":
-        from aggre.collectors.youtube.collector import YoutubeCollector
-
-        collector = YoutubeCollector()
-        count = collector.collect(engine, cfg.youtube, cfg.settings, log, backfill=True)
-        log.info("backfill.complete", source=source_type, discussions=count)
-
-
-@cli.command("backfill-content")
-@click.option("--batch", default=50, type=int, help="Max content items to fetch per batch.")
-@click.pass_context
-def backfill_content(ctx: click.Context, batch: int) -> None:
-    """Backfill content for existing discussions."""
-    cfg = ctx.obj["config"]
-    engine = ctx.obj["engine"]
-    log = setup_logging(cfg.settings.log_dir, "backfill-content")
-
-    import json
-
-    import sqlalchemy as sa
-
-    from aggre.db import SilverDiscussion
-    from aggre.urls import ensure_content
-
-    # Step 1: Link existing discussions to SilverContent
-    with engine.connect() as conn:
-        rows = conn.execute(
-            sa.select(SilverDiscussion.id, SilverDiscussion.url, SilverDiscussion.meta).where(
-                SilverDiscussion.content_id.is_(None),
-                SilverDiscussion.url.isnot(None),
-            )
-        ).fetchall()
-
-    linked = 0
-    for row in rows:
-        with engine.begin() as conn:
-            content_id = ensure_content(conn, row.url)
-            if content_id:
-                conn.execute(sa.update(SilverDiscussion).where(SilverDiscussion.id == row.id).values(content_id=content_id))
-                linked += 1
-
-                # Extract score/comment_count from meta if available
-                if row.meta:
-                    meta = json.loads(row.meta)
-                    updates = {}
-                    if "score" in meta:
-                        updates["score"] = meta["score"]
-                    elif "points" in meta:
-                        updates["score"] = meta["points"]
-                    if "num_comments" in meta:
-                        updates["comment_count"] = meta["num_comments"]
-                    elif "comment_count" in meta:
-                        updates["comment_count"] = meta["comment_count"]
-                    if updates:
-                        conn.execute(sa.update(SilverDiscussion).where(SilverDiscussion.id == row.id).values(**updates))
-
-    log.info("backfill.linked", linked=linked, total=len(rows))
-
-    click.echo(f"Linked {linked} discussions to content.")
 
 
 @cli.command()
@@ -386,7 +168,7 @@ def run_once_cmd(
             log.exception("run_once.collect_error", source=name)
             sources_failed += 1
 
-    # Fetch comments (same pattern as collect_cmd)
+    # Fetch comments (same pattern as original collect)
     for src_name in ("reddit", "hackernews", "lobsters"):
         if source_type in (None, src_name) and comment_batch > 0:
             coll = active_collectors.get(src_name) or collectors.get(src_name)

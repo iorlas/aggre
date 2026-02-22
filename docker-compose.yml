@@ -1,5 +1,6 @@
 x-app-env: &app-env
   AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
+  DAGSTER_PG_URL: postgresql://aggre:aggre@postgres/aggre
 
 services:
   postgres:
@@ -33,12 +34,14 @@ services:
       postgres:
         condition: service_healthy
 
-  collect:
+  dagster-webserver:
     build: .
-    command: uv run aggre collect --loop --interval 3600
+    command: uv run dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml
     volumes:
       - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro
+    ports:
+      - "3000:3000"
     environment:
       <<: *app-env
     env_file:
@@ -49,57 +52,9 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  download:
+  dagster-daemon:
     build: .
-    command: uv run aggre download --loop --interval 10
-    volumes:
-      - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  extract-html-text:
-    build: .
-    command: uv run aggre extract-html-text --loop --interval 10
-    volumes:
-      - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  enrich-content-discussions:
-    build: .
-    command: uv run aggre enrich-content-discussions --loop --interval 60
-    volumes:
-      - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  transcribe:
-    build: .
-    command: uv run aggre transcribe --loop --interval 10
+    command: uv run dagster-daemon run -w workspace.yaml
     volumes:
       - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro

@@ -161,3 +161,36 @@ Moved content_downloader.py, content_extractor.py, transcriber.py, enrichment.py
 ## [http] — Converted try/finally HTTP client blocks to context managers — because httpx.Client is already a context manager
 
 10 try/finally blocks across 5 files (hackernews/3, reddit/2, lobsters/3, huggingface/1, content_downloader/1) manually called `client.close()` in finally blocks. `create_http_client()` returns an httpx.Client which supports `with` statements natively. Converted all to `with create_http_client(...) as client:`. Eliminated ~30 lines of boilerplate. Required updating all mock HTTP clients in tests to support `__enter__`/`__exit__` protocol.
+
+---
+
+# Code Audit & Status Column Analysis (2026-02-22)
+
+## [audit] — All files confirmed well-placed after restructuring — because every file has clear single responsibility at correct layer
+
+Audited all 56 Python source files. Layer structure is clean:
+- Layer 1 (infrastructure): db.py, statuses.py, urls.py, settings.py, utils/* — no upward imports
+- Layer 2 (business): pipeline/*, collectors/*/collector.py — independent modules
+- Layer 3 (composition): config.py, cli.py, collectors/__init__.py, dagster_defs/* — wiring only
+
+One known layer-2 cross-import (content_extractor → content_downloader.content_fetch_failed) accepted as lesser evil vs duplication — documented in prior decision.
+
+## [status] — Status columns are essential, not replaceable by Dagster — because sensors need polling targets, terminal states prevent infinite retries
+
+User questioned whether status columns are needed since "if failure = no data saved, next run resyncs." Analysis:
+
+1. **Sensors poll status columns** to trigger jobs. Without them, sensors would need filesystem checks or complex NULL-based queries.
+2. **Terminal states (FAILED, SKIPPED) prevent infinite retries** on permanently unfetchable content (404, YouTube URLs, PDFs, deleted videos).
+3. **Intermediate states enable multi-stage pipelines** — DOWNLOADED is the handoff between I/O-bound downloading and CPU-bound extraction within content_job.
+4. **CommentsStatus has three-value semantics** — NULL (source doesn't support comments), PENDING (not yet fetched), DONE (fetched). Can't replace with comments_json IS NULL because NULL is ambiguous.
+
+Status columns are not "orchestration anti-pattern" — they serve as both data-layer truth AND sensor triggers. The coupling is acceptable because the data model IS the work queue.
+
+## [simplify] — Removed TranscriptionStatus intermediate states (DOWNLOADING, TRANSCRIBING) — because they were observational only
+
+The transcriber queried all three non-terminal states identically: `.in_((PENDING, DOWNLOADING, TRANSCRIBING))`. The intermediate states provided monitoring visibility but zero functional value:
+- Bronze cache (audio.opus existence) provides actual crash recovery for downloads
+- The transcriber treats all non-terminal states as "process me"
+- Dagster run status provides monitoring
+
+Simplified to: PENDING → COMPLETED | FAILED. Added Alembic migration (002) to convert any legacy intermediate-state rows to PENDING.

@@ -32,7 +32,7 @@ tables:
       fetch_error:            { type: text, nullable: true, description: "Error message if fetch_status = failed" }
       fetched_at:             { type: text, nullable: true, description: "ISO 8601 — when content was fetched" }
       created_at:             { type: text, default: "now()", description: "ISO 8601 timestamp" }
-      transcription_status:   { type: text, nullable: true, values: [pending, downloading, transcribing, completed, failed], description: "NULL for non-video content" }
+      transcription_status:   { type: text, nullable: true, values: [pending, completed, failed], description: "NULL for non-video content" }
       transcription_error:    { type: text, nullable: true }
       detected_language:      { type: text, nullable: true, description: "ISO language code from whisper" }
       enriched_at:            { type: text, nullable: true, description: "ISO 8601 — when HN/Lobsters enrichment was run for this URL" }

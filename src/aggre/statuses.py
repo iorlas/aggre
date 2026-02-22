@@ -16,11 +16,9 @@ class FetchStatus(StrEnum):
 
 
 class TranscriptionStatus(StrEnum):
-    """YouTube transcription lifecycle."""
+    """YouTube transcription lifecycle: PENDING → COMPLETED | FAILED."""
 
     PENDING = "pending"
-    DOWNLOADING = "downloading"
-    TRANSCRIBING = "transcribing"
     COMPLETED = "completed"
     FAILED = "failed"
 

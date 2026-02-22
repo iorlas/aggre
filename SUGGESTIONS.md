@@ -310,7 +310,7 @@ These are separate Dagster ops (`download_content_op` and `extract_content_op`) 
 
 **Problem**: State transition functions are scattered across modules:
 - `content_fetcher.py:40-57` — 4 functions: `content_skipped`, `content_downloaded`, `content_fetched`, `content_fetch_failed`
-- `transcriber.py:20-39` — 4 functions: `transcription_downloading`, `transcription_transcribing`, `transcription_completed`, `transcription_failed`
+- `transcriber.py:20-29` — 2 functions: `transcription_completed`, `transcription_failed`
 - `collectors/base.py:129-146` — `_mark_comments_done` (transition logic)
 
 Each function is a thin wrapper around `_update_content(engine, id, status=...)`. The pattern is identical — only the column names and values differ.

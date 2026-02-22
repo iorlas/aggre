@@ -57,7 +57,7 @@
   - `content_extractor.py` — Bronze → silver text extraction via trafilatura (CPU-bound)
   - `transcriber.py` — YouTube video transcription (yt-dlp + faster-whisper)
   - `enrichment.py` — Cross-source enrichment (search HN/Lobsters for URLs)
-- State transitions: PENDING → DOWNLOADED → FETCHED/FAILED/SKIPPED (content); PENDING → DOWNLOADING → TRANSCRIBING → COMPLETED/FAILED (transcription)
+- State transitions: PENDING → DOWNLOADED → FETCHED/FAILED/SKIPPED (content); PENDING → COMPLETED/FAILED (transcription)
 - Used by: Dagster content, transcription, and enrichment jobs
 
 **Utilities:**
@@ -100,9 +100,10 @@
 
 1. `transcription_sensor` watches for SilverContent with transcription_status=PENDING
 2. `transcribe_job` runs:
-   - PENDING → DOWNLOADING: download video via yt-dlp
-   - DOWNLOADING → TRANSCRIBING: transcribe via faster-whisper
-   - TRANSCRIBING → COMPLETED: store body_text (transcript)
+   - Download video via yt-dlp (bronze cache skips if audio.opus exists)
+   - Transcribe via faster-whisper (bronze cache skips if whisper.json exists)
+   - PENDING → COMPLETED: store body_text (transcript) + detected_language
+   - PENDING → FAILED: on error (deleted video, size limit, transcription error)
 
 **Enrichment Flow (Dagster enrich_job, triggered by enrichment_sensor):**
 
@@ -125,7 +126,7 @@
 Three independent state machines run in parallel:
 
 1. **FetchStatus (article/paper content):** PENDING → (DOWNLOADED → FETCHED | SKIPPED | FAILED)
-2. **TranscriptionStatus (video content):** PENDING → DOWNLOADING → TRANSCRIBING → (COMPLETED | FAILED)
+2. **TranscriptionStatus (video content):** PENDING → (COMPLETED | FAILED)
 3. **CommentsStatus (discussion threads):** PENDING → DONE
 
 ## Key Abstractions

@@ -17,18 +17,8 @@ from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_br
 # -- Transcription state transitions -------------------------------------------
 
 
-def transcription_downloading(engine: sa.engine.Engine, content_id: int) -> None:
-    """PENDING → DOWNLOADING"""
-    update_content(engine, content_id, transcription_status=TranscriptionStatus.DOWNLOADING)
-
-
-def transcription_transcribing(engine: sa.engine.Engine, content_id: int) -> None:
-    """DOWNLOADING → TRANSCRIBING"""
-    update_content(engine, content_id, transcription_status=TranscriptionStatus.TRANSCRIBING)
-
-
 def transcription_completed(engine: sa.engine.Engine, content_id: int, *, body_text: str, detected_language: str) -> None:
-    """TRANSCRIBING → COMPLETED"""
+    """PENDING → COMPLETED"""
     update_content(
         engine, content_id, body_text=body_text, transcription_status=TranscriptionStatus.COMPLETED, detected_language=detected_language
     )
@@ -61,19 +51,12 @@ def transcribe(
         sa.select(
             SilverContent.id,
             SilverContent.canonical_url,
-            SilverContent.transcription_status,
             SilverDiscussion.external_id,
             SilverDiscussion.title,
         )
         .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
         .where(
-            SilverContent.transcription_status.in_(
-                (
-                    TranscriptionStatus.PENDING,
-                    TranscriptionStatus.DOWNLOADING,
-                    TranscriptionStatus.TRANSCRIBING,
-                )
-            ),
+            SilverContent.transcription_status == TranscriptionStatus.PENDING,
             SilverDiscussion.source_type == "youtube",
         )
         .order_by(SilverContent.created_at.asc())
@@ -102,9 +85,6 @@ def transcribe(
             continue
 
         try:
-            # Mark as downloading
-            transcription_downloading(engine, content_id)
-
             # Download audio to bronze
             audio_dest = bronze_path("youtube", external_id, "audio", "opus")
             audio_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -146,9 +126,6 @@ def transcribe(
                 log.warning("audio_file_too_large", external_id=external_id, size_mb=file_size / (1024 * 1024))
                 transcription_failed(engine, content_id, error="Audio file exceeds 500MB limit")
                 continue
-
-            # Mark as transcribing
-            transcription_transcribing(engine, content_id)
 
             # Transcribe — create model on first use if not provided
             if model is None:

@@ -13,7 +13,6 @@ from click.testing import CliRunner
 from aggre.cli import cli
 from aggre.db import Base, SilverContent, SilverDiscussion, Source
 
-
 # ---------------------------------------------------------------------------
 # Part 1: Migration tests
 # ---------------------------------------------------------------------------
@@ -21,8 +20,9 @@ from aggre.db import Base, SilverContent, SilverDiscussion, Source
 
 def _run_alembic(database_url: str, target: str):
     """Run an alembic migration against a PostgreSQL database."""
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", database_url)
@@ -130,11 +130,7 @@ class TestCliStatus:
 
         # Seed some data
         with engine.begin() as conn:
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="Test Feed", config="{}", last_fetched_at="2026-01-01T00:00:00Z"
-                )
-            )
+            conn.execute(sa.insert(Source).values(type="rss", name="Test Feed", config="{}", last_fetched_at="2026-01-01T00:00:00Z"))
             conn.execute(
                 sa.insert(SilverContent).values(
                     canonical_url="https://example.com/article",
@@ -239,8 +235,7 @@ class TestCliBackfillContent:
                     SilverDiscussion.content_id,
                     SilverDiscussion.score,
                     SilverDiscussion.comment_count,
-                )
-                .order_by(SilverDiscussion.external_id)
+                ).order_by(SilverDiscussion.external_id)
             ).fetchall()
 
             assert len(discussions) == 2
@@ -271,9 +266,7 @@ class TestCliCollect:
         db_url = engine.url.render_as_string(hide_password=False)
 
         config_path = str(tmp_path / "config.yaml")
-        Path(config_path).write_text(
-            "rss:\n  sources:\n    - name: Test\n      url: https://example.com/feed.xml\n"
-        )
+        Path(config_path).write_text("rss:\n  sources:\n    - name: Test\n      url: https://example.com/feed.xml\n")
 
         mock_rss_collector = MagicMock()
         mock_rss_collector.collect.return_value = 3
@@ -290,10 +283,12 @@ class TestCliCollect:
             "huggingface": MagicMock,
             "telegram": MagicMock,
         }
-        with patch.dict(os.environ, env), \
-             patch("aggre.cli.COLLECTORS", mock_collectors), \
-             patch("aggre.content_fetcher.download_content", return_value=0) as mock_download, \
-             patch("aggre.enrichment.enrich_content_discussions", return_value={}) as mock_enrich:
+        with (
+            patch.dict(os.environ, env),
+            patch("aggre.cli.COLLECTORS", mock_collectors),
+            patch("aggre.content_fetcher.download_content", return_value=0) as mock_download,
+            patch("aggre.enrichment.enrich_content_discussions", return_value={}) as mock_enrich,
+        ):
             result = runner.invoke(cli, ["--config", config_path, "collect", "--source", "rss"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
@@ -317,8 +312,7 @@ class TestCliDownload:
 
         runner = CliRunner()
         env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
-        with patch.dict(os.environ, env), \
-             patch("aggre.content_fetcher.download_content", return_value=5) as mock_download:
+        with patch.dict(os.environ, env), patch("aggre.content_fetcher.download_content", return_value=5) as mock_download:
             result = runner.invoke(cli, ["--config", config_path, "download", "--batch", "10", "--workers", "3"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
@@ -343,8 +337,7 @@ class TestCliExtractHtmlText:
 
         runner = CliRunner()
         env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
-        with patch.dict(os.environ, env), \
-             patch("aggre.content_fetcher.extract_html_text", return_value=3) as mock_extract:
+        with patch.dict(os.environ, env), patch("aggre.content_fetcher.extract_html_text", return_value=3) as mock_extract:
             result = runner.invoke(cli, ["--config", config_path, "extract-html-text", "--batch", "25"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
@@ -367,8 +360,10 @@ class TestCliEnrich:
 
         runner = CliRunner()
         env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
-        with patch.dict(os.environ, env), \
-             patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 2, "lobsters": 1}) as mock_enrich:
+        with (
+            patch.dict(os.environ, env),
+            patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 2, "lobsters": 1}) as mock_enrich,
+        ):
             result = runner.invoke(cli, ["--config", config_path, "enrich-content-discussions", "--batch", "30"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"

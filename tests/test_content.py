@@ -8,9 +8,9 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.config import AppConfig
-from aggre.settings import Settings
 from aggre.content_fetcher import download_content, extract_html_text
 from aggre.db import SilverContent
+from aggre.settings import Settings
 
 
 def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending", raw_html: str | None = None):
@@ -142,9 +142,7 @@ class TestDownloadContent:
         assert count == 3
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).where(SilverContent.fetch_status == "downloaded")
-            ).fetchall()
+            rows = conn.execute(sa.select(SilverContent).where(SilverContent.fetch_status == "downloaded")).fetchall()
             assert len(rows) == 3
 
     def test_404_logs_warning_not_exception(self, engine):
@@ -228,11 +226,12 @@ class TestExtractHtmlText:
         log = MagicMock()
 
         html = "<html><body><p>Article content here</p></body></html>"
-        _seed_content(engine, "https://example.com/article", domain="example.com",
-                      fetch_status="downloaded", raw_html=html)
+        _seed_content(engine, "https://example.com/article", domain="example.com", fetch_status="downloaded", raw_html=html)
 
-        with patch("aggre.content_fetcher.trafilatura.extract", return_value="Article content here"), \
-             patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta:
+        with (
+            patch("aggre.content_fetcher.trafilatura.extract", return_value="Article content here"),
+            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta,
+        ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Test Article"
             mock_meta.return_value = mock_meta_obj
@@ -252,8 +251,7 @@ class TestExtractHtmlText:
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
-        _seed_content(engine, "https://example.com/bad-html", domain="example.com",
-                      fetch_status="downloaded", raw_html="<html>bad</html>")
+        _seed_content(engine, "https://example.com/bad-html", domain="example.com", fetch_status="downloaded", raw_html="<html>bad</html>")
 
         with patch("aggre.content_fetcher.trafilatura.extract", side_effect=Exception("Parse error")):
             count = extract_html_text(engine, config, log)
@@ -279,11 +277,18 @@ class TestExtractHtmlText:
         log = MagicMock()
 
         for i in range(5):
-            _seed_content(engine, f"https://example.com/article-{i}", domain="example.com",
-                          fetch_status="downloaded", raw_html=f"<html>content {i}</html>")
+            _seed_content(
+                engine,
+                f"https://example.com/article-{i}",
+                domain="example.com",
+                fetch_status="downloaded",
+                raw_html=f"<html>content {i}</html>",
+            )
 
-        with patch("aggre.content_fetcher.trafilatura.extract", return_value="text"), \
-             patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata", return_value=None):
+        with (
+            patch("aggre.content_fetcher.trafilatura.extract", return_value="text"),
+            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata", return_value=None),
+        ):
             count = extract_html_text(engine, config, log, batch_limit=3)
 
         assert count == 3

@@ -7,29 +7,21 @@ from unittest.mock import MagicMock, patch
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.hackernews import HackernewsCollector
-from aggre.collectors.huggingface import HuggingfaceCollector
-from aggre.collectors.lobsters import LobstersCollector
-from aggre.collectors.reddit import RedditCollector
-from aggre.collectors.rss import RssCollector
-from aggre.collectors.youtube import YoutubeCollector
-from aggre.config import (
-    AppConfig,
-    HackernewsConfig,
-    HackernewsSource,
-    HuggingfaceConfig,
-    HuggingfaceSource,
-    LobstersConfig,
-    LobstersSource,
-    RedditConfig,
-    RedditSource,
-    RssConfig,
-    RssSource,
-    YoutubeConfig,
-    YoutubeSource,
-)
-from aggre.settings import Settings
+from aggre.collectors.hackernews.collector import HackernewsCollector
+from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
+from aggre.collectors.huggingface.collector import HuggingfaceCollector
+from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource
+from aggre.collectors.lobsters.collector import LobstersCollector
+from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
+from aggre.collectors.reddit.collector import RedditCollector
+from aggre.collectors.reddit.config import RedditConfig, RedditSource
+from aggre.collectors.rss.collector import RssCollector
+from aggre.collectors.rss.config import RssConfig, RssSource
+from aggre.collectors.youtube.collector import YoutubeCollector
+from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
+from aggre.config import AppConfig
 from aggre.db import SilverContent, SilverDiscussion
+from aggre.settings import Settings
 
 
 def _log():
@@ -39,6 +31,7 @@ def _log():
 # ---------------------------------------------------------------------------
 # RSS
 # ---------------------------------------------------------------------------
+
 
 def _rss_fake_entry(**kwargs):
     defaults = {
@@ -106,9 +99,13 @@ class TestRssContentLinking:
 # Reddit
 # ---------------------------------------------------------------------------
 
+
 def _reddit_make_post(
-    post_id="abc123", title="Reddit Post", subreddit="python",
-    url="https://example.com/article", is_self=False,
+    post_id="abc123",
+    title="Reddit Post",
+    subreddit="python",
+    url="https://example.com/article",
+    is_self=False,
 ):
     return {
         "kind": "t3",
@@ -159,8 +156,7 @@ class TestRedditContentLinking:
         listing = _reddit_make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.collector.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
             mock_cls.return_value = client
@@ -187,8 +183,7 @@ class TestRedditContentLinking:
         listing = _reddit_make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.collector.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
             mock_cls.return_value = client
@@ -214,8 +209,7 @@ class TestRedditContentLinking:
         listing = _reddit_make_listing(post)
         mock_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.collector.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             client = MagicMock()
             client.get.side_effect = _reddit_fake_get(mock_responses)
             mock_cls.return_value = client
@@ -230,6 +224,7 @@ class TestRedditContentLinking:
 # ---------------------------------------------------------------------------
 # HackerNews
 # ---------------------------------------------------------------------------
+
 
 def _hn_make_hit(object_id="12345", title="HN Story", url="https://example.com/article"):
     return {
@@ -274,8 +269,10 @@ class TestHackernewsContentLinking:
         hit = _hn_make_hit(url="https://example.com/article")
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(responses)
             HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
 
@@ -300,8 +297,10 @@ class TestHackernewsContentLinking:
         hit["url"] = None  # Ask HN / Show HN with no external URL
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(responses)
             HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
 
@@ -324,8 +323,10 @@ class TestHackernewsContentLinking:
         hit["num_comments"] = 50
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(responses)
             HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
 
@@ -338,6 +339,7 @@ class TestHackernewsContentLinking:
 # ---------------------------------------------------------------------------
 # Lobsters
 # ---------------------------------------------------------------------------
+
 
 def _lob_make_story(short_id="abc123", url="https://example.com/article", score=10, comment_count=3):
     return {
@@ -380,8 +382,10 @@ class TestLobstersContentLinking:
         story = _lob_make_story(url="https://example.com/article")
         responses = {"hottest.json": [story], "newest.json": [story]}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _lob_mock_client(responses)
             LobstersCollector().collect(engine, config.lobsters, config.settings, MagicMock())
 
@@ -404,8 +408,10 @@ class TestLobstersContentLinking:
         story = _lob_make_story(score=77, comment_count=14)
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _lob_mock_client(responses)
             LobstersCollector().collect(engine, config.lobsters, config.settings, MagicMock())
 
@@ -418,6 +424,7 @@ class TestLobstersContentLinking:
 # ---------------------------------------------------------------------------
 # YouTube
 # ---------------------------------------------------------------------------
+
 
 def _yt_make_entry(video_id="vid001", title="YT Video"):
     return {
@@ -461,6 +468,7 @@ class TestYoutubeContentLinking:
 # ---------------------------------------------------------------------------
 # HuggingFace
 # ---------------------------------------------------------------------------
+
 
 def _hf_make_paper(paper_id="2401.12345", title="HF Paper", upvotes=42, num_comments=5):
     return {
@@ -550,8 +558,10 @@ class TestCrossSourceDedup:
         hit = _hn_make_hit(object_id="hn-42", url=shared_url)
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(responses)
             HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
@@ -561,9 +571,7 @@ class TestCrossSourceDedup:
             assert len(sc_rows) == 1, f"Expected 1 SilverContent, got {len(sc_rows)}"
             content_id = sc_rows[0].id
 
-            sd_rows = conn.execute(
-                sa.select(SilverDiscussion).order_by(SilverDiscussion.source_type)
-            ).fetchall()
+            sd_rows = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.source_type)).fetchall()
             assert len(sd_rows) == 2
             source_types = {r.source_type for r in sd_rows}
             assert source_types == {"rss", "hackernews"}
@@ -581,8 +589,10 @@ class TestCrossSourceDedup:
         story = _lob_make_story(short_id="lob-1", url=shared_url)
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _lob_mock_client(responses)
             LobstersCollector().collect(engine, lob_config.lobsters, lob_config.settings, MagicMock())
 
@@ -594,8 +604,10 @@ class TestCrossSourceDedup:
         hit = _hn_make_hit(object_id="hn-55", url=shared_url)
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(responses)
             HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
@@ -629,8 +641,10 @@ class TestCrossSourceDedup:
         hit = _hn_make_hit(object_id="hn-norm", url="https://example.com/article")
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(responses)
             HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
 

@@ -8,29 +8,23 @@ from unittest.mock import MagicMock, patch
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.collectors.hackernews import HackernewsCollector
-from aggre.collectors.lobsters import LobstersCollector
-from aggre.collectors.reddit import RedditCollector
-from aggre.collectors.rss import RssCollector
-from aggre.collectors.hackernews.config import HackernewsConfig
-from aggre.collectors.lobsters.config import LobstersConfig
-from aggre.collectors.reddit.config import RedditConfig
-from aggre.collectors.rss.config import RssConfig
-from aggre.config import (
-    AppConfig,
-    HackernewsSource,
-    LobstersSource,
-    RedditSource,
-    RssSource,
-    Settings,
-)
+from aggre.collectors.hackernews.collector import HackernewsCollector
+from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
+from aggre.collectors.lobsters.collector import LobstersCollector
+from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
+from aggre.collectors.reddit.collector import RedditCollector
+from aggre.collectors.reddit.config import RedditConfig, RedditSource
+from aggre.collectors.rss.collector import RssCollector
+from aggre.collectors.rss.config import RssConfig, RssSource
+from aggre.config import AppConfig
 from aggre.content_fetcher import download_content, extract_html_text
 from aggre.db import BronzeDiscussion, SilverContent, SilverDiscussion
-
+from aggre.settings import Settings
 
 # ---------------------------------------------------------------------------
 # Reddit helpers
 # ---------------------------------------------------------------------------
+
 
 def _reddit_post(post_id="abc123", title="Reddit Post", subreddit="python"):
     return {
@@ -86,12 +80,14 @@ def _reddit_fake_get(responses):
                 return resp
         resp.json.return_value = _reddit_listing()
         return resp
+
     return fake_get
 
 
 # ---------------------------------------------------------------------------
 # HackerNews helpers
 # ---------------------------------------------------------------------------
+
 
 def _hn_hit(object_id="12345", title="HN Story", url="https://example.com/hn-article"):
     return {
@@ -146,6 +142,7 @@ def _hn_mock_client(responses):
 # Lobsters helpers
 # ---------------------------------------------------------------------------
 
+
 def _lobsters_story(short_id="lob123", title="Lobsters Story", url="https://example.com/lob-article"):
     return {
         "short_id": short_id,
@@ -198,6 +195,7 @@ def _lobsters_mock_client(responses):
 # ---------------------------------------------------------------------------
 # RSS helpers
 # ---------------------------------------------------------------------------
+
 
 def _rss_entry(**kwargs):
     defaults = {
@@ -258,8 +256,7 @@ class TestCommentsAsJsonReddit:
         listing = _reddit_listing(post)
         post_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.collector.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
             collector.collect(engine, config.reddit, config.settings, log)
 
@@ -269,8 +266,7 @@ class TestCommentsAsJsonReddit:
         comment_resp = _reddit_comment_listing(c1, c2)
         comment_responses = {"comments/abc123.json": comment_resp}
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.collector.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
@@ -310,8 +306,10 @@ class TestCommentsAsJsonHackernews:
         hit = _hn_hit()
         responses = {"search_by_date": _hn_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(responses)
             collector.collect(engine, config.hackernews, config.settings, log)
 
@@ -321,8 +319,10 @@ class TestCommentsAsJsonHackernews:
         item_resp = _hn_item_response(object_id="12345", children=[c1, c2])
         comment_responses = {"items/12345": item_resp}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _hn_mock_client(comment_responses)
             fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
@@ -363,8 +363,10 @@ class TestCommentsAsJsonLobsters:
         story = _lobsters_story()
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _lobsters_mock_client(responses)
             collector.collect(engine, config.lobsters, config.settings, log)
 
@@ -374,8 +376,10 @@ class TestCommentsAsJsonLobsters:
         detail = _lobsters_story_detail(short_id="lob123", comments=[c1, c2])
         comment_responses = {"s/lob123.json": detail}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _lobsters_mock_client(comment_responses)
             fetched = collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
 
@@ -445,9 +449,7 @@ class TestFullPipelineFlow:
             assert disc.content_id is not None
 
             # Verify SilverContent exists in pending state
-            content = conn.execute(
-                sa.select(SilverContent).where(SilverContent.id == disc.content_id)
-            ).fetchone()
+            content = conn.execute(sa.select(SilverContent).where(SilverContent.id == disc.content_id)).fetchone()
             assert content is not None
             assert content.fetch_status == "pending"
             assert "blog.example.com" in content.canonical_url
@@ -475,8 +477,10 @@ class TestFullPipelineFlow:
             assert content.raw_html is not None
 
         # Step 4: Extract text from downloaded HTML
-        with patch("aggre.content_fetcher.trafilatura.extract", return_value="Full article body here"), \
-             patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta:
+        with (
+            patch("aggre.content_fetcher.trafilatura.extract", return_value="Full article body here"),
+            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta,
+        ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Great Article - Full"
             mock_meta.return_value = mock_meta_obj
@@ -490,18 +494,14 @@ class TestFullPipelineFlow:
             disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert disc.content_id is not None
 
-            content = conn.execute(
-                sa.select(SilverContent).where(SilverContent.id == disc.content_id)
-            ).fetchone()
+            content = conn.execute(sa.select(SilverContent).where(SilverContent.id == disc.content_id)).fetchone()
             assert content.fetch_status == "fetched"
             assert content.body_text == "Full article body here"
             assert content.title == "Great Article - Full"
             assert content.fetched_at is not None
 
             # Bronze post is linked
-            bp = conn.execute(
-                sa.select(BronzeDiscussion).where(BronzeDiscussion.id == disc.bronze_discussion_id)
-            ).fetchone()
+            bp = conn.execute(sa.select(BronzeDiscussion).where(BronzeDiscussion.id == disc.bronze_discussion_id)).fetchone()
             assert bp is not None
             assert bp.source_type == "rss"
 
@@ -519,8 +519,7 @@ class TestFullPipelineFlow:
         listing = _reddit_listing(post)
         post_responses = {"hot.json": listing, "new.json": listing}
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.collector.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
             count = collector.collect(engine, config.reddit, config.settings, log)
 
@@ -531,8 +530,7 @@ class TestFullPipelineFlow:
         comment_resp = _reddit_comment_listing(c1)
         comment_responses = {"comments/abc123.json": comment_resp}
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, \
-             patch("aggre.collectors.reddit.collector.time.sleep"):
+        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
             mock_cls.return_value = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
@@ -599,8 +597,10 @@ class TestContentFetcherIntegration:
                 assert row.fetch_status == "downloaded"
                 assert row.raw_html == "<html><body>Content</body></html>"
 
-        with patch("aggre.content_fetcher.trafilatura.extract", return_value="Extracted text"), \
-             patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta:
+        with (
+            patch("aggre.content_fetcher.trafilatura.extract", return_value="Extracted text"),
+            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta,
+        ):
             meta_obj = MagicMock()
             meta_obj.title = "Article Title"
             mock_meta.return_value = meta_obj
@@ -610,9 +610,7 @@ class TestContentFetcherIntegration:
         assert count == 2
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).order_by(SilverContent.id)
-            ).fetchall()
+            rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
             for row in rows:
                 assert row.fetch_status == "fetched"
                 assert row.body_text == "Extracted text"
@@ -682,9 +680,7 @@ class TestContentFetcherIntegration:
         assert count == 3
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).order_by(SilverContent.id)
-            ).fetchall()
+            rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
 
             # good article — downloaded (not yet extracted)
             assert rows[0].fetch_status == "downloaded"
@@ -698,8 +694,10 @@ class TestContentFetcherIntegration:
             assert "DNS failure" in rows[2].fetch_error
 
         # Now extract the downloaded one
-        with patch("aggre.content_fetcher.trafilatura.extract", return_value="Good body"), \
-             patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta:
+        with (
+            patch("aggre.content_fetcher.trafilatura.extract", return_value="Good body"),
+            patch("aggre.content_fetcher.trafilatura.metadata.extract_metadata") as mock_meta,
+        ):
             meta_obj = MagicMock()
             meta_obj.title = "Good Title"
             mock_meta.return_value = meta_obj
@@ -709,9 +707,7 @@ class TestContentFetcherIntegration:
         assert count == 1
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).order_by(SilverContent.id)
-            ).fetchall()
+            rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
 
             assert rows[0].fetch_status == "fetched"
             assert rows[0].body_text == "Good body"

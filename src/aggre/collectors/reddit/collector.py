@@ -194,10 +194,12 @@ class RedditCollector(BaseCollector):
             if post_url and "reddit.com" not in post_url:
                 content_id = ensure_content(conn, post_url)
 
-        meta = json.dumps({
-            "subreddit": subreddit,
-            "flair": post_data.get("link_flair_text"),
-        })
+        meta = json.dumps(
+            {
+                "subreddit": subreddit,
+                "flair": post_data.get("link_flair_text"),
+            }
+        )
 
         values = dict(
             source_id=source_id,

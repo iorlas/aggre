@@ -26,33 +26,21 @@ class TestAllSourcesRecent:
     def test_never_fetched_source_returns_false(self, engine):
         """Source with NULL last_fetched_at -> False."""
         with engine.begin() as conn:
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="feed-a", config="{}", last_fetched_at=None
-                )
-            )
+            conn.execute(sa.insert(Source).values(type="rss", name="feed-a", config="{}", last_fetched_at=None))
         assert all_sources_recent(engine, "rss", ttl_minutes=60) is False
 
     def test_stale_source_returns_false(self, engine):
         """Source fetched 2 hours ago, TTL=60 -> False."""
         two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         with engine.begin() as conn:
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="feed-a", config="{}", last_fetched_at=two_hours_ago
-                )
-            )
+            conn.execute(sa.insert(Source).values(type="rss", name="feed-a", config="{}", last_fetched_at=two_hours_ago))
         assert all_sources_recent(engine, "rss", ttl_minutes=60) is False
 
     def test_recent_source_returns_true(self, engine):
         """Source fetched 5 min ago, TTL=60 -> True."""
         five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
         with engine.begin() as conn:
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="feed-a", config="{}", last_fetched_at=five_min_ago
-                )
-            )
+            conn.execute(sa.insert(Source).values(type="rss", name="feed-a", config="{}", last_fetched_at=five_min_ago))
         assert all_sources_recent(engine, "rss", ttl_minutes=60) is True
 
     def test_mixed_sources_returns_false(self, engine):
@@ -60,32 +48,16 @@ class TestAllSourcesRecent:
         five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
         two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         with engine.begin() as conn:
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="feed-a", config="{}", last_fetched_at=five_min_ago
-                )
-            )
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="feed-b", config="{}", last_fetched_at=two_hours_ago
-                )
-            )
+            conn.execute(sa.insert(Source).values(type="rss", name="feed-a", config="{}", last_fetched_at=five_min_ago))
+            conn.execute(sa.insert(Source).values(type="rss", name="feed-b", config="{}", last_fetched_at=two_hours_ago))
         assert all_sources_recent(engine, "rss", ttl_minutes=60) is False
 
     def test_ignores_other_source_types(self, engine):
         """rss recent + reddit never-fetched -> rss True, reddit False."""
         five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
         with engine.begin() as conn:
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="feed-a", config="{}", last_fetched_at=five_min_ago
-                )
-            )
-            conn.execute(
-                sa.insert(Source).values(
-                    type="reddit", name="sub-a", config="{}", last_fetched_at=None
-                )
-            )
+            conn.execute(sa.insert(Source).values(type="rss", name="feed-a", config="{}", last_fetched_at=five_min_ago))
+            conn.execute(sa.insert(Source).values(type="reddit", name="sub-a", config="{}", last_fetched_at=None))
         assert all_sources_recent(engine, "rss", ttl_minutes=60) is True
         assert all_sources_recent(engine, "reddit", ttl_minutes=60) is False
 
@@ -120,9 +92,7 @@ def _make_env(engine, tmp_path: Path) -> tuple[str, dict[str, str]]:
     """Return (config_path, env_dict) for CliRunner invocations."""
     db_url = engine.url.render_as_string(hide_password=False)
     config_path = str(tmp_path / "config.yaml")
-    Path(config_path).write_text(
-        "rss:\n  sources:\n    - name: Test\n      url: https://example.com/feed.xml\n"
-    )
+    Path(config_path).write_text("rss:\n  sources:\n    - name: Test\n      url: https://example.com/feed.xml\n")
     env = {"AGGRE_DATABASE_URL": db_url, "AGGRE_LOG_DIR": str(tmp_path / "logs")}
     return config_path, env
 
@@ -181,11 +151,7 @@ class TestRunOnceCommand:
         # Seed a recently-fetched RSS source (5 min ago)
         five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
         with engine.begin() as conn:
-            conn.execute(
-                sa.insert(Source).values(
-                    type="rss", name="Test", config="{}", last_fetched_at=five_min_ago
-                )
-            )
+            conn.execute(sa.insert(Source).values(type="rss", name="Test", config="{}", last_fetched_at=five_min_ago))
 
         mock_rss = MagicMock()
         mock_rss.collect.return_value = 0
@@ -198,12 +164,22 @@ class TestRunOnceCommand:
             stack.enter_context(patch("aggre.content_fetcher.download_content", return_value=0))
             stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
             stack.enter_context(patch("aggre.transcriber.transcribe", return_value=0))
-            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0}))
+            stack.enter_context(
+                patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0})
+            )
 
-            result = runner.invoke(cli, [
-                "--config", config_path, "run-once",
-                "--source-ttl", "60", "--source", "rss",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--config",
+                    config_path,
+                    "run-once",
+                    "--source-ttl",
+                    "60",
+                    "--source",
+                    "rss",
+                ],
+            )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         mock_rss.collect.assert_not_called()
@@ -222,11 +198,19 @@ class TestRunOnceCommand:
             stack.enter_context(patch("aggre.content_fetcher.download_content", return_value=0))
             stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
             mock_tr = stack.enter_context(patch("aggre.transcriber.transcribe", return_value=0))
-            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0}))
+            stack.enter_context(
+                patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0})
+            )
 
-            result = runner.invoke(cli, [
-                "--config", config_path, "run-once", "--skip-transcribe",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--config",
+                    config_path,
+                    "run-once",
+                    "--skip-transcribe",
+                ],
+            )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         mock_tr.assert_not_called()
@@ -246,11 +230,19 @@ class TestRunOnceCommand:
             stack.enter_context(patch("aggre.collectors.base.all_sources_recent", return_value=False))
             stack.enter_context(patch("aggre.content_fetcher.download_content", side_effect=lambda *a, **kw: next(download_returns)))
             stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
-            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0}))
+            stack.enter_context(
+                patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0})
+            )
 
-            result = runner.invoke(cli, [
-                "--config", config_path, "run-once", "--skip-transcribe",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "--config",
+                    config_path,
+                    "run-once",
+                    "--skip-transcribe",
+                ],
+            )
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         assert "100" in result.output
@@ -261,11 +253,7 @@ class TestIsSourceRecent:
 
     def _insert_source(self, engine, last_fetched_at=None):
         with engine.begin() as conn:
-            result = conn.execute(
-                sa.insert(Source).values(
-                    type="youtube", name="ch-a", config="{}", last_fetched_at=last_fetched_at
-                )
-            )
+            result = conn.execute(sa.insert(Source).values(type="youtube", name="ch-a", config="{}", last_fetched_at=last_fetched_at))
             return result.inserted_primary_key[0]
 
     def test_ttl_zero_always_false(self, engine):

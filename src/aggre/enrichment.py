@@ -5,22 +5,33 @@ from __future__ import annotations
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.hackernews.collector import HackernewsCollector
-from aggre.collectors.lobsters.collector import LobstersCollector
+from aggre.collectors.base import SearchableCollector
 from aggre.config import AppConfig
 from aggre.db import SilverContent, _update_content, now_iso
 
-HN_SKIP_DOMAINS = frozenset({
-    "youtube.com", "m.youtube.com", "youtu.be",
-    "i.redd.it", "v.redd.it",
-    "linkedin.com", "www.linkedin.com",
-})
+HN_SKIP_DOMAINS = frozenset(
+    {
+        "youtube.com",
+        "m.youtube.com",
+        "youtu.be",
+        "i.redd.it",
+        "v.redd.it",
+        "linkedin.com",
+        "www.linkedin.com",
+    }
+)
 
-LOBSTERS_SKIP_DOMAINS = frozenset({
-    "youtube.com", "m.youtube.com", "youtu.be",
-    "i.redd.it", "v.redd.it",
-    "linkedin.com", "www.linkedin.com",
-})
+LOBSTERS_SKIP_DOMAINS = frozenset(
+    {
+        "youtube.com",
+        "m.youtube.com",
+        "youtu.be",
+        "i.redd.it",
+        "v.redd.it",
+        "linkedin.com",
+        "www.linkedin.com",
+    }
+)
 
 
 def enrich_content_discussions(
@@ -29,8 +40,8 @@ def enrich_content_discussions(
     log: structlog.stdlib.BoundLogger,
     batch_limit: int = 50,
     *,
-    hn_collector: HackernewsCollector,
-    lobsters_collector: LobstersCollector,
+    hn_collector: SearchableCollector,
+    lobsters_collector: SearchableCollector,
 ) -> dict[str, int]:
     """Search HN and Lobsters for discussions about URLs from SilverContent.
 

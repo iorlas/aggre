@@ -17,10 +17,15 @@ from aggre.statuses import FetchStatus
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
 SKIP_EXTENSIONS = (".pdf",)
 
-TEXT_CONTENT_TYPES = frozenset({
-    "text/html", "text/plain", "application/xhtml+xml",
-    "application/xml", "text/xml",
-})
+TEXT_CONTENT_TYPES = frozenset(
+    {
+        "text/html",
+        "text/plain",
+        "application/xhtml+xml",
+        "application/xml",
+        "text/xml",
+    }
+)
 
 
 def _is_text_content_type(content_type: str) -> bool:
@@ -30,28 +35,25 @@ def _is_text_content_type(content_type: str) -> bool:
 
 # -- Fetch state transitions --------------------------------------------------
 
+
 def content_skipped(engine: sa.engine.Engine, content_id: int) -> None:
     """PENDING → SKIPPED (YouTube, PDF, etc.)"""
-    _update_content(engine, content_id,
-        fetch_status=FetchStatus.SKIPPED, fetched_at=now_iso())
+    _update_content(engine, content_id, fetch_status=FetchStatus.SKIPPED, fetched_at=now_iso())
 
 
 def content_downloaded(engine: sa.engine.Engine, content_id: int, *, raw_html: str) -> None:
     """PENDING → DOWNLOADED"""
-    _update_content(engine, content_id,
-        raw_html=raw_html, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
+    _update_content(engine, content_id, raw_html=raw_html, fetch_status=FetchStatus.DOWNLOADED, fetched_at=now_iso())
 
 
 def content_fetched(engine: sa.engine.Engine, content_id: int, *, body_text: str | None, title: str | None) -> None:
     """DOWNLOADED → FETCHED"""
-    _update_content(engine, content_id,
-        body_text=body_text, title=title, fetch_status=FetchStatus.FETCHED, fetched_at=now_iso())
+    _update_content(engine, content_id, body_text=body_text, title=title, fetch_status=FetchStatus.FETCHED, fetched_at=now_iso())
 
 
 def content_fetch_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
     """any → FAILED"""
-    _update_content(engine, content_id,
-        fetch_status=FetchStatus.FAILED, fetch_error=error, fetched_at=now_iso())
+    _update_content(engine, content_id, fetch_status=FetchStatus.FAILED, fetch_error=error, fetched_at=now_iso())
 
 
 def _download_one(
@@ -134,10 +136,7 @@ def download_content(
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(_download_one, client, engine, log, row.id, row.canonical_url, row.domain)
-                for row in rows
-            ]
+            futures = [executor.submit(_download_one, client, engine, log, row.id, row.canonical_url, row.domain) for row in rows]
             for future in concurrent.futures.as_completed(futures):
                 processed += future.result()
     finally:
@@ -200,15 +199,3 @@ def extract_html_text(
 
     log.info("content_fetcher.extract_complete", processed=processed)
     return processed
-
-
-def fetch_pending_content(
-    engine: sa.engine.Engine,
-    config: AppConfig,
-    log: structlog.stdlib.BoundLogger,
-    batch_limit: int = 50,
-) -> int:
-    """Download and extract text for pending SilverContent rows (backward compat wrapper)."""
-    downloaded = download_content(engine, config, log, batch_limit=batch_limit)
-    extracted = extract_html_text(engine, config, log, batch_limit=batch_limit)
-    return downloaded + extracted

@@ -48,9 +48,7 @@ class YoutubeCollector(BaseCollector):
                 log.info("youtube.source_skipped", name=yt_source.name, reason="recent")
                 continue
 
-            fetch_limit = None if backfill else self._get_fetch_limit(
-                engine, source_id, config.init_fetch_limit, config.fetch_limit
-            )
+            fetch_limit = None if backfill else self._get_fetch_limit(engine, source_id, config.init_fetch_limit, config.fetch_limit)
 
             url = f"https://www.youtube.com/channel/{yt_source.channel_id}/videos"
             ydl_opts = {

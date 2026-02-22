@@ -31,7 +31,8 @@ def cli(ctx: click.Context, config_path: str) -> None:
 
 @cli.command("collect")
 @click.option(
-    "--source", "source_type",
+    "--source",
+    "source_type",
     type=click.Choice(list(COLLECTORS.keys())),
     help="Collect only this source type.",
 )
@@ -50,7 +51,7 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
     if source_type:
         active_collectors = {source_type: collectors[source_type]}
 
-    def _cycle():
+    def _cycle() -> int:
         total = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(active_collectors)) as executor:
             futures = {
@@ -72,7 +73,10 @@ def collect_cmd(ctx: click.Context, source_type: str | None, comment_batch: int,
                 if coll and hasattr(coll, "collect_comments"):
                     try:
                         comments_fetched = coll.collect_comments(
-                            engine, getattr(cfg, src_name), cfg.settings, log,
+                            engine,
+                            getattr(cfg, src_name),
+                            cfg.settings,
+                            log,
                             batch_limit=comment_batch,
                         )
                         log.info("collect.comments_complete", source=src_name, comments_fetched=comments_fetched)
@@ -101,7 +105,7 @@ def telegram_auth(ctx: click.Context) -> None:
         click.echo("Set AGGRE_TELEGRAM_API_ID and AGGRE_TELEGRAM_API_HASH first.")
         raise SystemExit(1)
 
-    async def _auth():
+    async def _auth() -> str:
         client = TelegramClient(StringSession(), api_id, api_hash)
         await client.start()
         session_str = client.session.save()
@@ -116,37 +120,45 @@ def telegram_auth(ctx: click.Context) -> None:
 @worker_options(default_interval=10, default_batch=50)
 @click.option("--workers", default=5, type=int, help="Concurrent download threads.")
 @click.pass_context
-def download_cmd(ctx, batch, workers, loop, interval):
+def download_cmd(ctx: click.Context, batch: int, workers: int, loop: bool, interval: int) -> None:
     """Download pending content URLs."""
     cfg = ctx.obj["config"]
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "download")
     from aggre.content_fetcher import download_content
+
     run_loop(
         fn=lambda: download_content(engine, cfg, log, batch_limit=batch, max_workers=workers),
-        loop=loop, interval=interval, log=log, name="download",
+        loop=loop,
+        interval=interval,
+        log=log,
+        name="download",
     )
 
 
 @cli.command("extract-html-text")
 @worker_options(default_interval=10, default_batch=50)
 @click.pass_context
-def extract_html_text_cmd(ctx, batch, loop, interval):
+def extract_html_text_cmd(ctx: click.Context, batch: int, loop: bool, interval: int) -> None:
     """Extract text from downloaded HTML content."""
     cfg = ctx.obj["config"]
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "extract-html-text")
     from aggre.content_fetcher import extract_html_text
+
     run_loop(
         fn=lambda: extract_html_text(engine, cfg, log, batch_limit=batch),
-        loop=loop, interval=interval, log=log, name="extract_html_text",
+        loop=loop,
+        interval=interval,
+        log=log,
+        name="extract_html_text",
     )
 
 
 @cli.command("enrich-content-discussions")
 @worker_options(default_interval=60, default_batch=50)
 @click.pass_context
-def enrich_content_discussions_cmd(ctx, batch, loop, interval):
+def enrich_content_discussions_cmd(ctx: click.Context, batch: int, loop: bool, interval: int) -> None:
     """Discover cross-source discussions for content URLs."""
     cfg = ctx.obj["config"]
     engine = ctx.obj["engine"]
@@ -154,13 +166,20 @@ def enrich_content_discussions_cmd(ctx, batch, loop, interval):
     from aggre.collectors.hackernews.collector import HackernewsCollector
     from aggre.collectors.lobsters.collector import LobstersCollector
     from aggre.enrichment import enrich_content_discussions
+
     run_loop(
         fn=lambda: enrich_content_discussions(
-            engine, cfg, log, batch_limit=batch,
+            engine,
+            cfg,
+            log,
+            batch_limit=batch,
             hn_collector=HackernewsCollector(),
             lobsters_collector=LobstersCollector(),
         ),
-        loop=loop, interval=interval, log=log, name="enrich",
+        loop=loop,
+        interval=interval,
+        log=log,
+        name="enrich",
     )
 
 
@@ -177,7 +196,10 @@ def transcribe(ctx: click.Context, batch: int, loop: bool, interval: int) -> Non
 
     run_loop(
         fn=lambda: do_transcribe(engine, cfg, log, batch_limit=batch),
-        loop=loop, interval=interval, log=log, name="transcribe",
+        loop=loop,
+        interval=interval,
+        log=log,
+        name="transcribe",
     )
 
 
@@ -217,8 +239,7 @@ def backfill_content(ctx: click.Context, batch: int) -> None:
     # Step 1: Link existing discussions to SilverContent
     with engine.connect() as conn:
         rows = conn.execute(
-            sa.select(SilverDiscussion.id, SilverDiscussion.url, SilverDiscussion.meta)
-            .where(
+            sa.select(SilverDiscussion.id, SilverDiscussion.url, SilverDiscussion.meta).where(
                 SilverDiscussion.content_id.is_(None),
                 SilverDiscussion.url.isnot(None),
             )
@@ -229,11 +250,7 @@ def backfill_content(ctx: click.Context, batch: int) -> None:
         with engine.begin() as conn:
             content_id = ensure_content(conn, row.url)
             if content_id:
-                conn.execute(
-                    sa.update(SilverDiscussion)
-                    .where(SilverDiscussion.id == row.id)
-                    .values(content_id=content_id)
-                )
+                conn.execute(sa.update(SilverDiscussion).where(SilverDiscussion.id == row.id).values(content_id=content_id))
                 linked += 1
 
                 # Extract score/comment_count from meta if available
@@ -249,11 +266,7 @@ def backfill_content(ctx: click.Context, batch: int) -> None:
                     elif "comment_count" in meta:
                         updates["comment_count"] = meta["comment_count"]
                     if updates:
-                        conn.execute(
-                            sa.update(SilverDiscussion)
-                            .where(SilverDiscussion.id == row.id)
-                            .values(**updates)
-                        )
+                        conn.execute(sa.update(SilverDiscussion).where(SilverDiscussion.id == row.id).values(**updates))
 
     log.info("backfill.linked", linked=linked, total=len(rows))
 
@@ -286,22 +299,15 @@ def status(ctx: click.Context) -> None:
             click.echo("  No discussions yet.")
 
         # Content status
-        content_stats = conn.execute(
-            sa.select(SilverContent.fetch_status, sa.func.count())
-            .group_by(SilverContent.fetch_status)
-        ).fetchall()
+        content_stats = conn.execute(sa.select(SilverContent.fetch_status, sa.func.count()).group_by(SilverContent.fetch_status)).fetchall()
         if content_stats:
             click.echo("\n=== Content Status ===")
             for row in content_stats:
                 click.echo(f"  {row[0]}: {row[1]}")
 
         # Transcription queue (on SilverContent)
-        pending = conn.execute(
-            sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.PENDING)
-        ).scalar()
-        failed = conn.execute(
-            sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.FAILED)
-        ).scalar()
+        pending = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.PENDING)).scalar()
+        failed = conn.execute(sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.FAILED)).scalar()
         completed = conn.execute(
             sa.select(sa.func.count()).where(SilverContent.transcription_status == TranscriptionStatus.COMPLETED)
         ).scalar()
@@ -333,7 +339,9 @@ _MAX_DRAIN_ITERATIONS = 100  # Safety cap; prevents infinite loops if a stage ne
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
 @click.option("--enrich-batch", default=10000, type=int, help="Max URLs to enrich per run (0 = skip enrichment).")
 @click.pass_context
-def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, enrich_batch):
+def run_once_cmd(
+    ctx: click.Context, source_ttl: int, source_type: str | None, skip_transcribe: bool, comment_batch: int, enrich_batch: int
+) -> None:
     """Run the full pipeline once and exit."""
     from aggre.collectors.base import all_sources_recent
     from aggre.collectors.hackernews.collector import HackernewsCollector
@@ -410,8 +418,11 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, e
     lob_coll = LobstersCollector()
     for _ in range(_MAX_DRAIN_ITERATIONS):
         result = enrich_content_discussions(
-            engine, cfg, log,
-            hn_collector=hn_coll, lobsters_collector=lob_coll,
+            engine,
+            cfg,
+            log,
+            hn_collector=hn_coll,
+            lobsters_collector=lob_coll,
         )
         processed = result.get("processed", 0)
         if processed == 0:

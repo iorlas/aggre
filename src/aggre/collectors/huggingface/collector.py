@@ -65,14 +65,17 @@ class HuggingfaceCollector(BaseCollector):
         return total_new
 
     def _store_discussion(
-        self, conn: sa.Connection, source_id: int, raw_id: int | None, paper_id: str, item: dict,
+        self,
+        conn: sa.Connection,
+        source_id: int,
+        raw_id: int | None,
+        paper_id: str,
+        item: dict,
     ) -> int | None:
         paper = item.get("paper", {})
 
         authors = paper.get("authors", [])
-        author_names = ", ".join(
-            a.get("name", "") for a in authors if isinstance(a, dict)
-        ) if authors else None
+        author_names = ", ".join(a.get("name", "") for a in authors if isinstance(a, dict)) if authors else None
 
         hf_url = f"https://huggingface.co/papers/{paper_id}"
 
@@ -81,14 +84,14 @@ class HuggingfaceCollector(BaseCollector):
         summary = paper.get("summary")
         if content_id and summary:
             conn.execute(
-                sa.update(SilverContent)
-                .where(SilverContent.id == content_id, SilverContent.body_text.is_(None))
-                .values(body_text=summary)
+                sa.update(SilverContent).where(SilverContent.id == content_id, SilverContent.body_text.is_(None)).values(body_text=summary)
             )
 
-        meta = json.dumps({
-            "github_repo": item.get("paper", {}).get("githubRepo"),
-        })
+        meta = json.dumps(
+            {
+                "github_repo": item.get("paper", {}).get("githubRepo"),
+            }
+        )
 
         values = dict(
             source_id=source_id,

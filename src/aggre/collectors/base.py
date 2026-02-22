@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Protocol
 
 import sqlalchemy as sa
 import structlog
+from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source, now_iso
@@ -25,9 +26,7 @@ def all_sources_recent(engine: sa.engine.Engine, source_type: str, ttl_minutes: 
     cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
 
     with engine.connect() as conn:
-        total = conn.execute(
-            sa.select(sa.func.count()).select_from(Source).where(Source.type == source_type)
-        ).scalar()
+        total = conn.execute(sa.select(sa.func.count()).select_from(Source).where(Source.type == source_type)).scalar()
 
         if total == 0:
             return False
@@ -50,7 +49,7 @@ def all_sources_recent(engine: sa.engine.Engine, source_type: str, ttl_minutes: 
 class Collector(Protocol):
     """Protocol that all collectors must implement."""
 
-    def collect(self, engine: sa.engine.Engine, config: Any, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+    def collect(self, engine: sa.engine.Engine, config: BaseModel, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
         """Fetch new items from the source. Returns count of new items stored."""
         ...
 
@@ -58,8 +57,9 @@ class Collector(Protocol):
 class SearchableCollector(Collector, Protocol):
     """Collector that supports searching for discussions by URL."""
 
-    def search_by_url(self, url: str, engine: sa.engine.Engine, config: Any,
-                      settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+    def search_by_url(
+        self, url: str, engine: sa.engine.Engine, config: BaseModel, settings: Settings, log: structlog.stdlib.BoundLogger
+    ) -> int:
         """Search for discussions about a URL. Returns count of new items stored."""
         ...
 
@@ -69,21 +69,17 @@ class BaseCollector:
 
     source_type: str
 
-    def _ensure_source(self, engine: sa.engine.Engine, name: str, source_config: dict[str, Any] | None = None) -> int:
+    def _ensure_source(self, engine: sa.engine.Engine, name: str, source_config: dict[str, object] | None = None) -> int:
         """Find or create a Source row. Returns source_id."""
         with engine.begin() as conn:
-            row = conn.execute(
-                sa.select(Source.id).where(Source.type == self.source_type, Source.name == name)
-            ).first()
+            row = conn.execute(sa.select(Source.id).where(Source.type == self.source_type, Source.name == name)).first()
             if row:
                 return row[0]
             cfg = json.dumps(source_config or {"name": name})
-            result = conn.execute(
-                sa.insert(Source).values(type=self.source_type, name=name, config=cfg)
-            )
+            result = conn.execute(sa.insert(Source).values(type=self.source_type, name=name, config=cfg))
             return result.inserted_primary_key[0]
 
-    def _store_raw_item(self, conn: sa.Connection, ext_id: str, raw_data: Any) -> int | None:
+    def _store_raw_item(self, conn: sa.Connection, ext_id: str, raw_data: object) -> int | None:
         """Insert a BronzeDiscussion. Returns id if new, None if duplicate."""
         stmt = pg_insert(BronzeDiscussion).values(
             source_type=self.source_type,
@@ -99,17 +95,12 @@ class BaseCollector:
     def _update_last_fetched(self, engine: sa.engine.Engine, source_id: int) -> None:
         """Update the last_fetched_at timestamp on a Source."""
         with engine.begin() as conn:
-            conn.execute(
-                sa.update(Source).where(Source.id == source_id)
-                .values(last_fetched_at=now_iso())
-            )
+            conn.execute(sa.update(Source).where(Source.id == source_id).values(last_fetched_at=now_iso()))
 
     def _is_initialized(self, engine: sa.engine.Engine, source_id: int) -> bool:
         """True if source has been fetched at least once."""
         with engine.connect() as conn:
-            last = conn.execute(
-                sa.select(Source.last_fetched_at).where(Source.id == source_id)
-            ).scalar()
+            last = conn.execute(sa.select(Source.last_fetched_at).where(Source.id == source_id)).scalar()
         return last is not None
 
     def _get_fetch_limit(self, engine: sa.engine.Engine, source_id: int, init_limit: int, normal_limit: int) -> int:
@@ -125,14 +116,12 @@ class BaseCollector:
             return False
         cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
         with engine.connect() as conn:
-            last = conn.execute(
-                sa.select(Source.last_fetched_at).where(Source.id == source_id)
-            ).scalar()
+            last = conn.execute(sa.select(Source.last_fetched_at).where(Source.id == source_id)).scalar()
         if last is None:
             return False
         return last >= cutoff
 
-    def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int):
+    def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int) -> list[sa.Row]:
         """Return discussions with pending comments for this source_type."""
         with engine.connect() as conn:
             return conn.execute(
@@ -145,8 +134,11 @@ class BaseCollector:
             ).fetchall()
 
     def _mark_comments_done(
-        self, engine: sa.engine.Engine, discussion_id: int,
-        comments_json: str | None, comment_count: int,
+        self,
+        engine: sa.engine.Engine,
+        discussion_id: int,
+        comments_json: str | None,
+        comment_count: int,
     ) -> None:
         """PENDING → DONE. Stores fetched comments."""
         with engine.begin() as conn:
@@ -163,7 +155,7 @@ class BaseCollector:
     @staticmethod
     def _upsert_discussion(
         conn: sa.Connection,
-        values: dict[str, Any],
+        values: dict[str, object],
         update_columns: Sequence[str] | None = None,
     ) -> int | None:
         """Insert or update a SilverDiscussion. Returns id if new, None if existing."""

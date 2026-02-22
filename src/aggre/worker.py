@@ -4,31 +4,33 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TypeVar
 
 import click
 import structlog
+
+F = TypeVar("F", bound=Callable)
 
 
 def worker_options(
     default_interval: int = 10,
     default_batch: int = 50,
     include_batch: bool = True,
-):
+) -> Callable[[F], F]:
     """Click decorator that adds --loop, --interval, and optionally --batch."""
-    def decorator(f):
+
+    def decorator(f: F) -> F:
         f = click.option("--loop", is_flag=True, help="Run continuously.")(f)
-        f = click.option("--interval", default=default_interval, type=int,
-                         help="Seconds between loop iterations.")(f)
+        f = click.option("--interval", default=default_interval, type=int, help="Seconds between loop iterations.")(f)
         if include_batch:
-            f = click.option("--batch", default=default_batch, type=int,
-                             help="Max items per batch.")(f)
+            f = click.option("--batch", default=default_batch, type=int, help="Max items per batch.")(f)
         return f
+
     return decorator
 
 
 def run_loop(
-    fn: Callable[[], Any],
+    fn: Callable[[], object],
     *,
     loop: bool,
     interval: int,

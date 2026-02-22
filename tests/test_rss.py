@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 import sqlalchemy as sa
 
-from aggre.collectors.rss import RssCollector
-from aggre.config import AppConfig, RssConfig, RssSource
+from aggre.collectors.rss.collector import RssCollector
+from aggre.collectors.rss.config import RssConfig, RssSource
+from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
 
 

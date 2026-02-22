@@ -8,10 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import sqlalchemy as sa
 
-from aggre.collectors.telegram import TelegramCollector
-from aggre.config import AppConfig, TelegramConfig, TelegramSource
-from aggre.settings import Settings
+from aggre.collectors.telegram.collector import TelegramCollector
+from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
+from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.settings import Settings
 
 
 def _make_config(channels: list[TelegramSource] | None = None) -> AppConfig:
@@ -30,7 +31,7 @@ def _make_config(channels: list[TelegramSource] | None = None) -> AppConfig:
 
 def _make_message(
     msg_id: int = 1,
-    text: str = "Hello world",
+    text: str | None = "Hello world",
     date: datetime | None = None,
     views: int = 100,
     forwards: int = 5,
@@ -64,8 +65,10 @@ class TestTelegramCollectorDiscussions:
 
         msg = _make_message(msg_id=42, text="First line\nSecond line", views=500, forwards=10)
 
-        with patch("aggre.collectors.telegram.collector.StringSession"), \
-             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
+        with (
+            patch("aggre.collectors.telegram.collector.StringSession"),
+            patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
+        ):
             mock_cls.return_value = _mock_client({"testchannel": [msg]})
             count = collector.collect(engine, config.telegram, config.settings, log)
 
@@ -97,8 +100,10 @@ class TestTelegramCollectorDiscussions:
 
         msg = _make_message(msg_id=1)
 
-        with patch("aggre.collectors.telegram.collector.StringSession"), \
-             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
+        with (
+            patch("aggre.collectors.telegram.collector.StringSession"),
+            patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
+        ):
             mock_cls.return_value = _mock_client({"testchannel": [msg]})
             count1 = collector.collect(engine, config.telegram, config.settings, log)
             count2 = collector.collect(engine, config.telegram, config.settings, log)
@@ -120,17 +125,17 @@ class TestTelegramCollectorDiscussions:
             "chan2": [_make_message(msg_id=2, text="From chan2")],
         }
 
-        with patch("aggre.collectors.telegram.collector.StringSession"), \
-             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
+        with (
+            patch("aggre.collectors.telegram.collector.StringSession"),
+            patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
+        ):
             mock_cls.return_value = _mock_client(messages)
             count = collector.collect(engine, config.telegram, config.settings, log)
 
         assert count == 2
 
         with engine.connect() as conn:
-            items = conn.execute(
-                sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)
-            ).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)).fetchall()
             assert len(items) == 2
             assert items[0].external_id == "chan1:1"
             assert items[1].external_id == "chan2:2"
@@ -143,8 +148,10 @@ class TestTelegramCollectorDiscussions:
         msg_empty = _make_message(msg_id=1, text=None)
         msg_good = _make_message(msg_id=2, text="Has text")
 
-        with patch("aggre.collectors.telegram.collector.StringSession"), \
-             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
+        with (
+            patch("aggre.collectors.telegram.collector.StringSession"),
+            patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
+        ):
             mock_cls.return_value = _mock_client({"testchannel": [msg_empty, msg_good]})
             count = collector.collect(engine, config.telegram, config.settings, log)
 
@@ -177,16 +184,20 @@ class TestTelegramCollectorDiscussions:
 
         msg_v1 = _make_message(msg_id=1, text="Post", views=100, forwards=5)
 
-        with patch("aggre.collectors.telegram.collector.StringSession"), \
-             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
+        with (
+            patch("aggre.collectors.telegram.collector.StringSession"),
+            patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
+        ):
             mock_cls.return_value = _mock_client({"testchannel": [msg_v1]})
             collector.collect(engine, config.telegram, config.settings, log)
 
         # Second run with updated views
         msg_v2 = _make_message(msg_id=1, text="Post", views=999, forwards=50)
 
-        with patch("aggre.collectors.telegram.collector.StringSession"), \
-             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
+        with (
+            patch("aggre.collectors.telegram.collector.StringSession"),
+            patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
+        ):
             mock_cls.return_value = _mock_client({"testchannel": [msg_v2]})
             count = collector.collect(engine, config.telegram, config.settings, log)
 
@@ -208,8 +219,10 @@ class TestTelegramSource:
         log = MagicMock()
         collector = TelegramCollector()
 
-        with patch("aggre.collectors.telegram.collector.StringSession"), \
-             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls:
+        with (
+            patch("aggre.collectors.telegram.collector.StringSession"),
+            patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
+        ):
             mock_cls.return_value = _mock_client({"testchannel": []})
             collector.collect(engine, config.telegram, config.settings, log)
 

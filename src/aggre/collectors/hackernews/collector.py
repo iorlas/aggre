@@ -118,7 +118,12 @@ class HackernewsCollector(BaseCollector):
         return fetched
 
     def search_by_url(
-        self, url: str, engine: sa.engine.Engine, config: HackernewsConfig, settings: Settings, log: structlog.stdlib.BoundLogger,
+        self,
+        url: str,
+        engine: sa.engine.Engine,
+        config: HackernewsConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
     ) -> int:
         rate_limit = settings.hn_rate_limit
         client = create_http_client(proxy_url=settings.proxy_url or None)
@@ -153,7 +158,12 @@ class HackernewsCollector(BaseCollector):
         return new_count
 
     def _store_discussion(
-        self, conn: sa.Connection, source_id: int, raw_id: int | None, ext_id: str, hit: dict,
+        self,
+        conn: sa.Connection,
+        source_id: int,
+        raw_id: int | None,
+        ext_id: str,
+        hit: dict,
     ) -> int | None:
         story_url = hit.get("url") or f"https://news.ycombinator.com/item?id={ext_id}"
         hn_url = f"https://news.ycombinator.com/item?id={ext_id}"

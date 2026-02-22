@@ -7,10 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import sqlalchemy as sa
 
-from aggre.collectors.huggingface import HuggingfaceCollector
-from aggre.config import AppConfig, HuggingfaceConfig, HuggingfaceSource
-from aggre.settings import Settings
+from aggre.collectors.huggingface.collector import HuggingfaceCollector
+from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource
+from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.settings import Settings
 
 
 def _make_config() -> AppConfig:

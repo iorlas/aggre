@@ -10,13 +10,26 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.db import SilverContent
 
-TRACKING_PARAMS = frozenset({
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "fbclid", "gclid", "msclkid", "ref", "source", "campaign", "_ga", "_gid",
-})
+TRACKING_PARAMS = frozenset(
+    {
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "fbclid",
+        "gclid",
+        "msclkid",
+        "ref",
+        "source",
+        "campaign",
+        "_ga",
+        "_gid",
+    }
+)
 
 
-def normalize_url(url: str) -> str | None:
+def normalize_url(url: str | None) -> str | None:
     """Normalize a URL to a canonical form for deduplication."""
     if not url:
         return None
@@ -97,9 +110,14 @@ def normalize_url(url: str) -> str | None:
         query = urlencode(sorted(cleaned.items()), doseq=True) if cleaned else ""
 
     # For domains that already set query above, skip generic cleaning
-    if query and "arxiv.org" not in netloc and "youtube.com" not in netloc and \
-       "github.com" not in netloc and "reddit.com" not in netloc and \
-       "news.ycombinator.com" not in netloc:
+    if (
+        query
+        and "arxiv.org" not in netloc
+        and "youtube.com" not in netloc
+        and "github.com" not in netloc
+        and "reddit.com" not in netloc
+        and "news.ycombinator.com" not in netloc
+    ):
         params = parse_qs(query, keep_blank_values=True)
         cleaned = {k: v for k, v in params.items() if k.lower() not in TRACKING_PARAMS}
         query = urlencode(sorted(cleaned.items()), doseq=True) if cleaned else ""
@@ -114,7 +132,7 @@ def normalize_url(url: str) -> str | None:
     return result
 
 
-def extract_domain(url: str) -> str | None:
+def extract_domain(url: str | None) -> str | None:
     """Extract the domain from a URL, stripping www. prefix."""
     if not url:
         return None
@@ -132,9 +150,7 @@ def ensure_content(conn: sa.Connection, raw_url: str) -> int | None:
         return None
 
     # Try to find existing
-    row = conn.execute(
-        sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)
-    ).first()
+    row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
     if row:
         return row[0]
 
@@ -145,8 +161,6 @@ def ensure_content(conn: sa.Connection, raw_url: str) -> int | None:
     result = conn.execute(stmt)
     if result.rowcount == 0:
         # Race condition: another transaction inserted it
-        row = conn.execute(
-            sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)
-        ).first()
+        row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
         return row[0] if row else None
     return result.inserted_primary_key[0]

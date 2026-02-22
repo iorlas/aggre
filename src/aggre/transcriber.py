@@ -13,10 +13,8 @@ from aggre.config import AppConfig
 from aggre.db import SilverContent, SilverDiscussion, _update_content
 from aggre.statuses import TranscriptionStatus
 
-_model_cache: WhisperModel | None = None
-
-
 # -- Transcription state transitions -------------------------------------------
+
 
 def transcription_downloading(engine: sa.engine.Engine, content_id: int) -> None:
     """PENDING → DOWNLOADING"""
@@ -30,26 +28,23 @@ def transcription_transcribing(engine: sa.engine.Engine, content_id: int) -> Non
 
 def transcription_completed(engine: sa.engine.Engine, content_id: int, *, body_text: str, detected_language: str) -> None:
     """TRANSCRIBING → COMPLETED"""
-    _update_content(engine, content_id,
-        body_text=body_text, transcription_status=TranscriptionStatus.COMPLETED,
-        detected_language=detected_language)
+    _update_content(
+        engine, content_id, body_text=body_text, transcription_status=TranscriptionStatus.COMPLETED, detected_language=detected_language
+    )
 
 
 def transcription_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
     """any → FAILED"""
-    _update_content(engine, content_id,
-        transcription_status=TranscriptionStatus.FAILED, transcription_error=error)
+    _update_content(engine, content_id, transcription_status=TranscriptionStatus.FAILED, transcription_error=error)
 
 
-def _get_model(config: AppConfig) -> WhisperModel:
-    global _model_cache
-    if _model_cache is None:
-        _model_cache = WhisperModel(
-            config.settings.whisper_model,
-            device="cpu",
-            download_root=config.settings.whisper_model_cache,
-        )
-    return _model_cache
+def create_whisper_model(config: AppConfig) -> WhisperModel:
+    """Create a WhisperModel from app config settings."""
+    return WhisperModel(
+        config.settings.whisper_model,
+        device="cpu",
+        download_root=config.settings.whisper_model_cache,
+    )
 
 
 def transcribe(
@@ -57,6 +52,8 @@ def transcribe(
     config: AppConfig,
     log: structlog.stdlib.BoundLogger,
     batch_limit: int = 0,
+    *,
+    model: WhisperModel | None = None,
 ) -> int:
     # Query SilverContent with pending transcription, JOIN to get the YouTube video ID
     query = (
@@ -69,9 +66,13 @@ def transcribe(
         )
         .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
         .where(
-            SilverContent.transcription_status.in_((
-                TranscriptionStatus.PENDING, TranscriptionStatus.DOWNLOADING, TranscriptionStatus.TRANSCRIBING,
-            )),
+            SilverContent.transcription_status.in_(
+                (
+                    TranscriptionStatus.PENDING,
+                    TranscriptionStatus.DOWNLOADING,
+                    TranscriptionStatus.TRANSCRIBING,
+                )
+            ),
             SilverDiscussion.source_type == "youtube",
         )
         .order_by(SilverContent.created_at.asc())
@@ -105,11 +106,13 @@ def transcribe(
                 "outtmpl": output_path,
                 "quiet": True,
                 "no_warnings": True,
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "opus",
-                    "preferredquality": "48",
-                }],
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "opus",
+                        "preferredquality": "48",
+                    }
+                ],
             }
             if config.settings.proxy_url:
                 ydl_opts["proxy"] = config.settings.proxy_url
@@ -134,8 +137,9 @@ def transcribe(
             # Mark as transcribing
             transcription_transcribing(engine, content_id)
 
-            # Transcribe
-            model = _get_model(config)
+            # Transcribe — create model on first use if not provided
+            if model is None:
+                model = create_whisper_model(config)
             segments, info = model.transcribe(str(audio_path))
             transcript = " ".join(seg.text for seg in segments)
 
@@ -154,7 +158,3 @@ def transcribe(
                 audio_path.unlink()
 
     return processed
-
-
-# Backward compatibility alias
-process_pending = transcribe

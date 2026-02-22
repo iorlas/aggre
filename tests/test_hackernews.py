@@ -7,10 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import sqlalchemy as sa
 
-from aggre.collectors.hackernews import HackernewsCollector
-from aggre.config import AppConfig, HackernewsConfig, HackernewsSource
-from aggre.settings import Settings
+from aggre.collectors.hackernews.collector import HackernewsCollector
+from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
+from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.settings import Settings
 
 
 def _make_config(rate_limit: float = 0.0) -> AppConfig:
@@ -44,8 +45,11 @@ def _make_item_response(object_id: str = "12345", children: list | None = None):
 
 
 def _make_comment_child(
-    comment_id: int = 100, author: str = "commenter", text: str = "Great article!",
-    points: int = 5, children: list | None = None,
+    comment_id: int = 100,
+    author: str = "commenter",
+    text: str = "Great article!",
+    points: int = 5,
+    children: list | None = None,
 ):
     return {
         "id": comment_id,
@@ -85,8 +89,10 @@ class TestHackernewsCollectorDiscussions:
         hit = _make_hit()
         responses = {"search_by_date": _make_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             count = collector.collect(engine, config.hackernews, config.settings, log)
 
@@ -120,8 +126,10 @@ class TestHackernewsCollectorDiscussions:
         hit = _make_hit()
         responses = {"search_by_date": _make_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             count1 = collector.collect(engine, config.hackernews, config.settings, log)
             count2 = collector.collect(engine, config.hackernews, config.settings, log)
@@ -142,8 +150,10 @@ class TestHackernewsCollectorDiscussions:
         hit2 = _make_hit(object_id="222", title="Second")
         responses = {"search_by_date": _make_search_response(hit1, hit2)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             count = collector.collect(engine, config.hackernews, config.settings, log)
 
@@ -158,8 +168,10 @@ class TestHackernewsCollectorDiscussions:
         hit["url"] = None  # Ask HN / Show HN with no external URL
         responses = {"search_by_date": _make_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.hackernews, config.settings, log)
 
@@ -184,8 +196,10 @@ class TestHackernewsCollectorComments:
         hit = _make_hit()
         responses = {"search_by_date": _make_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.hackernews, config.settings, log)
 
@@ -194,8 +208,10 @@ class TestHackernewsCollectorComments:
         item_response = _make_item_response(object_id="12345", children=[comment])
         comment_responses = {"items/12345": item_response}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(comment_responses)
             fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
@@ -223,8 +239,10 @@ class TestHackernewsCollectorComments:
         hit = _make_hit()
         responses = {"search_by_date": _make_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.hackernews, config.settings, log)
 
@@ -233,8 +251,10 @@ class TestHackernewsCollectorComments:
         item_response = _make_item_response(object_id="12345", children=[parent])
         comment_responses = {"items/12345": item_response}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(comment_responses)
             collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
@@ -270,19 +290,20 @@ class TestHackernewsCollectorComments:
         hits = [_make_hit(object_id=str(i), title=f"Story {i}") for i in range(3)]
         responses = {"search_by_date": _make_search_response(*hits)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.hackernews, config.settings, log)
 
         # Fetch comments with batch_limit=2
-        comment_responses = {
-            f"items/{i}": _make_item_response(object_id=str(i), children=[])
-            for i in range(3)
-        }
+        comment_responses = {f"items/{i}": _make_item_response(object_id=str(i), children=[]) for i in range(3)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(comment_responses)
             fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=2)
 
@@ -305,8 +326,10 @@ class TestHackernewsSearchByUrl:
         hit = _make_hit(object_id="42", url="https://example.com/article")
         responses = {"search?query": _make_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             found = collector.search_by_url("https://example.com/article", engine, config.hackernews, config.settings, log)
 
@@ -325,8 +348,10 @@ class TestHackernewsSearchByUrl:
         hit = _make_hit(object_id="42")
         responses = {"search?query": _make_search_response(hit)}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             found1 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings, log)
             found2 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings, log)
@@ -341,8 +366,10 @@ class TestHackernewsSearchByUrl:
 
         responses = {"search?query": {"hits": []}}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             found = collector.search_by_url("https://no-results.com", engine, config.hackernews, config.settings, log)
 
@@ -357,8 +384,10 @@ class TestHackernewsSource:
 
         responses = {"search_by_date": _make_search_response()}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.hackernews, config.settings, log)
 
@@ -375,8 +404,10 @@ class TestHackernewsSource:
 
         responses = {"search_by_date": _make_search_response()}
 
-        with patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.hackernews.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.hackernews, config.settings, log)
             collector.collect(engine, config.hackernews, config.settings, log)

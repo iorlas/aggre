@@ -7,10 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import sqlalchemy as sa
 
-from aggre.collectors.lobsters import LobstersCollector
-from aggre.config import AppConfig, LobstersConfig, LobstersSource
-from aggre.settings import Settings
+from aggre.collectors.lobsters.collector import LobstersCollector
+from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
+from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverDiscussion, Source
+from aggre.settings import Settings
 
 
 def _make_config(tags: list[str] | None = None, rate_limit: float = 0.0) -> AppConfig:
@@ -96,8 +97,10 @@ class TestLobstersCollectorDiscussions:
             "newest.json": [story],  # same story, should dedup
         }
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             count = collector.collect(engine, config.lobsters, config.settings, log)
 
@@ -132,8 +135,10 @@ class TestLobstersCollectorDiscussions:
         story = _make_story()
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             count1 = collector.collect(engine, config.lobsters, config.settings, log)
             count2 = collector.collect(engine, config.lobsters, config.settings, log)
@@ -150,8 +155,10 @@ class TestLobstersCollectorDiscussions:
         story2 = _make_story(short_id="bbb", title="Second")
         responses = {"hottest.json": [story1], "newest.json": [story2]}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             count = collector.collect(engine, config.lobsters, config.settings, log)
 
@@ -187,8 +194,10 @@ class TestLobstersCollectorDiscussions:
             client.get.side_effect = fake_get
             return client
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = tracking_client(responses)
             count = collector.collect(engine, config.lobsters, config.settings, log)
 
@@ -215,8 +224,10 @@ class TestLobstersCollectorComments:
         story = _make_story()
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.lobsters, config.settings, log)
 
@@ -225,8 +236,10 @@ class TestLobstersCollectorComments:
         detail = _make_story_detail(short_id="abc123", comments=[comment])
         comment_responses = {"s/abc123.json": detail}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(comment_responses)
             fetched = collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
 
@@ -254,8 +267,10 @@ class TestLobstersCollectorComments:
         story = _make_story()
         responses = {"hottest.json": [story], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.lobsters, config.settings, log)
 
@@ -264,8 +279,10 @@ class TestLobstersCollectorComments:
         detail = _make_story_detail(short_id="abc123", comments=[parent, child])
         comment_responses = {"s/abc123.json": detail}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(comment_responses)
             collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
 
@@ -300,18 +317,19 @@ class TestLobstersCollectorComments:
         stories = [_make_story(short_id=f"s{i}", title=f"Story {i}") for i in range(3)]
         responses = {"hottest.json": stories, "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.lobsters, config.settings, log)
 
-        comment_responses = {
-            f"s/s{i}.json": _make_story_detail(short_id=f"s{i}", comments=[])
-            for i in range(3)
-        }
+        comment_responses = {f"s/s{i}.json": _make_story_detail(short_id=f"s{i}", comments=[]) for i in range(3)}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(comment_responses)
             fetched = collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=2)
 
@@ -334,8 +352,10 @@ class TestLobstersSearchByUrl:
         story = _make_story(short_id="found1", url="https://example.com/article")
         responses = {"domains/example.com.json": [story]}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             found = collector.search_by_url("https://example.com/article", engine, config.lobsters, config.settings, log)
 
@@ -355,8 +375,10 @@ class TestLobstersSearchByUrl:
         story_other = _make_story(short_id="other", url="https://example.com/other")
         responses = {"domains/example.com.json": [story_match, story_other]}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             found = collector.search_by_url("https://example.com/target", engine, config.lobsters, config.settings, log)
 
@@ -370,8 +392,10 @@ class TestLobstersSearchByUrl:
         story = _make_story(short_id="dup1", url="https://example.com/article")
         responses = {"domains/example.com.json": [story]}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             found1 = collector.search_by_url("https://example.com/article", engine, config.lobsters, config.settings, log)
             found2 = collector.search_by_url("https://example.com/article", engine, config.lobsters, config.settings, log)
@@ -388,8 +412,10 @@ class TestLobstersSearchByUrl:
         story2 = _make_story(short_id="s2", url="https://example.com/article-2")
         responses = {"domains/example.com.json": [story1, story2]}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_client = _mock_httpx_client(responses)
             mock_cls.return_value = mock_client
 
@@ -417,8 +443,10 @@ class TestLobstersSearchByUrl:
         resp_429.status_code = 429
         mock_client.get.return_value = resp_429
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client", return_value=mock_client), \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client", return_value=mock_client),
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             found1 = collector.search_by_url("https://example.com/article-1", engine, config.lobsters, config.settings, log)
             found2 = collector.search_by_url("https://example.com/article-2", engine, config.lobsters, config.settings, log)
 
@@ -437,8 +465,10 @@ class TestLobstersSource:
 
         responses = {"hottest.json": [], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.lobsters, config.settings, log)
 
@@ -455,8 +485,10 @@ class TestLobstersSource:
 
         responses = {"hottest.json": [], "newest.json": []}
 
-        with patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls, \
-             patch("aggre.collectors.lobsters.collector.time.sleep"):
+        with (
+            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
+            patch("aggre.collectors.lobsters.collector.time.sleep"),
+        ):
             mock_cls.return_value = _mock_httpx_client(responses)
             collector.collect(engine, config.lobsters, config.settings, log)
             collector.collect(engine, config.lobsters, config.settings, log)

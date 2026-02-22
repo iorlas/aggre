@@ -7,6 +7,7 @@ from enum import StrEnum
 
 class FetchStatus(StrEnum):
     """Content fetch lifecycle."""
+
     PENDING = "pending"
     DOWNLOADED = "downloaded"
     FETCHED = "fetched"
@@ -16,6 +17,7 @@ class FetchStatus(StrEnum):
 
 class TranscriptionStatus(StrEnum):
     """YouTube transcription lifecycle."""
+
     PENDING = "pending"
     DOWNLOADING = "downloading"
     TRANSCRIBING = "transcribing"
@@ -25,5 +27,6 @@ class TranscriptionStatus(StrEnum):
 
 class CommentsStatus(StrEnum):
     """Comment collection lifecycle."""
+
     PENDING = "pending"
     DONE = "done"

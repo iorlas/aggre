@@ -34,8 +34,11 @@ class TelegramCollector(BaseCollector):
         return asyncio.run(self._collect_async(engine, config, settings, log))
 
     async def _collect_async(
-        self, engine: sa.engine.Engine, config: TelegramConfig,
-        settings: Settings, log: structlog.stdlib.BoundLogger,
+        self,
+        engine: sa.engine.Engine,
+        config: TelegramConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
     ) -> int:
         client = TelegramClient(
             StringSession(settings.telegram_session),

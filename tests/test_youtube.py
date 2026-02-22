@@ -9,10 +9,11 @@ from unittest.mock import MagicMock, patch
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.youtube import YoutubeCollector
-from aggre.config import AppConfig, YoutubeConfig, YoutubeSource
-from aggre.settings import Settings
+from aggre.collectors.youtube.collector import YoutubeCollector
+from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
+from aggre.config import AppConfig
 from aggre.db import BronzeDiscussion, SilverContent, SilverDiscussion, Source
+from aggre.settings import Settings
 
 
 def _make_config(fetch_limit: int = 10, proxy_url: str = "") -> AppConfig:
@@ -88,10 +89,7 @@ class TestYoutubeCollector:
             assert meta["view_count"] == 1000
 
             # transcription_status is now on SilverContent
-            sc_rows = conn.execute(
-                sa.select(SilverContent)
-                .where(SilverContent.transcription_status == "pending")
-            ).fetchall()
+            sc_rows = conn.execute(sa.select(SilverContent).where(SilverContent.transcription_status == "pending")).fetchall()
             assert len(sc_rows) == 2
 
     def test_collect_creates_source_row(self, engine):
@@ -183,8 +181,10 @@ class TestYoutubeCollector:
         with engine.begin() as conn:
             conn.execute(
                 sa.insert(Source).values(
-                    type="youtube", name="Test Channel",
-                    config="{}", last_fetched_at=datetime.now(UTC).isoformat(),
+                    type="youtube",
+                    name="Test Channel",
+                    config="{}",
+                    last_fetched_at=datetime.now(UTC).isoformat(),
                 )
             )
 
@@ -341,9 +341,7 @@ class TestYoutubeCollector:
             collector.collect(engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)
-            ).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)).fetchall()
             assert len(rows) == 2
             assert rows[0].published_at == "2024-01-15"
             assert rows[1].published_at == "2024-01-20"
@@ -367,14 +365,18 @@ class TestYoutubeCollector:
         with engine.begin() as conn:
             conn.execute(
                 sa.insert(Source).values(
-                    type="youtube", name="Fresh Channel",
-                    config='{"channel_id":"UC_fresh"}', last_fetched_at=five_min_ago,
+                    type="youtube",
+                    name="Fresh Channel",
+                    config='{"channel_id":"UC_fresh"}',
+                    last_fetched_at=five_min_ago,
                 )
             )
             conn.execute(
                 sa.insert(Source).values(
-                    type="youtube", name="Stale Channel",
-                    config='{"channel_id":"UC_stale"}', last_fetched_at=two_hours_ago,
+                    type="youtube",
+                    name="Stale Channel",
+                    config='{"channel_id":"UC_stale"}',
+                    last_fetched_at=two_hours_ago,
                 )
             )
 
@@ -401,8 +403,10 @@ class TestYoutubeCollector:
         with engine.begin() as conn:
             conn.execute(
                 sa.insert(Source).values(
-                    type="youtube", name="Test Channel",
-                    config='{"channel_id":"UC_test123"}', last_fetched_at=five_min_ago,
+                    type="youtube",
+                    name="Test Channel",
+                    config='{"channel_id":"UC_test123"}',
+                    last_fetched_at=five_min_ago,
                 )
             )
 

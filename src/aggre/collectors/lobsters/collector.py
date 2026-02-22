@@ -130,7 +130,12 @@ class LobstersCollector(BaseCollector):
         return fetched
 
     def search_by_url(
-        self, url: str, engine: sa.engine.Engine, config: LobstersConfig, settings: Settings, log: structlog.stdlib.BoundLogger,
+        self,
+        url: str,
+        engine: sa.engine.Engine,
+        config: LobstersConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
     ) -> int:
         parsed = urlparse(url)
         domain = parsed.netloc
@@ -184,7 +189,12 @@ class LobstersCollector(BaseCollector):
         return new_count
 
     def _store_discussion(
-        self, conn: sa.Connection, source_id: int, raw_id: int | None, short_id: str, story: dict,
+        self,
+        conn: sa.Connection,
+        source_id: int,
+        raw_id: int | None,
+        short_id: str,
+        story: dict,
     ) -> int | None:
         story_url = story.get("url") or story.get("comments_url", "")
         comments_url = story.get("comments_url", "")
@@ -193,10 +203,12 @@ class LobstersCollector(BaseCollector):
         if story.get("url") and story.get("url") != comments_url:
             content_id = ensure_content(conn, story["url"])
 
-        meta = json.dumps({
-            "tags": story.get("tags", []),
-            "lobsters_url": comments_url,
-        })
+        meta = json.dumps(
+            {
+                "tags": story.get("tags", []),
+                "lobsters_url": comments_url,
+            }
+        )
 
         values = dict(
             source_id=source_id,

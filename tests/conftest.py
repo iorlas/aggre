@@ -1,10 +1,12 @@
 """Shared test fixtures for PostgreSQL-based tests."""
+
 from __future__ import annotations
 
 import os
 
 import pytest
 import sqlalchemy as sa
+
 from aggre.db import Base, get_engine
 
 

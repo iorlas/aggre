@@ -103,6 +103,22 @@ class BaseCollector:
                 .values(last_fetched_at=now_iso())
             )
 
+    def _is_source_recent(self, engine: sa.engine.Engine, source_id: int, ttl_minutes: int) -> bool:
+        """True if this source was fetched within ttl_minutes.
+
+        Returns False when ttl_minutes is 0 (disabled), source was never fetched, or is stale.
+        """
+        if ttl_minutes <= 0:
+            return False
+        cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
+        with engine.connect() as conn:
+            last = conn.execute(
+                sa.select(Source.last_fetched_at).where(Source.id == source_id)
+            ).scalar()
+        if last is None:
+            return False
+        return last >= cutoff
+
     def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int):
         """Return discussions with pending comments for this source_type."""
         with engine.connect() as conn:

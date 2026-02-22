@@ -66,6 +66,7 @@ class TestDownloadContent:
         mock_resp = MagicMock()
         mock_resp.text = "<html><body><p>Article content here</p></body></html>"
         mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "text/html"}
 
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
@@ -129,6 +130,7 @@ class TestDownloadContent:
         mock_resp = MagicMock()
         mock_resp.text = "<html><body>content</body></html>"
         mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "text/html"}
 
         mock_client = MagicMock()
         mock_client.get.return_value = mock_resp
@@ -143,6 +145,75 @@ class TestDownloadContent:
                 sa.select(SilverContent).where(SilverContent.fetch_status == "downloaded")
             ).fetchall()
             assert len(rows) == 3
+
+    def test_404_logs_warning_not_exception(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://example.com/gone", domain="example.com")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_resp
+
+        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+            count = download_content(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "failed"
+            assert "404" in row.fetch_error
+
+        log.warning.assert_called()
+        log.exception.assert_not_called()
+
+    def test_skips_non_text_content_type(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://i.redd.it/image.png", domain="i.redd.it")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "image/png"}
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_resp
+
+        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+            count = download_content(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "skipped"
+
+    def test_skips_video_content_type(self, engine):
+        config = AppConfig(settings=Settings())
+        log = MagicMock()
+
+        _seed_content(engine, "https://v.redd.it/video123", domain="v.redd.it")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "video/mp4"}
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_resp
+
+        with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+            count = download_content(engine, config, log)
+
+        assert count == 1
+
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.fetch_status == "skipped"
 
 
 class TestExtractHtmlText:

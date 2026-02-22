@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     telegram_api_hash: str = ""
     telegram_session: str = ""  # StringSession base64 string
     telegram_rate_limit: float = 2.0  # seconds between channel fetches
-    fetch_limit: int = 100
+    hn_fetch_limit: int = 100
+    youtube_fetch_limit: int = 5
+    telegram_fetch_limit: int = 100
+    reddit_fetch_limit: int = 100
+    huggingface_fetch_limit: int = 100
     proxy_url: str = ""
 
 

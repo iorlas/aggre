@@ -27,6 +27,9 @@ class LobstersCollector(BaseCollector):
 
     source_type = "lobsters"
 
+    def __init__(self) -> None:
+        self._domain_cache: dict[str, list[dict]] = {}
+
     def collect(self, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger) -> int:
         if not config.lobsters:
             return 0
@@ -128,43 +131,54 @@ class LobstersCollector(BaseCollector):
     def search_by_url(
         self, url: str, engine: sa.engine.Engine, config: AppConfig, log: structlog.stdlib.BoundLogger,
     ) -> int:
-        rate_limit = config.settings.lobsters_rate_limit
-        client = create_http_client(proxy_url=config.settings.proxy_url or None)
+        parsed = urlparse(url)
+        domain = parsed.netloc
+        if not domain:
+            return 0
+
+        # Use cached domain stories, or fetch and cache
+        if domain not in self._domain_cache:
+            rate_limit = config.settings.lobsters_rate_limit
+            client = create_http_client(proxy_url=config.settings.proxy_url or None)
+            try:
+                search_url = f"{LOBSTERS_BASE}/domains/{domain}.json"
+                time.sleep(rate_limit)
+
+                resp = client.get(search_url)
+                if resp.status_code in (404, 429):
+                    self._domain_cache[domain] = []
+                    if resp.status_code == 429:
+                        log.warning("lobsters.rate_limited", domain=domain)
+                    return 0
+                resp.raise_for_status()
+                self._domain_cache[domain] = resp.json()
+            except Exception:
+                self._domain_cache[domain] = []
+                raise
+            finally:
+                client.close()
+
+        stories = self._domain_cache[domain]
+        if not stories:
+            return 0
+
         new_count = 0
+        source_id = self._ensure_source(engine, "Lobsters")
 
-        try:
-            parsed = urlparse(url)
-            domain = parsed.netloc
-            if not domain:
-                return 0
+        with engine.begin() as conn:
+            for story in stories:
+                story_url = story.get("url", "")
+                if story_url != url:
+                    continue
 
-            search_url = f"{LOBSTERS_BASE}/domains/{domain}.json"
-            time.sleep(rate_limit)
+                short_id = story.get("short_id")
+                if not short_id:
+                    continue
 
-            resp = client.get(search_url)
-            if resp.status_code == 404:
-                return 0
-            resp.raise_for_status()
-            stories = resp.json()
-
-            source_id = self._ensure_source(engine, "Lobsters")
-
-            with engine.begin() as conn:
-                for story in stories:
-                    story_url = story.get("url", "")
-                    if story_url != url:
-                        continue
-
-                    short_id = story.get("short_id")
-                    if not short_id:
-                        continue
-
-                    raw_id = self._store_raw_item(conn, short_id, story)
-                    discussion_id = self._store_discussion(conn, source_id, raw_id, short_id, story)
-                    if discussion_id is not None:
-                        new_count += 1
-        finally:
-            client.close()
+                raw_id = self._store_raw_item(conn, short_id, story)
+                discussion_id = self._store_discussion(conn, source_id, raw_id, short_id, story)
+                if discussion_id is not None:
+                    new_count += 1
 
         return new_count
 

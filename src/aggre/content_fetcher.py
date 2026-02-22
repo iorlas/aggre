@@ -17,6 +17,16 @@ from aggre.statuses import FetchStatus
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
 SKIP_EXTENSIONS = (".pdf",)
 
+TEXT_CONTENT_TYPES = frozenset({
+    "text/html", "text/plain", "application/xhtml+xml",
+    "application/xml", "text/xml",
+})
+
+
+def _is_text_content_type(content_type: str) -> bool:
+    mime = content_type.split(";", 1)[0].strip().lower()
+    return mime in TEXT_CONTENT_TYPES
+
 
 # -- Fetch state transitions --------------------------------------------------
 
@@ -53,7 +63,7 @@ def _download_one(
     domain: str | None,
 ) -> int:
     """Download a single URL and store raw_html. Returns 1 on success, 0 on skip."""
-    # Skip YouTube, PDFs
+    # Pre-request skips: YouTube (saves bandwidth), PDFs
     if domain and domain in SKIP_DOMAINS:
         content_skipped(engine, content_id)
         return 1
@@ -64,11 +74,29 @@ def _download_one(
 
     try:
         resp = client.get(url)
-        resp.raise_for_status()
-        html = resp.text
 
-        content_downloaded(engine, content_id, raw_html=html)
+        # 404/410 — permanently gone, no traceback needed
+        if resp.status_code in (404, 410):
+            log.warning("content_fetcher.http_gone", url=url, status=resp.status_code)
+            content_fetch_failed(engine, content_id, error=f"HTTP {resp.status_code}")
+            return 1
+
+        resp.raise_for_status()
+
+        # Skip binary content (images, videos, etc.)
+        content_type = resp.headers.get("content-type", "")
+        if content_type and not _is_text_content_type(content_type):
+            log.info("content_fetcher.skipped_non_text", url=url, content_type=content_type)
+            content_skipped(engine, content_id)
+            return 1
+
+        content_downloaded(engine, content_id, raw_html=resp.text)
         log.info("content_fetcher.downloaded", url=url)
+        return 1
+
+    except httpx.HTTPStatusError as exc:
+        log.warning("content_fetcher.download_failed", url=url, status=exc.response.status_code)
+        content_fetch_failed(engine, content_id, error=str(exc))
         return 1
 
     except Exception as exc:

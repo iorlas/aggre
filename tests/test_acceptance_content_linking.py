@@ -428,7 +428,7 @@ class TestYoutubeContentLinking:
     def test_creates_silver_content(self, engine):
         config = AppConfig(
             youtube=[YoutubeSource(channel_id="UC_test", name="Test Channel")],
-            settings=Settings(fetch_limit=10),
+            settings=Settings(youtube_fetch_limit=10),
         )
 
         mock_ydl = MagicMock()

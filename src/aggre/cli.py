@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import concurrent.futures
+import inspect
 
 import click
 import sqlalchemy as sa
 
 from aggre.config import load_config
 from aggre.db import SilverContent, SilverDiscussion, Source, get_engine
-from aggre.statuses import TranscriptionStatus
 from aggre.logging import setup_logging
+from aggre.statuses import TranscriptionStatus
 from aggre.worker import run_loop, worker_options
 
 
@@ -162,9 +163,15 @@ def enrich_content_discussions_cmd(ctx, batch, loop, interval):
     cfg = ctx.obj["config"]
     engine = ctx.obj["engine"]
     log = setup_logging(cfg.settings.log_dir, "enrich-content-discussions")
+    from aggre.collectors.hackernews import HackernewsCollector
+    from aggre.collectors.lobsters import LobstersCollector
     from aggre.enrichment import enrich_content_discussions
     run_loop(
-        fn=lambda: enrich_content_discussions(engine, cfg, log, batch_limit=batch),
+        fn=lambda: enrich_content_discussions(
+            engine, cfg, log, batch_limit=batch,
+            hn_collector=HackernewsCollector(),
+            lobsters_collector=LobstersCollector(),
+        ),
         loop=loop, interval=interval, log=log, name="enrich",
     )
 
@@ -330,8 +337,9 @@ _MAX_DRAIN_ITERATIONS = 100  # Safety cap; prevents infinite loops if a stage ne
 @click.option("--source", "source_type", type=click.Choice(["rss", "reddit", "youtube", "hackernews", "lobsters", "huggingface", "telegram"]), help="Collect only this source type.")
 @click.option("--skip-transcribe", is_flag=True, help="Skip the transcription stage.")
 @click.option("--comment-batch", default=10, type=int, help="Max comments to fetch per source per cycle (0 = skip).")
+@click.option("--enrich-batch", default=10000, type=int, help="Max URLs to enrich per run (0 = skip enrichment).")
 @click.pass_context
-def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
+def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch, enrich_batch):
     """Run the full pipeline once and exit."""
     from aggre.collectors.base import all_sources_recent
     from aggre.collectors.hackernews import HackernewsCollector
@@ -377,7 +385,10 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
             log.info("run_once.source_skipped", source=name, reason="recent")
             continue
         try:
-            count = collector.collect(engine, cfg, log)
+            collect_kwargs = {}
+            if source_ttl > 0 and "source_ttl_minutes" in inspect.signature(collector.collect).parameters:
+                collect_kwargs["source_ttl_minutes"] = source_ttl
+            count = collector.collect(engine, cfg, log, **collect_kwargs)
             sources_collected += 1
             total_new_discussions += count
             log.info("run_once.source_collected", source=name, new_discussions=count)
@@ -411,7 +422,23 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
             break
         total_extracted += n
 
-    # ---- Stage 4: Transcribe (drain loop, skippable) ----
+    # ---- Stage 4: Enrich (drain loop) ----
+    total_enriched = 0
+    hn_coll = HackernewsCollector()
+    lob_coll = LobstersCollector()
+    for _ in range(_MAX_DRAIN_ITERATIONS):
+        result = enrich_content_discussions(
+            engine, cfg, log,
+            hn_collector=hn_coll, lobsters_collector=lob_coll,
+        )
+        processed = result.get("processed", 0)
+        if processed == 0:
+            break
+        total_enriched += processed
+        if total_enriched >= enrich_batch:
+            break
+
+    # ---- Stage 5: Transcribe (drain loop, skippable) ----
     total_transcribed = 0
     if not skip_transcribe:
         for _ in range(_MAX_DRAIN_ITERATIONS):
@@ -419,15 +446,6 @@ def run_once_cmd(ctx, source_ttl, source_type, skip_transcribe, comment_batch):
             if n == 0:
                 break
             total_transcribed += n
-
-    # ---- Stage 5: Enrich (drain loop) ----
-    total_enriched = 0
-    for _ in range(_MAX_DRAIN_ITERATIONS):
-        result = enrich_content_discussions(engine, cfg, log)
-        n = sum(result.values())
-        if n == 0:
-            break
-        total_enriched += n
 
     # ---- Summary ----
     transcribe_line = "skipped" if skip_transcribe else f"{total_transcribed} transcribed"

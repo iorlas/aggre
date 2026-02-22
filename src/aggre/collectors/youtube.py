@@ -15,7 +15,7 @@ from aggre.statuses import TranscriptionStatus
 from aggre.urls import ensure_content
 
 # Columns to update on re-insert (titles always fresh)
-_UPSERT_COLS = ("title", "url", "meta")
+_UPSERT_COLS = ("title", "url", "meta", "published_at")
 
 
 class YoutubeCollector(BaseCollector):
@@ -29,6 +29,7 @@ class YoutubeCollector(BaseCollector):
         config: AppConfig,
         log: structlog.stdlib.BoundLogger,
         backfill: bool = False,
+        source_ttl_minutes: int = 0,
     ) -> int:
         total_new = 0
 
@@ -41,28 +42,35 @@ class YoutubeCollector(BaseCollector):
 
             source_id = self._ensure_source(engine, yt_source.name, {"channel_id": yt_source.channel_id})
 
+            if self._is_source_recent(engine, source_id, source_ttl_minutes):
+                log.info("youtube.source_skipped", name=yt_source.name, reason="recent")
+                continue
+
             url = f"https://www.youtube.com/channel/{yt_source.channel_id}/videos"
             ydl_opts = {
-                "extract_flat": "in_playlist",
                 "quiet": True,
                 "no_warnings": True,
-                "playlistend": None if backfill else config.settings.fetch_limit,
+                "ignoreerrors": True,
+                "playlistend": None if backfill else config.settings.youtube_fetch_limit,
             }
             if config.settings.proxy_url:
                 ydl_opts["proxy"] = config.settings.proxy_url
                 ydl_opts["source_address"] = "0.0.0.0"
 
             try:
+                log.info("youtube.fetching", name=yt_source.name, limit=ydl_opts.get("playlistend"))
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     entries = info.get("entries", []) if info else []
+                log.info("youtube.fetched", name=yt_source.name, entries=len(entries))
             except Exception:
                 log.exception("youtube.fetch_error", channel=yt_source.name)
                 continue
 
             new_count = 0
+            total_entries = len(entries)
 
-            for entry in entries:
+            for idx, entry in enumerate(entries, 1):
                 if not entry:
                     continue
 
@@ -71,12 +79,19 @@ class YoutubeCollector(BaseCollector):
                     log.warning("skipping_entry_no_id", channel=yt_source.name)
                     continue
 
+                log.debug(
+                    "youtube.processing_entry",
+                    name=yt_source.name,
+                    video_id=external_id,
+                    progress=f"{idx}/{total_entries}",
+                )
+
                 raw_data = json.dumps(entry)
 
                 with engine.begin() as conn:
                     raw_id = self._store_raw_item(conn, external_id, raw_data)
 
-                    video_url = entry.get("url") or f"https://www.youtube.com/watch?v={external_id}"
+                    video_url = f"https://www.youtube.com/watch?v={external_id}"
 
                     # Create content entry for the video URL
                     content_id = ensure_content(conn, video_url)

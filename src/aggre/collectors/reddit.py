@@ -88,7 +88,7 @@ class RedditCollector(BaseCollector):
                 # Fetch hot + new listings, dedup by external_id
                 posts_by_id: dict[str, dict] = {}
                 for sort in ("hot", "new"):
-                    url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit=100"
+                    url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit={config.settings.reddit_fetch_limit}"
                     time.sleep(rate_limit)
                     try:
                         data, resp = _fetch_json(client, url, log)

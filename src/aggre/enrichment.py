@@ -10,12 +10,27 @@ from aggre.collectors.lobsters import LobstersCollector
 from aggre.config import AppConfig
 from aggre.db import SilverContent, _update_content, now_iso
 
+HN_SKIP_DOMAINS = frozenset({
+    "youtube.com", "m.youtube.com", "youtu.be",
+    "i.redd.it", "v.redd.it",
+    "linkedin.com", "www.linkedin.com",
+})
+
+LOBSTERS_SKIP_DOMAINS = frozenset({
+    "youtube.com", "m.youtube.com", "youtu.be",
+    "i.redd.it", "v.redd.it",
+    "linkedin.com", "www.linkedin.com",
+})
+
 
 def enrich_content_discussions(
     engine: sa.engine.Engine,
     config: AppConfig,
     log: structlog.stdlib.BoundLogger,
     batch_limit: int = 50,
+    *,
+    hn_collector: HackernewsCollector,
+    lobsters_collector: LobstersCollector,
 ) -> dict[str, int]:
     """Search HN and Lobsters for discussions about URLs from SilverContent.
 
@@ -24,7 +39,7 @@ def enrich_content_discussions(
     # Find content that hasn't been enriched yet
     with engine.connect() as conn:
         rows = conn.execute(
-            sa.select(SilverContent.id, SilverContent.canonical_url)
+            sa.select(SilverContent.id, SilverContent.canonical_url, SilverContent.domain)
             .where(
                 SilverContent.canonical_url.isnot(None),
                 SilverContent.enriched_at.is_(None),
@@ -35,38 +50,38 @@ def enrich_content_discussions(
 
     if not rows:
         log.info("enrich.no_pending")
-        return {"hackernews": 0, "lobsters": 0}
+        return {"hackernews": 0, "lobsters": 0, "processed": 0}
 
     log.info("enrich.starting", batch_size=len(rows))
 
-    hn_collector = HackernewsCollector()
-    lobsters_collector = LobstersCollector()
-
-    totals: dict[str, int] = {"hackernews": 0, "lobsters": 0}
+    totals: dict[str, int] = {"hackernews": 0, "lobsters": 0, "processed": 0}
 
     for row in rows:
+        totals["processed"] += 1
         content_url = row.canonical_url
+        domain = row.domain
         log.info("enrich.searching", url=content_url)
 
-        hn_found = 0
-        lobsters_found = 0
         failed = False
+        skip_hn = domain and domain in HN_SKIP_DOMAINS
+        skip_lobsters = domain and domain in LOBSTERS_SKIP_DOMAINS
 
-        try:
-            hn_found = hn_collector.search_by_url(content_url, engine, config, log)
-            totals["hackernews"] += hn_found
-        except Exception:
-            log.exception("enrich.hn_search_failed", url=content_url)
-            failed = True
+        if not skip_hn:
+            try:
+                hn_found = hn_collector.search_by_url(content_url, engine, config, log)
+                totals["hackernews"] += hn_found
+            except Exception:
+                log.exception("enrich.hn_search_failed", url=content_url)
+                failed = True
 
-        try:
-            lobsters_found = lobsters_collector.search_by_url(content_url, engine, config, log)
-            totals["lobsters"] += lobsters_found
-        except Exception:
-            log.exception("enrich.lobsters_search_failed", url=content_url)
-            failed = True
+        if not skip_lobsters:
+            try:
+                lobsters_found = lobsters_collector.search_by_url(content_url, engine, config, log)
+                totals["lobsters"] += lobsters_found
+            except Exception:
+                log.exception("enrich.lobsters_search_failed", url=content_url)
+                failed = True
 
-        # Only mark enriched when both searches completed without transient errors
         if not failed:
             _update_content(engine, row.id, enriched_at=now_iso())
 

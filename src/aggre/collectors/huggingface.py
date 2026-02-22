@@ -38,7 +38,7 @@ class HuggingfaceCollector(BaseCollector):
                 source_id = self._ensure_source(engine, hf_source.name)
 
                 try:
-                    resp = client.get(HF_API_URL, params={"limit": 100})
+                    resp = client.get(HF_API_URL, params={"limit": config.settings.huggingface_fetch_limit})
                     resp.raise_for_status()
                     papers = resp.json()
                 except Exception:

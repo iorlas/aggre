@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -41,19 +41,18 @@ class TestEnrichment:
 
         _seed_content(engine, "https://example.com/article")
 
-        with patch("aggre.enrichment.HackernewsCollector") as mock_hn_cls, \
-             patch("aggre.enrichment.LobstersCollector") as mock_lob_cls:
-            mock_hn = MagicMock()
-            mock_hn.search_by_url.return_value = 2
-            mock_hn_cls.return_value = mock_hn
+        mock_hn = MagicMock()
+        mock_hn.search_by_url.return_value = 2
 
-            mock_lob = MagicMock()
-            mock_lob.search_by_url.return_value = 1
-            mock_lob_cls.return_value = mock_lob
+        mock_lob = MagicMock()
+        mock_lob.search_by_url.return_value = 1
 
-            results = enrich_content_discussions(engine, config, log, batch_limit=50)
+        results = enrich_content_discussions(
+            engine, config, log, batch_limit=50,
+            hn_collector=mock_hn, lobsters_collector=mock_lob,
+        )
 
-        assert results == {"hackernews": 2, "lobsters": 1}
+        assert results == {"hackernews": 2, "lobsters": 1, "processed": 1}
 
         mock_hn.search_by_url.assert_called_once_with(
             "https://example.com/article", engine, config, log
@@ -77,19 +76,18 @@ class TestEnrichment:
 
         _seed_content(engine, "https://example.com/old", enriched_at="2024-01-01T00:00:00Z")
 
-        with patch("aggre.enrichment.HackernewsCollector") as mock_hn_cls, \
-             patch("aggre.enrichment.LobstersCollector") as mock_lob_cls:
-            mock_hn = MagicMock()
-            mock_hn.search_by_url.return_value = 0
-            mock_hn_cls.return_value = mock_hn
+        mock_hn = MagicMock()
+        mock_hn.search_by_url.return_value = 0
 
-            mock_lob = MagicMock()
-            mock_lob.search_by_url.return_value = 0
-            mock_lob_cls.return_value = mock_lob
+        mock_lob = MagicMock()
+        mock_lob.search_by_url.return_value = 0
 
-            results = enrich_content_discussions(engine, config, log, batch_limit=50)
+        results = enrich_content_discussions(
+            engine, config, log, batch_limit=50,
+            hn_collector=mock_hn, lobsters_collector=mock_lob,
+        )
 
-        assert results == {"hackernews": 0, "lobsters": 0}
+        assert results == {"hackernews": 0, "lobsters": 0, "processed": 0}
         mock_hn.search_by_url.assert_not_called()
         mock_lob.search_by_url.assert_not_called()
 
@@ -101,21 +99,21 @@ class TestEnrichment:
         for i in range(5):
             _seed_content(engine, f"https://example.com/{i}")
 
-        with patch("aggre.enrichment.HackernewsCollector") as mock_hn_cls, \
-             patch("aggre.enrichment.LobstersCollector") as mock_lob_cls:
-            mock_hn = MagicMock()
-            mock_hn.search_by_url.return_value = 0
-            mock_hn_cls.return_value = mock_hn
+        mock_hn = MagicMock()
+        mock_hn.search_by_url.return_value = 0
 
-            mock_lob = MagicMock()
-            mock_lob.search_by_url.return_value = 0
-            mock_lob_cls.return_value = mock_lob
+        mock_lob = MagicMock()
+        mock_lob.search_by_url.return_value = 0
 
-            enrich_content_discussions(engine, config, log, batch_limit=3)
+        results = enrich_content_discussions(
+            engine, config, log, batch_limit=3,
+            hn_collector=mock_hn, lobsters_collector=mock_lob,
+        )
 
         # Should only process 3
         assert mock_hn.search_by_url.call_count == 3
         assert mock_lob.search_by_url.call_count == 3
+        assert results["processed"] == 3
 
     def test_handles_search_failure_gracefully(self, engine):
         config = _make_config()
@@ -123,20 +121,19 @@ class TestEnrichment:
 
         _seed_content(engine, "https://example.com/fail")
 
-        with patch("aggre.enrichment.HackernewsCollector") as mock_hn_cls, \
-             patch("aggre.enrichment.LobstersCollector") as mock_lob_cls:
-            mock_hn = MagicMock()
-            mock_hn.search_by_url.side_effect = Exception("HN API error")
-            mock_hn_cls.return_value = mock_hn
+        mock_hn = MagicMock()
+        mock_hn.search_by_url.side_effect = Exception("HN API error")
 
-            mock_lob = MagicMock()
-            mock_lob.search_by_url.return_value = 1
-            mock_lob_cls.return_value = mock_lob
+        mock_lob = MagicMock()
+        mock_lob.search_by_url.return_value = 1
 
-            results = enrich_content_discussions(engine, config, log, batch_limit=50)
+        results = enrich_content_discussions(
+            engine, config, log, batch_limit=50,
+            hn_collector=mock_hn, lobsters_collector=mock_lob,
+        )
 
         # HN failed but lobsters succeeded
-        assert results == {"hackernews": 0, "lobsters": 1}
+        assert results == {"hackernews": 0, "lobsters": 1, "processed": 1}
 
         # Content should NOT be marked as enriched (will be retried next batch)
         with engine.connect() as conn:
@@ -151,5 +148,11 @@ class TestEnrichment:
         config = _make_config()
         log = MagicMock()
 
-        results = enrich_content_discussions(engine, config, log, batch_limit=50)
-        assert results == {"hackernews": 0, "lobsters": 0}
+        mock_hn = MagicMock()
+        mock_lob = MagicMock()
+
+        results = enrich_content_discussions(
+            engine, config, log, batch_limit=50,
+            hn_collector=mock_hn, lobsters_collector=mock_lob,
+        )
+        assert results == {"hackernews": 0, "lobsters": 0, "processed": 0}

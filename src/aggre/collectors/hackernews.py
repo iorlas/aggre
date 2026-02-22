@@ -39,7 +39,7 @@ class HackernewsCollector(BaseCollector):
                 log.info("hackernews.collecting", name=hn_source.name)
                 source_id = self._ensure_source(engine, hn_source.name)
 
-                url = f"{HN_ALGOLIA_BASE}/search_by_date?tags=story,front_page&hitsPerPage={config.settings.fetch_limit}"
+                url = f"{HN_ALGOLIA_BASE}/search_by_date?tags=story,front_page&hitsPerPage={config.settings.hn_fetch_limit}"
                 time.sleep(rate_limit)
 
                 try:

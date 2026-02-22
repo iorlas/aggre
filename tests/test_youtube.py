@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import sqlalchemy as sa
@@ -13,12 +14,12 @@ from aggre.config import AppConfig, Settings, YoutubeSource
 from aggre.db import BronzeDiscussion, SilverContent, SilverDiscussion, Source
 
 
-def _make_config(fetch_limit: int = 10, proxy_url: str = "") -> AppConfig:
+def _make_config(youtube_fetch_limit: int = 10, proxy_url: str = "") -> AppConfig:
     return AppConfig(
         youtube=[
             YoutubeSource(channel_id="UC_test123", name="Test Channel"),
         ],
-        settings=Settings(fetch_limit=fetch_limit, proxy_url=proxy_url),
+        settings=Settings(youtube_fetch_limit=youtube_fetch_limit, proxy_url=proxy_url),
     )
 
 
@@ -171,7 +172,8 @@ class TestYoutubeCollector:
             assert len(rows) == 1
 
     def test_collect_sets_fetch_limit(self, engine):
-        config = _make_config(fetch_limit=25)
+        """youtube_fetch_limit is passed directly as playlistend."""
+        config = _make_config(youtube_fetch_limit=25)
         log = structlog.get_logger()
 
         mock_ydl = MagicMock()
@@ -187,7 +189,7 @@ class TestYoutubeCollector:
         assert opts["playlistend"] == 25
 
     def test_collect_backfill_no_limit(self, engine):
-        config = _make_config(fetch_limit=25)
+        config = _make_config(youtube_fetch_limit=25)
         log = structlog.get_logger()
 
         mock_ydl = MagicMock()
@@ -292,3 +294,113 @@ class TestYoutubeCollector:
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert row.url == "https://www.youtube.com/watch?v=vid_nourl"
+
+    def test_recollect_fills_published_at(self, engine):
+        """Re-collecting videos that lacked published_at should fill it in."""
+        config = _make_config()
+        log = structlog.get_logger()
+
+        # First collection: entries without upload_date (simulating old flat mode)
+        entries_no_date = [
+            {"id": "vid001", "title": "First Video", "duration": 600, "view_count": 1000},
+            {"id": "vid002", "title": "Second Video", "duration": 300, "view_count": 500},
+        ]
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info = lambda url, download=False: {"entries": entries_no_date}
+        mock_ydl.__enter__ = lambda s: s
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+
+        with patch("aggre.collectors.youtube.yt_dlp.YoutubeDL", return_value=mock_ydl):
+            collector = YoutubeCollector()
+            collector.collect(engine, config, log)
+
+        with engine.connect() as conn:
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            assert all(r.published_at is None for r in rows)
+
+        # Second collection: same videos now have upload_date
+        mock_ydl2 = MagicMock()
+        mock_ydl2.extract_info = _mock_extract_info  # has upload_date
+        mock_ydl2.__enter__ = lambda s: s
+        mock_ydl2.__exit__ = MagicMock(return_value=False)
+
+        with patch("aggre.collectors.youtube.yt_dlp.YoutubeDL", return_value=mock_ydl2):
+            collector = YoutubeCollector()
+            collector.collect(engine, config, log)
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)
+            ).fetchall()
+            assert len(rows) == 2
+            assert rows[0].published_at == "2024-01-15"
+            assert rows[1].published_at == "2024-01-20"
+
+    def test_collect_skips_fresh_channel(self, engine):
+        """source_ttl_minutes > 0 should skip channels fetched recently."""
+        config = AppConfig(
+            youtube=[
+                YoutubeSource(channel_id="UC_fresh", name="Fresh Channel"),
+                YoutubeSource(channel_id="UC_stale", name="Stale Channel"),
+            ],
+            settings=Settings(),
+        )
+        log = structlog.get_logger()
+
+        # Pre-seed sources: one fresh (5 min ago), one stale (2 hours ago)
+        five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+        two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        with engine.begin() as conn:
+            conn.execute(
+                sa.insert(Source).values(
+                    type="youtube", name="Fresh Channel",
+                    config='{"channel_id":"UC_fresh"}', last_fetched_at=five_min_ago,
+                )
+            )
+            conn.execute(
+                sa.insert(Source).values(
+                    type="youtube", name="Stale Channel",
+                    config='{"channel_id":"UC_stale"}', last_fetched_at=two_hours_ago,
+                )
+            )
+
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info = _mock_extract_info
+        mock_ydl.__enter__ = lambda s: s
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+
+        with patch("aggre.collectors.youtube.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
+            collector = YoutubeCollector()
+            count = collector.collect(engine, config, log, source_ttl_minutes=60)
+
+        # Only the stale channel should have triggered yt-dlp
+        assert mock_cls.call_count == 1
+        assert count == 2  # 2 entries from the stale channel
+
+    def test_collect_ttl_zero_fetches_all(self, engine):
+        """source_ttl_minutes=0 (default) should fetch all channels."""
+        config = _make_config()
+        log = structlog.get_logger()
+
+        # Pre-seed a recently fetched source
+        five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+        with engine.begin() as conn:
+            conn.execute(
+                sa.insert(Source).values(
+                    type="youtube", name="Test Channel",
+                    config='{"channel_id":"UC_test123"}', last_fetched_at=five_min_ago,
+                )
+            )
+
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info = _mock_extract_info
+        mock_ydl.__enter__ = lambda s: s
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+
+        with patch("aggre.collectors.youtube.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
+            collector = YoutubeCollector()
+            count = collector.collect(engine, config, log, source_ttl_minutes=0)
+
+        # Should still fetch even though source is fresh (TTL disabled)
+        assert mock_cls.call_count == 1
+        assert count == 2

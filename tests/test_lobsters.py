@@ -378,11 +378,54 @@ class TestLobstersSearchByUrl:
         assert found1 == 1
         assert found2 == 0
 
+    def test_search_caches_domain_lookups(self, engine):
+        config = _make_config()
+        log = MagicMock()
+        collector = LobstersCollector()
+
+        story1 = _make_story(short_id="s1", url="https://example.com/article-1")
+        story2 = _make_story(short_id="s2", url="https://example.com/article-2")
+        responses = {"domains/example.com.json": [story1, story2]}
+
+        with patch("aggre.collectors.lobsters.httpx.Client") as mock_cls, \
+             patch("aggre.collectors.lobsters.time.sleep"):
+            mock_client = _mock_httpx_client(responses)
+            mock_cls.return_value = mock_client
+
+            found1 = collector.search_by_url("https://example.com/article-1", engine, config, log)
+            found2 = collector.search_by_url("https://example.com/article-2", engine, config, log)
+
+        assert found1 == 1
+        assert found2 == 1
+        # Only 1 HTTP request — second call uses cached domain data
+        assert mock_client.get.call_count == 1
+
     def test_search_no_domain_returns_zero(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = LobstersCollector()
         assert collector.search_by_url("not-a-url", engine, config, log) == 0
+
+    def test_search_caches_429_response(self, engine):
+        config = _make_config()
+        log = MagicMock()
+        collector = LobstersCollector()
+
+        mock_client = MagicMock()
+        resp_429 = MagicMock()
+        resp_429.status_code = 429
+        mock_client.get.return_value = resp_429
+
+        with patch("aggre.collectors.lobsters.create_http_client", return_value=mock_client), \
+             patch("aggre.collectors.lobsters.time.sleep"):
+            found1 = collector.search_by_url("https://example.com/article-1", engine, config, log)
+            found2 = collector.search_by_url("https://example.com/article-2", engine, config, log)
+
+        assert found1 == 0
+        assert found2 == 0
+        # Only 1 HTTP request — second call uses cached empty result from 429
+        assert mock_client.get.call_count == 1
+        log.warning.assert_called_once()
 
 
 class TestLobstersSource:

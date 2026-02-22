@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from click.testing import CliRunner
 
 from aggre.cli import cli
-from aggre.collectors.base import all_sources_recent
+from aggre.collectors.base import BaseCollector, all_sources_recent
 from aggre.db import Source
 
 
@@ -153,7 +153,7 @@ class TestRunOnceCommand:
 
         def mock_enrich(*a, **kw):
             call_order.append("enrich")
-            return {}
+            return {"hackernews": 0, "lobsters": 0, "processed": 0}
 
         runner = CliRunner()
         with contextlib.ExitStack() as stack:
@@ -171,8 +171,8 @@ class TestRunOnceCommand:
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         assert "Run Complete" in result.output
 
-        # Verify ordering: download before extract before transcribe before enrich
-        assert call_order == ["download", "extract", "transcribe", "enrich"]
+        # Verify ordering: download before extract before enrich before transcribe
+        assert call_order == ["download", "extract", "enrich", "transcribe"]
 
     def test_skips_recent_sources(self, engine, tmp_path: Path):
         """run-once --source-ttl 60 should skip sources fetched recently."""
@@ -198,7 +198,7 @@ class TestRunOnceCommand:
             stack.enter_context(patch("aggre.content_fetcher.download_content", return_value=0))
             stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
             stack.enter_context(patch("aggre.transcriber.transcribe", return_value=0))
-            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={}))
+            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0}))
 
             result = runner.invoke(cli, [
                 "--config", config_path, "run-once",
@@ -222,7 +222,7 @@ class TestRunOnceCommand:
             stack.enter_context(patch("aggre.content_fetcher.download_content", return_value=0))
             stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
             mock_tr = stack.enter_context(patch("aggre.transcriber.transcribe", return_value=0))
-            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={}))
+            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0}))
 
             result = runner.invoke(cli, [
                 "--config", config_path, "run-once", "--skip-transcribe",
@@ -246,7 +246,7 @@ class TestRunOnceCommand:
             stack.enter_context(patch("aggre.collectors.base.all_sources_recent", return_value=False))
             stack.enter_context(patch("aggre.content_fetcher.download_content", side_effect=lambda *a, **kw: next(download_returns)))
             stack.enter_context(patch("aggre.content_fetcher.extract_html_text", return_value=0))
-            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={}))
+            stack.enter_context(patch("aggre.enrichment.enrich_content_discussions", return_value={"hackernews": 0, "lobsters": 0, "processed": 0}))
 
             result = runner.invoke(cli, [
                 "--config", config_path, "run-once", "--skip-transcribe",
@@ -254,3 +254,42 @@ class TestRunOnceCommand:
 
         assert result.exit_code == 0, f"CLI failed: {result.output}\n{result.exception}"
         assert "100" in result.output
+
+
+class TestIsSourceRecent:
+    """Tests for BaseCollector._is_source_recent() per-source TTL check."""
+
+    def _insert_source(self, engine, last_fetched_at=None):
+        with engine.begin() as conn:
+            result = conn.execute(
+                sa.insert(Source).values(
+                    type="youtube", name="ch-a", config="{}", last_fetched_at=last_fetched_at
+                )
+            )
+            return result.inserted_primary_key[0]
+
+    def test_ttl_zero_always_false(self, engine):
+        """TTL=0 means disabled, always returns False."""
+        src_id = self._insert_source(engine, last_fetched_at=datetime.now(UTC).isoformat())
+        collector = BaseCollector()
+        assert collector._is_source_recent(engine, src_id, ttl_minutes=0) is False
+
+    def test_never_fetched_returns_false(self, engine):
+        """Source with NULL last_fetched_at -> False."""
+        src_id = self._insert_source(engine, last_fetched_at=None)
+        collector = BaseCollector()
+        assert collector._is_source_recent(engine, src_id, ttl_minutes=60) is False
+
+    def test_stale_source_returns_false(self, engine):
+        """Source fetched 2 hours ago, TTL=60 -> False."""
+        two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        src_id = self._insert_source(engine, last_fetched_at=two_hours_ago)
+        collector = BaseCollector()
+        assert collector._is_source_recent(engine, src_id, ttl_minutes=60) is False
+
+    def test_recent_source_returns_true(self, engine):
+        """Source fetched 5 min ago, TTL=60 -> True."""
+        five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+        src_id = self._insert_source(engine, last_fetched_at=five_min_ago)
+        collector = BaseCollector()
+        assert collector._is_source_recent(engine, src_id, ttl_minutes=60) is True

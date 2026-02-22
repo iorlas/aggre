@@ -63,7 +63,7 @@ class TelegramCollector(BaseCollector):
 
     async def _collect_channel(self, client, engine, source_id, tg_source, config, log) -> int:
         settings = config.settings
-        messages = await client.get_messages(tg_source.username, limit=settings.fetch_limit)
+        messages = await client.get_messages(tg_source.username, limit=settings.telegram_fetch_limit)
 
         new_count = 0
         with engine.begin() as conn:

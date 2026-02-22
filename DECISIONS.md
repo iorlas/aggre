@@ -81,3 +81,27 @@ Collector methods `_store_discussion()` used bare `dict` for API response parame
 ## [dagster] — keep Dagster files without `from __future__ import annotations` — because Dagster decorators inspect type hints at decoration time
 
 Dagster's `@op`, `@sensor`, and `@schedule` decorators resolve type annotations at decoration time. With PEP 563 deferred annotations, these decorators fail because they can't resolve string annotations. Each affected file has a comment documenting this. Not a compliance violation — it's a documented framework limitation.
+
+---
+
+# Codebase-vs-Dagster Analysis Decisions
+
+## [analysis] — Prioritized orchestration conflicts over style issues — because the Dagster migration is incomplete
+
+The codebase was recently migrated from CLI-only to Dagster, but the migration wrapped existing code in Dagster ops/jobs without rethinking the architecture. Sensor patterns, state tracking, and orchestration helpers still follow the pre-Dagster CLI model. Focused analysis on these structural conflicts rather than surface-level style issues.
+
+## [analysis] — Flagged status columns as orchestration anti-pattern — because medallion guidelines prescribe cursor-based sensors
+
+Status columns on silver rows (fetch_status, transcription_status, enriched_at, comments_status) serve as both data state and orchestration triggers. The medallion guidelines explicitly prescribe Dagster cursor-based sensors for discovery. Status columns for orchestration create tight coupling between the data model and the scheduler, making it impossible to change either independently.
+
+## [analysis] — Recommended asset migration as P1 future direction — because Dagster assets are the idiomatic data pipeline primitive
+
+Current code uses only ops/jobs which are Dagster's lower-level primitives for arbitrary computation. Assets (`@asset`) are Dagster's higher-level primitive specifically designed for data pipelines — they provide lineage tracking, materialization events, and asset-graph visualization. The codebase's data artifacts (SilverContent, SilverDiscussion, bronze filesystem) map directly to assets.
+
+## [analysis] — Identified generic helpers separately from domain code — because extracting reusable utilities enables parallel projects
+
+bronze.py, bronze_http.py, http.py, and logging.py contain no Aggre-specific logic and implement patterns prescribed by medallion-guidelines.md for any project. Extracting them enables reuse without copy-paste and reduces the Aggre-specific codebase surface area.
+
+## [analysis] — Kept telegram-auth as the one valid CLI command — because it requires interactive user input that Dagster cannot provide
+
+Interactive auth flows (user types phone number, receives verification code) cannot run as Dagster ops. This is the correct boundary between CLI and Dagster: CLI for interactive human tasks, Dagster for automated pipeline execution.

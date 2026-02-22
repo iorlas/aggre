@@ -23,6 +23,7 @@ dependencies = [
     "telethon>=1.37",
     "dagster>=1.9",
     "dagster-webserver>=1.9",
+    "dagster-postgres>=0.25",
 ]
 
 [dependency-groups]

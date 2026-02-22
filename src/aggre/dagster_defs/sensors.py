@@ -1,10 +1,17 @@
-"""Dagster sensors and schedules for Aggre pipeline."""
+"""Dagster sensors and schedules for Aggre pipeline.
 
-from __future__ import annotations
+Note: ``from __future__ import annotations`` is omitted because Dagster's
+sensor/schedule decorators inspect type hints at decoration time and cannot
+resolve deferred (stringified) annotations.
+"""
 
 import dagster as dg
 import sqlalchemy as sa
 
+from aggre.dagster_defs.jobs.collect import collect_job
+from aggre.dagster_defs.jobs.content import content_job
+from aggre.dagster_defs.jobs.enrich import enrich_job
+from aggre.dagster_defs.jobs.transcribe import transcribe_job
 from aggre.db import SilverContent, get_engine
 from aggre.settings import Settings
 from aggre.statuses import FetchStatus, TranscriptionStatus
@@ -21,7 +28,7 @@ def _get_engine() -> sa.engine.Engine:
 collection_schedule = dg.ScheduleDefinition(
     name="hourly_collection",
     cron_schedule="0 * * * *",
-    target="collect_job",
+    target=collect_job,
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
 
@@ -29,7 +36,7 @@ collection_schedule = dg.ScheduleDefinition(
 # -- Sensors -------------------------------------------------------------------
 
 
-@dg.sensor(target="content_job", minimum_interval_seconds=30, default_status=dg.DefaultSensorStatus.STOPPED)
+@dg.sensor(target=content_job, minimum_interval_seconds=30, default_status=dg.DefaultSensorStatus.STOPPED)
 def content_sensor(context: dg.SensorEvaluationContext) -> dg.SensorResult:
     """Watch for pending content downloads."""
     engine = _get_engine()
@@ -47,7 +54,7 @@ def content_sensor(context: dg.SensorEvaluationContext) -> dg.SensorResult:
     return dg.SensorResult(skip_reason="No pending content")
 
 
-@dg.sensor(target="enrich_job", minimum_interval_seconds=60, default_status=dg.DefaultSensorStatus.STOPPED)
+@dg.sensor(target=enrich_job, minimum_interval_seconds=60, default_status=dg.DefaultSensorStatus.STOPPED)
 def enrichment_sensor(context: dg.SensorEvaluationContext) -> dg.SensorResult:
     """Watch for unenriched content."""
     engine = _get_engine()
@@ -65,7 +72,7 @@ def enrichment_sensor(context: dg.SensorEvaluationContext) -> dg.SensorResult:
     return dg.SensorResult(skip_reason="No unenriched content")
 
 
-@dg.sensor(target="transcribe_job", minimum_interval_seconds=30, default_status=dg.DefaultSensorStatus.STOPPED)
+@dg.sensor(target=transcribe_job, minimum_interval_seconds=30, default_status=dg.DefaultSensorStatus.STOPPED)
 def transcription_sensor(context: dg.SensorEvaluationContext) -> dg.SensorResult:
     """Watch for pending transcriptions."""
     engine = _get_engine()

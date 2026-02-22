@@ -17,6 +17,7 @@ dependencies = [
     { name = "alembic" },
     { name = "click" },
     { name = "dagster" },
+    { name = "dagster-postgres" },
     { name = "dagster-webserver" },
     { name = "faster-whisper" },
     { name = "feedparser" },
@@ -48,6 +49,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.15" },
     { name = "click", specifier = ">=8.1" },
     { name = "dagster", specifier = ">=1.9" },
+    { name = "dagster-postgres", specifier = ">=0.25" },
     { name = "dagster-webserver", specifier = ">=1.9" },
     { name = "faster-whisper", specifier = ">=1.0" },
     { name = "feedparser", specifier = ">=6.0" },
@@ -397,6 +399,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9b/bb/938af0b3ce8717e1d8893d6aa5cef0e04351e35834ea17f7474d8554f914/dagster_pipes-1.12.15.tar.gz", hash = "sha256:918d84d7ba23c2cbe2a272f9b930b66fcf81f334b17fa0fc68470dc1b7ebf30b", size = 20789, upload-time = "2026-02-20T18:51:01.059Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b6/e0/d2297297dc9d0f9a7ee29a0b791cb869888655f6968a01573ae30870634c/dagster_pipes-1.12.15-py3-none-any.whl", hash = "sha256:23c49fe45a352a0020b4410576c897823188d9860c96feb72440523c86ff0f67", size = 20792, upload-time = "2026-02-20T18:51:00.014Z" },
+]
+
+[[package]]
+name = "dagster-postgres"
+version = "0.28.15"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dagster" },
+    { name = "psycopg2-binary" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6f/15/c584809f5ee45a5213feefed840c2e97de9e8e2445ed2986aa3e8aeef927/dagster_postgres-0.28.15.tar.gz", hash = "sha256:c9d32dd60d8d3d276b942ce68bc6f858a7de298ed4f90fbd6273b576ac7e7146", size = 16110, upload-time = "2026-02-20T18:56:49.453Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/35/1837392dcc635583ec463e2a415be968c4e594bb0f612f08610ec9c10c1c/dagster_postgres-0.28.15-py3-none-any.whl", hash = "sha256:39654e106ad9c7356a43d0b37dac74cda0e7d065e9b66d21cf17da10c2a4f13b", size = 22865, upload-time = "2026-02-20T18:56:47.87Z" },
 ]
 
 [[package]]

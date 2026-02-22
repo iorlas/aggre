@@ -88,7 +88,7 @@ class RedditCollector(BaseCollector):
                 source_id = self._ensure_source(engine, sub, {"subreddit": sub})
 
                 # Fetch hot + new listings, dedup by external_id
-                posts_by_id: dict[str, dict] = {}
+                posts_by_id: dict[str, dict[str, object]] = {}
                 for sort in ("hot", "new"):
                     url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit={config.fetch_limit}"
                     time.sleep(rate_limit)

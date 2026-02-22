@@ -51,7 +51,7 @@ class LobstersCollector(BaseCollector):
                     urls.append(f"{LOBSTERS_BASE}/hottest.json")
                     urls.append(f"{LOBSTERS_BASE}/newest.json")
 
-                stories_by_id: dict[str, dict] = {}
+                stories_by_id: dict[str, dict[str, object]] = {}
                 for url in urls:
                     time.sleep(rate_limit)
                     try:

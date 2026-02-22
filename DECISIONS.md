@@ -105,3 +105,35 @@ bronze.py, bronze_http.py, http.py, and logging.py contain no Aggre-specific log
 ## [analysis] — Kept telegram-auth as the one valid CLI command — because it requires interactive user input that Dagster cannot provide
 
 Interactive auth flows (user types phone number, receives verification code) cannot run as Dagster ops. This is the correct boundary between CLI and Dagster: CLI for interactive human tasks, Dagster for automated pipeline execution.
+
+---
+
+# Restructuring Execution Decisions (2026-02-22)
+
+## [structure] — Extracted generic helpers to src/aggre/utils/ — because medallion-guidelines patterns are reusable
+
+bronze.py, bronze_http.py, http.py, and logging.py moved to utils/ sub-package. These implement medallion-guidelines.md patterns (bronze filesystem, bronze-aware HTTP, structured logging) with no Aggre-specific logic. Enables future extraction to a shared library.
+
+## [naming] — Made _update_content public as update_content — because it's imported across 3 module boundaries
+
+A private function imported by content_downloader.py, content_extractor.py, transcriber.py, and enrichment.py is not private. Renamed to match actual usage. No behavior change.
+
+## [separation] — Split content_fetcher.py into content_downloader.py + content_extractor.py — because they are distinct pipeline stages
+
+content_fetcher.py mixed HTTP download (I/O-bound, parallel) with trafilatura extraction (CPU-bound, single-threaded). These are separate Dagster ops with different concurrency characteristics. Split along the existing op boundary.
+
+## [dedup] — Merged HN_SKIP_DOMAINS and LOBSTERS_SKIP_DOMAINS into ENRICHMENT_SKIP_DOMAINS — because they were identical
+
+Two frozen sets with the same 4 domains ("news.ycombinator.com", "lobste.rs", "old.reddit.com", "reddit.com") existed side-by-side. Merged into single `ENRICHMENT_SKIP_DOMAINS` used by both skip checks.
+
+## [dagster] — Reorganized dagster_defs/ by domain — because flat structure mixed concerns and blocked parallel work
+
+Flat dagster_defs/ had jobs/ and sensors.py with all definitions. Reorganized into collection/, content/, enrichment/, transcription/ packages. Each domain owns its job + sensor/schedule. Enables independent modification of pipeline stages.
+
+## [dagster] — Sensors accept DatabaseResource parameter instead of calling _get_engine() — because Dagster resource injection is the idiomatic pattern
+
+Sensors previously bypassed the shared DatabaseResource and created engines directly via _get_engine(). Changed to accept `database: DatabaseResource` parameter, which Dagster injects automatically from the Definitions resource map. This follows Dagster's ConfigurableResource pattern.
+
+## [cleanup] — Removed run-once CLI command (120 lines) and status CLI command (50 lines) — because Dagster UI replaces both
+
+`run-once` reimplemented the entire pipeline in a single sequential loop with drain logic and TTL checks. `status` queried database for queue counts. Both are replaced by Dagster UI (job execution, sensor status, run monitoring). Also removed `all_sources_recent()` helper and `_MAX_DRAIN_ITERATIONS` constant, only used by `run-once`.

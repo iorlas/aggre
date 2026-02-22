@@ -1,42 +1,32 @@
-# Plan: Analyze Conflicting Concepts with Dagster Ecosystem & Medallion Guidelines
+# Plan: Resolve Dagster/Medallion Conflicts — Code Restructuring
 
 ## Goal
-Identify and document all conceptual conflicts between the current codebase and Dagster ecosystem idioms + medallion-guidelines.md. Write findings to SUGGESTIONS.md. No code changes.
+Reduce code, extract generic helpers, improve domain separation, and fix Dagster ecosystem conflicts identified in SUGGESTIONS.md. Each step must pass tests and linters before proceeding.
+
+## Status: COMPLETE
+
+All 10 steps executed. 198 tests pass, linter clean, Dagster definitions valid.
+
+**Net change:** -356 lines (952 added, 1308 removed across 42 files)
+
+**Commits (7 refactor + 1 docs):**
+1. `e03e918` — Extract generic helpers into src/aggre/utils/
+2. `5c7e8c0` — Make _update_content public as update_content
+3. `dfeb4f3` — Split content_fetcher into content_downloader and content_extractor
+4. `bad5296` — Merge duplicate enrichment skip-domain frozensets
+5. `2325cd3` — Reorganize dagster_defs by domain with resource-injected sensors (includes Step 6)
+6. `f2279fa` — Remove pre-Dagster CLI commands and all_sources_recent helper (Steps 7+8)
+7. `538e300` — Update STRUCTURE.md, ARCHITECTURE.md, and DECISIONS.md
 
 ## Steps
 
-### Step 1: Analyze sensor anti-patterns
-- **What**: Sensors poll status columns on parent silver rows (fetch_status, transcription_status, enriched_at, comments_status). This creates tight coupling between Dagster orchestration and silver data model — silver statuses serve double duty as both data state AND orchestration triggers.
-- **Success criteria**: Document each sensor, what it polls, and why this conflicts with Dagster's asset/sensor cursor model.
-
-### Step 2: Analyze Dagster definition organization
-- **What**: All sensors + schedule in one file. Jobs split into files but all in same `jobs/` directory. No domain separation.
-- **Success criteria**: Document current layout and propose domain-aligned alternatives.
-
-### Step 3: Identify dead/redundant code from pre-Dagster era
-- **What**: CLI `run-once` with drain loops, `status` command, orchestration helpers that duplicate Dagster capabilities.
-- **Success criteria**: List each piece of code and whether it's fully redundant, partially redundant, or still needed.
-
-### Step 4: Identify helpers that could be generic/reusable
-- **What**: bronze.py, bronze_http.py, urls.py utilities, logging.py, http.py — classify as domain-specific or generic-reusable.
-- **Success criteria**: Classify each helper module.
-
-### Step 5: Analyze domain separation issues
-- **What**: Do module boundaries align with Dagster job boundaries? Are they separated enough for parallel agent work?
-- **Success criteria**: Map current coupling points and propose cleaner separation.
-
-### Step 6: Analyze medallion guideline violations
-- **What**: Compare actual code patterns against docs/medallion-guidelines.md prescriptions.
-- **Success criteria**: Document each violation with file/line references.
-
-### Step 7: Write SUGGESTIONS.md
-- **What**: Compile all findings into structured document.
-- **Success criteria**: Document is complete, actionable, and references specific files/lines.
-
-### Step 8: Log structural decisions to DECISIONS.md
-- **What**: Document analytical framework and key judgment calls.
-- **Success criteria**: DECISIONS.md exists with clear rationale.
-
-### Step 9: Verify
-- **What**: Ensure no code was accidentally changed.
-- **Success criteria**: `git diff` shows only new/modified .md files.
+### Step 1: Extract generic helpers into `src/aggre/utils/` ✓
+### Step 2: Make `_update_content` public ✓
+### Step 3: Split `content_fetcher.py` into download and extract modules ✓
+### Step 4: Merge duplicated enrichment skip-domain sets ✓
+### Step 5: Reorganize `dagster_defs/` by domain ✓
+### Step 6: Fix sensors to use `DatabaseResource` (merged into Step 5) ✓
+### Step 7: Remove redundant CLI commands ✓
+### Step 8: Remove pre-Dagster orchestration helpers (merged into Step 7) ✓
+### Step 9: Update stale docs ✓
+### Step 10: Final verification ✓

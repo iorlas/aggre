@@ -21,6 +21,8 @@ dependencies = [
     "trafilatura>=2.0",
     "psycopg2-binary>=2.9",
     "telethon>=1.37",
+    "dagster>=1.9",
+    "dagster-webserver>=1.9",
 ]
 
 [dependency-groups]
@@ -44,6 +46,9 @@ packages = ["src/aggre"]
 
 [tool.uv]
 prerelease = "allow"
+
+[tool.dagster]
+module_name = "aggre.dagster_defs"
 
 [tool.ruff]
 target-version = "py312"

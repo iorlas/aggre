@@ -8,11 +8,11 @@ import time
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.base import BaseCollector
+from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.hackernews.config import HackernewsConfig
 from aggre.settings import Settings
-from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
+from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
 
 HN_ALGOLIA_BASE = "https://hn.algolia.com/api/v1"
@@ -26,11 +26,18 @@ class HackernewsCollector(BaseCollector):
 
     source_type = "hackernews"
 
-    def collect(self, engine: sa.engine.Engine, config: HackernewsConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+    def collect_references(
+        self,
+        engine: sa.engine.Engine,
+        config: HackernewsConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
+    ) -> list[ContentReference]:
+        """Fetch HN front-page stories, write bronze, return references."""
         if not config.sources:
-            return 0
+            return []
 
-        total_new = 0
+        refs: list[ContentReference] = []
         rate_limit = settings.hn_rate_limit
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
@@ -50,21 +57,74 @@ class HackernewsCollector(BaseCollector):
                     continue
 
                 hits = data.get("hits", [])
-                with engine.begin() as conn:
-                    for hit in hits:
-                        object_id = str(hit.get("objectID", ""))
-                        if not object_id:
-                            continue
+                for hit in hits:
+                    object_id = str(hit.get("objectID", ""))
+                    if not object_id:
+                        continue
 
-                        self._write_bronze(object_id, hit)
-                        discussion_id = self._store_discussion(conn, source_id, object_id, hit)
-                        if discussion_id is not None:
-                            total_new += 1
+                    self._write_bronze(object_id, hit)
+                    refs.append(
+                        ContentReference(
+                            external_id=object_id,
+                            raw_data=hit,
+                            source_id=source_id,
+                        )
+                    )
 
-                log.info("hackernews.discussions_stored", new=total_new, total_hits=len(hits))
+                log.info("hackernews.references_collected", count=len(hits))
                 self._update_last_fetched(engine, source_id)
 
-        return total_new
+        return refs
+
+    def process_reference(
+        self,
+        ref_data: dict[str, object],
+        conn: sa.Connection,
+        source_id: int,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Normalize one HN hit into silver rows.
+
+        For stories with a URL: creates SilverContent via ensure_content, then upserts observation.
+        For self-posts (Ask HN, Show HN without URL): creates SilverContent with text populated
+        immediately via _ensure_self_post_content, then upserts observation.
+        """
+        hit = ref_data
+        ext_id = str(hit.get("objectID", ""))
+        if not ext_id:
+            return
+
+        hn_url = f"https://news.ycombinator.com/item?id={ext_id}"
+
+        if hit.get("url"):
+            # Normal story with external URL
+            story_url = hit["url"]
+            content_id = ensure_content(conn, str(story_url))
+        else:
+            # Self-post (Ask HN, Show HN, etc.) — text lives in story_text
+            story_url = hn_url
+            story_text = str(hit.get("story_text", ""))
+            content_id = self._ensure_self_post_content(conn, hn_url, story_text)
+
+        created_at_str = hit.get("created_at")
+        published_at = created_at_str if created_at_str else None
+
+        meta = json.dumps({"hn_url": hn_url})
+
+        values = dict(
+            source_id=source_id,
+            source_type="hackernews",
+            external_id=ext_id,
+            title=hit.get("title"),
+            author=hit.get("author"),
+            url=story_url,
+            published_at=published_at,
+            meta=meta,
+            content_id=content_id,
+            score=hit.get("points", 0),
+            comment_count=hit.get("num_comments", 0),
+        )
+        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
 
     def collect_comments(
         self,
@@ -102,6 +162,9 @@ class HackernewsCollector(BaseCollector):
                 except Exception:
                     log.exception("hackernews.comments_fetch_failed", story_id=ext_id)
                     continue
+
+                # Write raw API response to bronze before storing in silver
+                write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
 
                 children = data.get("children", [])
                 self._mark_comments_done(engine, discussion_id, json.dumps(children), len(children))
@@ -142,43 +205,7 @@ class HackernewsCollector(BaseCollector):
                         continue
 
                     self._write_bronze(object_id, hit)
-                    discussion_id = self._store_discussion(conn, source_id, object_id, hit)
-                    if discussion_id is not None:
-                        new_count += 1
+                    self.process_reference(hit, conn, source_id, log)
+                    new_count += 1
 
         return new_count
-
-    def _store_discussion(
-        self,
-        conn: sa.Connection,
-        source_id: int,
-        ext_id: str,
-        hit: dict[str, object],
-    ) -> int | None:
-        story_url = hit.get("url") or f"https://news.ycombinator.com/item?id={ext_id}"
-        hn_url = f"https://news.ycombinator.com/item?id={ext_id}"
-
-        content_id = None
-        if hit.get("url"):
-            content_id = ensure_content(conn, hit["url"])
-
-        created_at_str = hit.get("created_at")
-        published_at = created_at_str if created_at_str else None
-
-        meta = json.dumps({"hn_url": hn_url})
-
-        values = dict(
-            source_id=source_id,
-            source_type="hackernews",
-            external_id=ext_id,
-            title=hit.get("title"),
-            author=hit.get("author"),
-            url=story_url,
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-            comments_status=CommentsStatus.PENDING,
-            score=hit.get("points", 0),
-            comment_count=hit.get("num_comments", 0),
-        )
-        return self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

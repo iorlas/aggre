@@ -1,19 +1,38 @@
 # Architecture
 
-**Analysis Date:** 2026-02-22
+**Analysis Date:** 2026-02-23
 
 ## Pattern Overview
 
 **Overall:** Multi-stage content aggregation pipeline with Bronze/Silver medallion data model, orchestrated by Dagster.
 
+```
+  Schedule (hourly)          Sensors (30-60s poll)
+       |                /       |        \        \
+  collect_job     content  transcribe  enrich  comments
+       |            job      job        job      job
+       v            v        v          v        v
+  [Collectors]  [Download→ [yt-dlp→  [Search  [Fetch HN/
+   HN/Reddit/   Extract]   Whisper]   HN+Lob]  Reddit/Lob
+   RSS/YT/etc]      |         |         |      comments]
+       |            v         v         v        v
+       v        SilverContent           SC    SilverObs
+  SilverObs       .text       .text  .enriched  .comments_json
+  + SilverContent .title   .detected_lang  _at
+    (via ensure_content)
+
+  Manual trigger: reprocess_job (rebuild silver from bronze)
+```
+
 **Key Characteristics:**
 - Dagster-first orchestration: jobs, sensors, schedules, resource injection
-- Domain-aligned dagster_defs packages (collection, content, enrichment, transcription)
+- Framework-first architecture: business logic lives in dagster_defs ops/jobs, no separate pipeline layer
+- Domain-aligned dagster_defs packages (collection, comments, content, enrichment, reprocess, transcription)
 - Immutable raw data in bronze filesystem (JSON files)
-- Parsed discussions (SilverDiscussion) with optional mutable field updates
+- Parsed discussions (SilverObservation) with optional mutable field updates
 - Content-independent entity (SilverContent) linked from multiple discussions
 - Source-agnostic collector plugin architecture
-- Status-driven state machines for content fetch/transcription/enrichment
+- Null-check pattern for processing state (data presence, not status enums)
 
 ## Layers
 
@@ -34,31 +53,20 @@
 - Purpose: Load YAML config with env var overrides via pydantic-settings
 - Location: `src/aggre/config.py`, `src/aggre/settings.py`
 - Contains: Settings dataclass, source-specific config models (RssSource, RedditSource, etc.)
-- Used by: All collectors, content pipeline, Dagster ops
+- Used by: All collectors, Dagster ops
 
 **Data Models (ORM):**
 - Purpose: SQLAlchemy ORM models and database schema
 - Location: `src/aggre/db.py`
-- Contains: Source, SilverDiscussion, SilverContent models, index definitions
+- Contains: Source, SilverObservation, SilverContent models, index definitions
 - Used by: All layers writing to database
 
 **Collectors (Plugin Layer):**
-- Purpose: Source-specific API clients that fetch raw data and parse to SilverDiscussion
+- Purpose: Source-specific API clients that fetch raw data and parse to SilverObservation
 - Location: `src/aggre/collectors/`
 - Contains: BaseCollector shared helpers, individual collectors (HackerNews, Reddit, RSS, YouTube, Lobsters, HuggingFace, Telegram)
-- Depends on: db, config, urls, utils/http, status enums
+- Depends on: db, config, urls, utils/http
 - Used by: Dagster collection job, enrichment module
-
-**Content Pipeline:**
-- Purpose: Content processing pipeline modules (download, extract, transcribe, enrich)
-- Location: `src/aggre/pipeline/`
-- Contains:
-  - `content_downloader.py` — HTTP download → bronze (parallel, I/O-bound)
-  - `content_extractor.py` — Bronze → silver text extraction via trafilatura (CPU-bound)
-  - `transcriber.py` — YouTube video transcription (yt-dlp + faster-whisper)
-  - `enrichment.py` — Cross-source enrichment (search HN/Lobsters for URLs)
-- State transitions: PENDING → DOWNLOADED → FETCHED/FAILED/SKIPPED (content); PENDING → COMPLETED/FAILED (transcription)
-- Used by: Dagster content, transcription, and enrichment jobs
 
 **Utilities:**
 - Purpose: Generic reusable helpers with zero Aggre-specific logic
@@ -77,33 +85,40 @@
 **Collection Flow (Dagster collect_job):**
 
 1. Dagster schedule triggers `collect_job` hourly
-2. Each collector op executes:
-   - Calls `_ensure_source()` to register/retrieve Source record
-   - Fetches API data (via HTTP)
-   - For each item:
-     - Writes bronze JSON to filesystem via `_write_bronze()`
-     - `_upsert_discussion()` → SilverDiscussion (with optional updates to mutable fields)
-     - `ensure_content()` → SilverContent if URL exists in item
-   - Calls `_update_last_fetched()` on Source
-   - Returns count of new discussions
-3. For Reddit/HN/Lobsters: separate comment collection ops
+2. Each collector executes two methods sequentially:
+   - `collect_references(config, settings, log)` → fetches API data, writes bronze `raw.json` per item, returns `list[ContentReference]`
+   - `process_reference(raw_data, conn, source_id, log)` → normalizes one bronze reference into silver rows:
+     - `ensure_content()` → SilverContent if URL exists
+     - `_upsert_observation()` → SilverObservation (with optional updates to mutable fields)
+     - For self-posts (Reddit selftext, Ask HN with text, Lobsters self-posts): creates SilverContent with `text` pre-populated
+   - `_update_last_fetched()` on Source
+3. The two-method split enables `reprocess_job` to call `process_reference()` alone from bronze
+
+**Comment Fetch Flow (Dagster comments_job, triggered by comments_sensor):**
+
+1. `comments_sensor` watches for SilverObservation where `comments_json IS NULL AND error IS NULL` for HN/Reddit/Lobsters
+2. `comments_job` runs each collector's `collect_comments()`:
+   - Fetches raw API comment response
+   - Writes raw response to bronze (`{source_type}/{ext_id}/comments.json`)
+   - Parses and stores in `SilverObservation.comments_json`
 
 **Content Fetch Flow (Dagster content_job, triggered by content_sensor):**
 
-1. `content_sensor` watches for SilverContent with fetch_status=PENDING
+1. `content_sensor` watches for SilverContent where `text IS NULL AND error IS NULL AND domain != 'youtube.com'`
 2. `content_job` runs:
-   - Download phase: HTTP GET → store raw HTML in bronze filesystem (PENDING → DOWNLOADED)
-   - Extract phase: trafilatura extraction → store body_text + title (DOWNLOADED → FETCHED)
-   - Failures transition to FAILED with error message
+   - Download phase: HTTP GET → store raw HTML in bronze filesystem → set `fetched_at`
+   - Extract phase: trafilatura extraction → store `text` + `title` (queries `fetched_at IS NOT NULL AND text IS NULL AND error IS NULL`)
+   - Failures set `error` with error message; skipped content sets `error = 'skipped:{reason}'`
 
 **Transcription Flow (Dagster transcribe_job, triggered by transcription_sensor):**
 
-1. `transcription_sensor` watches for SilverContent with transcription_status=PENDING
-2. `transcribe_job` runs:
-   - Download video via yt-dlp (bronze cache skips if audio.opus exists)
-   - Transcribe via faster-whisper (bronze cache skips if whisper.json exists)
-   - PENDING → COMPLETED: store body_text (transcript) + detected_language
-   - PENDING → FAILED: on error (deleted video, size limit, transcription error)
+1. `transcription_sensor` watches for SilverContent where `text IS NULL AND error IS NULL AND domain = 'youtube.com'`
+2. `transcribe_job` runs with whisper resilience (3-step check):
+   - Step 1: If `bronze/youtube/{id}/whisper.json` exists → use cached transcription (no audio needed)
+   - Step 2: If `bronze/youtube/{id}/audio.opus` exists → transcribe from cached audio (no download needed)
+   - Step 3: Neither → download audio via yt-dlp, then transcribe
+   - Success: store `text` (transcript) + `detected_language`
+   - Failure: set `error` with error message
 
 **Enrichment Flow (Dagster enrich_job, triggered by enrichment_sensor):**
 
@@ -113,32 +128,42 @@
    - LobstersCollector.search_by_url() → discover Lobsters discussions
    - After both succeed: SilverContent.enriched_at = now()
 
+**Reprocess Flow (Dagster reprocess_job, manual trigger):**
+
+1. Triggered manually (no sensor/schedule)
+2. Scans `data/bronze/{source_type}/*/raw.json` for all source types
+3. For each ref file: instantiates appropriate collector, calls `process_reference()`
+4. Rebuilds SilverContent + SilverObservation from bronze without touching external APIs
+5. After reprocessing, content/transcription/comment sensors detect new work → trigger their jobs
+
 ## State Management
 
 **Database Transactions:**
 - Collectors use `engine.begin()` for atomic writes
-- Content pipeline uses `engine.begin()` for state transitions
+- Dagster ops use `engine.begin()` for state transitions
 - Reads use `engine.connect()` (read-only)
 - Race conditions handled via PostgreSQL upsert (ON CONFLICT DO NOTHING/UPDATE)
 
-**Status Lifecycles:**
+**Processing State (null-check pattern):**
 
-Three independent state machines run in parallel:
+Three independent processing flows tracked via data presence, not status enums:
 
-1. **FetchStatus (article/paper content):** PENDING → (DOWNLOADED → FETCHED | SKIPPED | FAILED)
-2. **TranscriptionStatus (video content):** PENDING → (COMPLETED | FAILED)
-3. **CommentsStatus (discussion threads):** PENDING → DONE
+1. **Content (article/paper):** `text IS NULL AND error IS NULL` → needs processing; `text IS NOT NULL` → done; `error IS NOT NULL` → failed/skipped
+2. **Transcription (video):** Same pattern, routed by `domain = 'youtube.com'`
+3. **Comments (discussion threads):** `comments_json IS NULL AND error IS NULL` → needs fetching; `comments_json IS NOT NULL` → done
 
 ## Key Abstractions
 
 **BaseCollector:**
 - Location: `src/aggre/collectors/base.py`
-- Methods: `_ensure_source()`, `_write_bronze()`, `_upsert_discussion()`, `_update_last_fetched()`, `_query_pending_comments()`, `_mark_comments_done()`, `_is_source_recent()`, `_get_fetch_limit()`, `_is_initialized()`
+- Methods: `_ensure_source()`, `_write_bronze()`, `_upsert_observation()`, `_ensure_self_post_content()`, `_update_last_fetched()`, `_query_pending_comments()`, `_mark_comments_done()`, `_is_source_recent()`, `_get_fetch_limit()`, `_is_initialized()`
 
-**Collector Protocol:**
+**Collector Protocol (two-method split):**
 - Location: `src/aggre/collectors/base.py`
-- Signature: `def collect(engine, config, settings, log) -> int`
+- `collect_references(config, settings, log) -> list[ContentReference]` — fetch feed, write bronze, return references (no DB access)
+- `process_reference(raw_data, conn, source_id, log) -> None` — normalize one bronze reference into silver rows
 - SearchableCollector extends: `def search_by_url(url, engine, config, settings, log) -> int`
+- The split enables `reprocess_job` to rebuild silver from bronze without hitting APIs
 
 **DatabaseResource:**
 - Location: `src/aggre/dagster_defs/resources.py`
@@ -150,11 +175,11 @@ Three independent state machines run in parallel:
 - Pattern: Normalize URL → find or create SilverContent → return id
 - Handles: Race conditions via ON CONFLICT DO NOTHING + retry
 
-**State Transition Functions:**
-- Locations: `pipeline/content_downloader.py`, `pipeline/content_extractor.py`, `pipeline/transcriber.py`
-- Examples: `content_downloaded()`, `content_fetched()`, `transcription_completed()`
-- Pattern: Each function calls `update_content()` with new status + metadata
-- Note: `content_fetch_failed()` defined once in `content_downloader.py`, imported by `content_extractor.py`
+**State Transition Helpers:**
+- Locations: `dagster_defs/content/job.py`, `dagster_defs/transcription/job.py`
+- Pattern: Helper functions update SilverContent columns (`text`, `error`, `fetched_at`, `detected_language`) via `engine.begin()` + `sa.update()`
+- Content job: `_mark_downloaded()` sets `fetched_at`; `_mark_extracted()` sets `text` + `title`; `_mark_failed()` sets `error`
+- Transcription job: `_mark_transcribed()` sets `text` + `detected_language`; `_mark_transcription_failed()` sets `error`
 
 ## Error Handling
 
@@ -164,7 +189,7 @@ Three independent state machines run in parallel:
 
 1. **Collector errors:** Individual API failures logged but don't stop batch
 2. **Database constraint violations:** Silent via ON CONFLICT DO NOTHING (expected duplicates)
-3. **Pipeline errors:** State transitions to FAILED with error message for later inspection
+3. **Processing errors:** `error` column set with error message for later inspection (null-check pattern)
 4. **Dagster:** Op-level retries and failure handling via Dagster framework
 
 ## Cross-Cutting Concerns
@@ -185,10 +210,10 @@ Three independent state machines run in parallel:
 - Pattern: Applied per-source in collector loop
 
 **Idempotency:**
-- Duplicates: SilverDiscussion dedup via (source_type, external_id) unique constraint
-- Score/title updates: SilverDiscussion upserts mutable fields on re-insert
+- Duplicates: SilverObservation dedup via (source_type, external_id) unique constraint
+- Score/title updates: SilverObservation upserts mutable fields on re-insert
 - Content enrichment: Tracked via enriched_at flag to avoid re-searching
 
 ---
 
-*Architecture analysis: 2026-02-22*
+*Architecture analysis: 2026-02-23*

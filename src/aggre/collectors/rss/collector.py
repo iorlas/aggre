@@ -8,11 +8,11 @@ import feedparser
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.base import BaseCollector
+from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.rss.config import RssConfig
-from aggre.db import SilverContent
 from aggre.settings import Settings
 from aggre.urls import ensure_content
+from aggre.utils.bronze import url_hash
 
 # Columns to update on re-insert (titles/content always fresh)
 _UPSERT_COLS = ("title", "author", "url", "content_text", "meta")
@@ -23,8 +23,15 @@ class RssCollector(BaseCollector):
 
     source_type = "rss"
 
-    def collect(self, engine: sa.engine.Engine, config: RssConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
-        total_new = 0
+    def collect_references(
+        self,
+        engine: sa.engine.Engine,
+        config: RssConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
+    ) -> list[ContentReference]:
+        """Fetch RSS/Atom feeds, write bronze, return references."""
+        refs: list[ContentReference] = []
 
         for rss_source in config.sources:
             log.info("rss.collecting", name=rss_source.name, url=rss_source.url)
@@ -38,9 +45,8 @@ class RssCollector(BaseCollector):
 
             if not feed.entries:
                 log.warning("rss_no_entries", name=rss_source.name)
+                self._update_last_fetched(engine, source_id)
                 continue
-
-            new_count = 0
 
             for entry in feed.entries:
                 external_id = entry.get("id") or entry.get("link")
@@ -48,48 +54,62 @@ class RssCollector(BaseCollector):
                     log.warning("skipping_entry_no_id", feed=rss_source.name)
                     continue
 
-                raw_data = json.dumps(dict(entry))
-                self._write_bronze(external_id, raw_data)
+                raw_data = dict(entry)
+                # Attach feed-level metadata so process_reference can use it
+                raw_data["_feed_title"] = feed.feed.get("title", rss_source.name)
 
-                with engine.begin() as conn:
-                    # Extract content fields
-                    content_text = entry.get("summary") or ""
-                    if not content_text:
-                        content_list = entry.get("content", [{}])
-                        if content_list:
-                            content_text = content_list[0].get("value", "")
-
-                    published_at = entry.get("published") or entry.get("updated")
-
-                    meta = json.dumps({"feed_title": feed.feed.get("title", rss_source.name)})
-
-                    # Create content for the entry link
-                    content_id = ensure_content(conn, entry.get("link")) if entry.get("link") else None
-                    if content_id and content_text:
-                        conn.execute(
-                            sa.update(SilverContent)
-                            .where(SilverContent.id == content_id, SilverContent.body_text.is_(None))
-                            .values(body_text=content_text)
-                        )
-
-                    values = dict(
-                        source_id=source_id,
-                        source_type="rss",
+                self._write_bronze(url_hash(external_id), raw_data)
+                refs.append(
+                    ContentReference(
                         external_id=external_id,
-                        title=entry.get("title"),
-                        author=entry.get("author"),
-                        url=entry.get("link"),
-                        content_text=content_text,
-                        published_at=published_at,
-                        meta=meta,
-                        content_id=content_id,
+                        raw_data=raw_data,
+                        source_id=source_id,
                     )
-                    result = self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
-                    if result is not None:
-                        new_count += 1
+                )
 
             self._update_last_fetched(engine, source_id)
-            log.info("rss.discussions_stored", name=rss_source.name, new_discussions=new_count)
-            total_new += new_count
+            log.info("rss.references_collected", name=rss_source.name, count=len(feed.entries))
 
-        return total_new
+        return refs
+
+    def process_reference(
+        self,
+        ref_data: dict[str, object],
+        conn: sa.Connection,
+        source_id: int,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Normalize one RSS entry into silver rows."""
+        external_id = ref_data.get("id") or ref_data.get("link")
+        if not external_id:
+            return
+
+        # Extract content fields
+        content_text = ref_data.get("summary") or ""
+        if not content_text:
+            content_list = ref_data.get("content", [{}])
+            if content_list:
+                content_text = content_list[0].get("value", "")
+
+        published_at = ref_data.get("published") or ref_data.get("updated")
+
+        feed_title = ref_data.get("_feed_title", "")
+        meta = json.dumps({"feed_title": feed_title})
+
+        # Create content for the entry link
+        link = ref_data.get("link")
+        content_id = ensure_content(conn, link) if link else None
+
+        values = dict(
+            source_id=source_id,
+            source_type="rss",
+            external_id=external_id,
+            title=ref_data.get("title"),
+            author=ref_data.get("author"),
+            url=link,
+            content_text=content_text,
+            published_at=published_at,
+            meta=meta,
+            content_id=content_id,
+        )
+        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)

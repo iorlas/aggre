@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from aggre.collectors.huggingface.collector import HuggingfaceCollector
 from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion, Source
+from aggre.db import SilverObservation, Source
 from aggre.settings import Settings
 
 
@@ -57,6 +57,15 @@ def _mock_httpx_client(papers: list[dict]):
     return client
 
 
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
+
+
 class TestHuggingfaceCollectorDiscussions:
     def test_stores_papers(self, engine):
         config = _make_config()
@@ -67,12 +76,12 @@ class TestHuggingfaceCollectorDiscussions:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([paper])
-            count = collector.collect(engine, config.huggingface, config.settings, log)
+            count = _collect(collector, engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Paper"
             assert items[0].content_text == "A summary of the paper."
@@ -96,11 +105,11 @@ class TestHuggingfaceCollectorDiscussions:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([paper])
-            count1 = collector.collect(engine, config.huggingface, config.settings, log)
-            count2 = collector.collect(engine, config.huggingface, config.settings, log)
+            count1 = _collect(collector, engine, config.huggingface, config.settings, log)
+            count2 = _collect(collector, engine, config.huggingface, config.settings, log)
 
         assert count1 == 1
-        assert count2 == 0
+        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
     def test_multiple_papers(self, engine):
         config = _make_config()
@@ -115,7 +124,7 @@ class TestHuggingfaceCollectorDiscussions:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client(papers)
-            count = collector.collect(engine, config.huggingface, config.settings, log)
+            count = _collect(collector, engine, config.huggingface, config.settings, log)
 
         assert count == 3
 
@@ -129,7 +138,7 @@ class TestHuggingfaceCollectorDiscussions:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([bad_paper, good_paper])
-            count = collector.collect(engine, config.huggingface, config.settings, log)
+            count = _collect(collector, engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
@@ -137,7 +146,7 @@ class TestHuggingfaceCollectorDiscussions:
         config = AppConfig(huggingface=HuggingfaceConfig(sources=[]), settings=Settings())
         log = MagicMock()
         collector = HuggingfaceCollector()
-        assert collector.collect(engine, config.huggingface, config.settings, log) == 0
+        assert _collect(collector, engine, config.huggingface, config.settings, log) == 0
 
     def test_handles_fetch_error(self, engine):
         config = _make_config()
@@ -151,7 +160,7 @@ class TestHuggingfaceCollectorDiscussions:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = client
-            count = collector.collect(engine, config.huggingface, config.settings, log)
+            count = _collect(collector, engine, config.huggingface, config.settings, log)
 
         assert count == 0
 
@@ -164,12 +173,12 @@ class TestHuggingfaceCollectorDiscussions:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([paper])
-            count = collector.collect(engine, config.huggingface, config.settings, log)
+            count = _collect(collector, engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert items[0].author is None
 
 
@@ -181,7 +190,7 @@ class TestHuggingfaceSource:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([])
-            collector.collect(engine, config.huggingface, config.settings, log)
+            _collect(collector, engine, config.huggingface, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -196,8 +205,8 @@ class TestHuggingfaceSource:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _mock_httpx_client([])
-            collector.collect(engine, config.huggingface, config.settings, log)
-            collector.collect(engine, config.huggingface, config.settings, log)
+            _collect(collector, engine, config.huggingface, config.settings, log)
+            _collect(collector, engine, config.huggingface, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

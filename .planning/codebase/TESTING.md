@@ -191,12 +191,11 @@ class TestNormalizeUrl:
 
 3. **Database Seeders:** Insert test data using PostgreSQL INSERT helpers
    ```python
-   def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending"):
+   def _seed_content(engine, url: str, domain: str | None = None):
        with engine.begin() as conn:
            stmt = pg_insert(SilverContent).values(
                canonical_url=url,
                domain=domain,
-               fetch_status=fetch_status,
            )
            stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
            result = conn.execute(stmt)
@@ -271,14 +270,14 @@ pytest tests/ --cov=aggre --cov-report=term
        mock_client = MagicMock()
        mock_client.get.side_effect = Exception("Connection refused")
 
-       with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+       with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
            count = download_content(engine, config, log)
 
        assert count == 1
        with engine.connect() as conn:
            row = conn.execute(sa.select(SilverContent)).fetchone()
-           assert row.fetch_status == "failed"
-           assert "Connection refused" in row.fetch_error
+           assert row.error is not None
+           assert "Connection refused" in row.error
    ```
    (From `tests/test_content.py`)
 
@@ -290,10 +289,10 @@ pytest tests/ --cov=aggre --cov-report=term
 **Database Verification Pattern:**
 ```python
 with engine.connect() as conn:
-    rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+    rows = conn.execute(sa.select(SilverObservation)).fetchall()
     assert len(rows) == 1
     assert rows[0].title == "Test Story"
-    assert rows[0].comments_status == "pending"
+    assert rows[0].comments_json is None  # needs comment fetching
 
     meta = json.loads(rows[0].meta)
     assert "hn_url" in meta

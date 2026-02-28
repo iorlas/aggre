@@ -1,7 +1,7 @@
 {
     "statusLine": {
         "type": "command",
-        "command": "npx -y ccusage statusline",
+        "command": "bash .claude/statusline.sh",
         "padding": 0
     },
     "enabledMcpjsonServers": [

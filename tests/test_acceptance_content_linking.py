@@ -20,8 +20,17 @@ from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
 from aggre.config import AppConfig
-from aggre.db import SilverContent, SilverDiscussion
+from aggre.db import SilverContent, SilverObservation
 from aggre.settings import Settings
+
+
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
 
 
 def _log():
@@ -82,7 +91,7 @@ class TestRssContentLinking:
         feed = _rss_fake_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
-            RssCollector().collect(engine, config.rss, config.settings, _log())
+            _collect(RssCollector(), engine, config.rss, config.settings, _log())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -90,7 +99,7 @@ class TestRssContentLinking:
             assert sc_rows[0].canonical_url == "https://example.com/article"
             assert sc_rows[0].domain == "example.com"
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -162,7 +171,7 @@ class TestRedditContentLinking:
             client.__enter__ = MagicMock(return_value=client)
             client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
-            RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
+            _collect(RedditCollector(), engine, config.reddit, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -170,7 +179,7 @@ class TestRedditContentLinking:
             assert sc_rows[0].canonical_url == "https://example.com/article"
             assert sc_rows[0].domain == "example.com"
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -191,13 +200,13 @@ class TestRedditContentLinking:
             client.__enter__ = MagicMock(return_value=client)
             client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
-            RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
+            _collect(RedditCollector(), engine, config.reddit, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_count = conn.execute(sa.select(sa.func.count()).select_from(SilverContent)).scalar()
             assert sc_count == 0
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id is None
 
@@ -219,10 +228,10 @@ class TestRedditContentLinking:
             client.__enter__ = MagicMock(return_value=client)
             client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
-            RedditCollector().collect(engine, config.reddit, config.settings, MagicMock())
+            _collect(RedditCollector(), engine, config.reddit, config.settings, MagicMock())
 
         with engine.connect() as conn:
-            sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            sd = conn.execute(sa.select(SilverObservation)).fetchone()
             assert sd.score == 99
             assert sd.comment_count == 12
 
@@ -282,7 +291,7 @@ class TestHackernewsContentLinking:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
+            _collect(HackernewsCollector(), engine, config.hackernews, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -290,7 +299,7 @@ class TestHackernewsContentLinking:
             assert sc_rows[0].canonical_url == "https://example.com/article"
             assert sc_rows[0].domain == "example.com"
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -310,13 +319,13 @@ class TestHackernewsContentLinking:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
+            _collect(HackernewsCollector(), engine, config.hackernews, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_count = conn.execute(sa.select(sa.func.count()).select_from(SilverContent)).scalar()
             assert sc_count == 0
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id is None
 
@@ -336,10 +345,10 @@ class TestHackernewsContentLinking:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, config.hackernews, config.settings, MagicMock())
+            _collect(HackernewsCollector(), engine, config.hackernews, config.settings, MagicMock())
 
         with engine.connect() as conn:
-            sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            sd = conn.execute(sa.select(SilverObservation)).fetchone()
             assert sd.score == 200
             assert sd.comment_count == 50
 
@@ -397,7 +406,7 @@ class TestLobstersContentLinking:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _lob_mock_client(responses)
-            LobstersCollector().collect(engine, config.lobsters, config.settings, MagicMock())
+            _collect(LobstersCollector(), engine, config.lobsters, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -405,7 +414,7 @@ class TestLobstersContentLinking:
             assert sc_rows[0].canonical_url == "https://example.com/article"
             assert sc_rows[0].domain == "example.com"
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -423,10 +432,10 @@ class TestLobstersContentLinking:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _lob_mock_client(responses)
-            LobstersCollector().collect(engine, config.lobsters, config.settings, MagicMock())
+            _collect(LobstersCollector(), engine, config.lobsters, config.settings, MagicMock())
 
         with engine.connect() as conn:
-            sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            sd = conn.execute(sa.select(SilverObservation)).fetchone()
             assert sd.score == 77
             assert sd.comment_count == 14
 
@@ -460,7 +469,7 @@ class TestYoutubeContentLinking:
         mock_ydl.__exit__ = MagicMock(return_value=False)
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
-            YoutubeCollector().collect(engine, config.youtube, config.settings, _log())
+            _collect(YoutubeCollector(), engine, config.youtube, config.settings, _log())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -470,7 +479,7 @@ class TestYoutubeContentLinking:
             assert "vid001" in sc_rows[0].canonical_url
             assert sc_rows[0].domain == "youtube.com"
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -516,7 +525,7 @@ class TestHuggingfaceContentLinking:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _hf_mock_client([_hf_make_paper()])
-            HuggingfaceCollector().collect(engine, config.huggingface, config.settings, MagicMock())
+            _collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
@@ -524,7 +533,7 @@ class TestHuggingfaceContentLinking:
             assert sc_rows[0].canonical_url == "https://huggingface.co/papers/2401.12345"
             assert sc_rows[0].domain == "huggingface.co"
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 1
             assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -536,10 +545,10 @@ class TestHuggingfaceContentLinking:
 
         with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
             mock_cls.return_value = _hf_mock_client([_hf_make_paper(upvotes=99, num_comments=7)])
-            HuggingfaceCollector().collect(engine, config.huggingface, config.settings, MagicMock())
+            _collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, MagicMock())
 
         with engine.connect() as conn:
-            sd = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            sd = conn.execute(sa.select(SilverObservation)).fetchone()
             assert sd.score == 99
             assert sd.comment_count == 7
 
@@ -560,7 +569,7 @@ class TestCrossSourceDedup:
         feed = _rss_fake_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
-            RssCollector().collect(engine, rss_config.rss, rss_config.settings, _log())
+            _collect(RssCollector(), engine, rss_config.rss, rss_config.settings, _log())
 
         # 2. Run HackerNews collector
         hn_config = AppConfig(
@@ -575,15 +584,15 @@ class TestCrossSourceDedup:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
+            _collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
-        # 3. Verify: exactly 1 SilverContent, 2 SilverDiscussions
+        # 3. Verify: exactly 1 SilverContent, 2 SilverObservations
         with engine.connect() as conn:
             sc_rows = conn.execute(sa.select(SilverContent)).fetchall()
             assert len(sc_rows) == 1, f"Expected 1 SilverContent, got {len(sc_rows)}"
             content_id = sc_rows[0].id
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.source_type)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation).order_by(SilverObservation.source_type)).fetchall()
             assert len(sd_rows) == 2
             source_types = {r.source_type for r in sd_rows}
             assert source_types == {"rss", "hackernews"}
@@ -606,7 +615,7 @@ class TestCrossSourceDedup:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _lob_mock_client(responses)
-            LobstersCollector().collect(engine, lob_config.lobsters, lob_config.settings, MagicMock())
+            _collect(LobstersCollector(), engine, lob_config.lobsters, lob_config.settings, MagicMock())
 
         # 2. Run HN collector
         hn_config = AppConfig(
@@ -621,7 +630,7 @@ class TestCrossSourceDedup:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
+            _collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
         # 3. Verify
         with engine.connect() as conn:
@@ -629,7 +638,7 @@ class TestCrossSourceDedup:
             assert len(sc_rows) == 1
             content_id = sc_rows[0].id
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 2
             source_types = {r.source_type for r in sd_rows}
             assert source_types == {"lobsters", "hackernews"}
@@ -643,7 +652,7 @@ class TestCrossSourceDedup:
         feed = _rss_fake_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
-            RssCollector().collect(engine, rss_config.rss, rss_config.settings, _log())
+            _collect(RssCollector(), engine, rss_config.rss, rss_config.settings, _log())
 
         # HN with "https://example.com/article" (no www, no trailing slash)
         hn_config = AppConfig(
@@ -658,13 +667,13 @@ class TestCrossSourceDedup:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _hn_mock_client(responses)
-            HackernewsCollector().collect(engine, hn_config.hackernews, hn_config.settings, MagicMock())
+            _collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings, MagicMock())
 
         with engine.connect() as conn:
             sc_count = conn.execute(sa.select(sa.func.count()).select_from(SilverContent)).scalar()
             assert sc_count == 1, f"Expected 1 SilverContent after normalization, got {sc_count}"
 
-            sd_rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            sd_rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(sd_rows) == 2
             assert all(r.content_id is not None for r in sd_rows)
             assert sd_rows[0].content_id == sd_rows[1].content_id

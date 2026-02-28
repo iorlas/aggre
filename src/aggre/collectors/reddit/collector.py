@@ -16,11 +16,11 @@ from tenacity import (
     wait_exponential,
 )
 
-from aggre.collectors.base import BaseCollector
+from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.reddit.config import RedditConfig
 from aggre.settings import Settings
-from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
+from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
 
 # Columns to update on re-insert (scores/titles always fresh)
@@ -74,9 +74,15 @@ class RedditCollector(BaseCollector):
 
     source_type = "reddit"
 
-    def collect(self, engine: sa.engine.Engine, config: RedditConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
-        """Fetch post listings only. Comments are fetched separately via collect_comments()."""
-        total_new = 0
+    def collect_references(
+        self,
+        engine: sa.engine.Engine,
+        config: RedditConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
+    ) -> list[ContentReference]:
+        """Fetch post listings, write bronze, return references with source_ids."""
+        refs: list[ContentReference] = []
         rate_limit = settings.reddit_rate_limit
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
@@ -104,20 +110,72 @@ class RedditCollector(BaseCollector):
                         if ext_id and ext_id not in posts_by_id:
                             posts_by_id[ext_id] = post_data
 
-                # Store posts
-                new_post_ids: list[str] = []
-                with engine.begin() as conn:
-                    for ext_id, post_data in posts_by_id.items():
-                        self._write_bronze(ext_id, post_data)
-                        discussion_id = self._store_discussion(conn, source_id, ext_id, post_data, sub)
-                        if discussion_id is not None:
-                            new_post_ids.append(ext_id)
-                            total_new += 1
+                # Write bronze and build refs
+                for ext_id, post_data in posts_by_id.items():
+                    self._write_bronze(ext_id, post_data)
+                    refs.append(
+                        ContentReference(
+                            external_id=ext_id,
+                            raw_data=post_data,
+                            source_id=source_id,
+                        )
+                    )
 
-                log.info("reddit.discussions_stored", subreddit=sub, new=len(new_post_ids), total_seen=len(posts_by_id))
+                log.info("reddit.refs_collected", subreddit=sub, count=len(posts_by_id))
                 self._update_last_fetched(engine, source_id)
 
-        return total_new
+        return refs
+
+    def process_reference(
+        self,
+        ref_data: dict[str, object],
+        conn: sa.Connection,
+        source_id: int,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Normalize one bronze Reddit post into silver rows."""
+        post_data = ref_data
+        ext_id = post_data.get("name", "")
+        subreddit = post_data.get("subreddit", "")
+
+        published_at = datetime.fromtimestamp(post_data.get("created_utc", 0), tz=UTC).isoformat()
+
+        permalink = f"https://reddit.com{post_data.get('permalink', '')}"
+        is_self = post_data.get("is_self", True)
+        post_url = post_data.get("url", "")
+
+        content_id = None
+        if not is_self and post_url and "reddit.com" not in post_url:
+            # Link post: ensure content for the external URL
+            content_id = ensure_content(conn, post_url)
+        else:
+            # Self-post: create SilverContent with text populated
+            selftext = post_data.get("selftext", "")
+            if selftext:
+                content_id = self._ensure_self_post_content(conn, permalink, selftext)
+
+        meta = json.dumps(
+            {
+                "subreddit": subreddit,
+                "flair": post_data.get("link_flair_text"),
+            }
+        )
+
+        values = dict(
+            source_id=source_id,
+            source_type="reddit",
+            external_id=ext_id,
+            title=post_data.get("title"),
+            author=post_data.get("author"),
+            url=permalink,
+            content_text=post_data.get("selftext", ""),
+            published_at=published_at,
+            meta=meta,
+            content_id=content_id,
+            score=post_data.get("score", 0),
+            comment_count=post_data.get("num_comments", 0),
+        )
+        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
 
     def collect_comments(
         self,
@@ -127,7 +185,7 @@ class RedditCollector(BaseCollector):
         log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
-        """Fetch comments for posts with comments_status='pending', up to batch_limit posts."""
+        """Fetch comments for posts with comments_json=NULL, up to batch_limit posts."""
         if batch_limit <= 0:
             return 0
 
@@ -158,6 +216,9 @@ class RedditCollector(BaseCollector):
                     log.exception("reddit.comments_fetch_failed", post_id=ext_id)
                     continue
 
+                # Write raw API response to bronze before storing in silver
+                write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+
                 comments_json = None
                 comment_count = 0
                 if len(data) >= 2:
@@ -171,43 +232,3 @@ class RedditCollector(BaseCollector):
             log.info("reddit.comments_fetched", fetched=fetched, total_pending=len(rows))
 
         return fetched
-
-    def _store_discussion(
-        self,
-        conn: sa.Connection,
-        source_id: int,
-        ext_id: str,
-        post_data: dict[str, object],
-        subreddit: str,
-    ) -> int | None:
-        published_at = datetime.fromtimestamp(post_data.get("created_utc", 0), tz=UTC).isoformat()
-
-        content_id = None
-        if not post_data.get("is_self", True):
-            post_url = post_data.get("url", "")
-            if post_url and "reddit.com" not in post_url:
-                content_id = ensure_content(conn, post_url)
-
-        meta = json.dumps(
-            {
-                "subreddit": subreddit,
-                "flair": post_data.get("link_flair_text"),
-            }
-        )
-
-        values = dict(
-            source_id=source_id,
-            source_type="reddit",
-            external_id=ext_id,
-            title=post_data.get("title"),
-            author=post_data.get("author"),
-            url=f"https://reddit.com{post_data.get('permalink', '')}",
-            content_text=post_data.get("selftext", ""),
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-            comments_status=CommentsStatus.PENDING,
-            score=post_data.get("score", 0),
-            comment_count=post_data.get("num_comments", 0),
-        )
-        return self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

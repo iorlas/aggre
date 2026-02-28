@@ -11,8 +11,8 @@ from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSourc
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
+from aggre.dagster_defs.enrichment.job import enrich_content_discussions
 from aggre.db import SilverContent
-from aggre.pipeline.enrichment import enrich_content_discussions
 from aggre.settings import Settings
 
 
@@ -31,7 +31,6 @@ def _seed_content(engine, url: str, enriched_at: str | None = None):
         stmt = pg_insert(SilverContent).values(
             canonical_url=url,
             domain="example.com",
-            fetch_status="fetched",
             enriched_at=enriched_at,
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])

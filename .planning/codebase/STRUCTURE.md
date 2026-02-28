@@ -10,16 +10,9 @@
 │   ├── __init__.py               # Package version
 │   ├── cli.py                    # Click CLI (telegram-auth only)
 │   ├── config.py                 # YAML config loading + pydantic Settings
-│   ├── db.py                     # SQLAlchemy ORM models (Source, SilverDiscussion, SilverContent)
-│   ├── statuses.py               # Status enums (FetchStatus, TranscriptionStatus, CommentsStatus)
+│   ├── db.py                     # SQLAlchemy ORM models (Source, SilverObservation, SilverContent)
 │   ├── settings.py               # Pydantic settings with env var overrides
 │   ├── urls.py                   # URL normalization and SilverContent management
-│   ├── pipeline/                 # Content processing pipeline modules
-│   │   ├── __init__.py
-│   │   ├── content_downloader.py # HTTP download → bronze (parallel, I/O-bound)
-│   │   ├── content_extractor.py  # Bronze → silver text extraction (trafilatura)
-│   │   ├── transcriber.py        # YouTube video transcription (yt-dlp + faster-whisper)
-│   │   └── enrichment.py         # Cross-source enrichment (search HN/Lobsters for URLs)
 │   ├── utils/                    # Generic reusable helpers (no Aggre-specific logic)
 │   │   ├── __init__.py
 │   │   ├── bronze.py             # Bronze filesystem writer (write_bronze_json)
@@ -45,17 +38,24 @@
 │       │   ├── __init__.py
 │       │   ├── job.py            # collect_job (all sources)
 │       │   └── schedule.py       # hourly_collection schedule
+│       ├── comments/             # Comment fetch domain
+│       │   ├── __init__.py
+│       │   ├── job.py            # comments_job (HN/Reddit/Lobsters comments)
+│       │   └── sensor.py         # comments_sensor (watches pending comments)
 │       ├── content/              # Content fetch domain
 │       │   ├── __init__.py
-│       │   ├── job.py            # content_job (download + extract)
+│       │   ├── job.py            # content_job (download + extract) + business logic
 │       │   └── sensor.py         # content_sensor (watches pending downloads)
 │       ├── enrichment/           # Enrichment domain
 │       │   ├── __init__.py
-│       │   ├── job.py            # enrich_job (HN/Lobsters search)
+│       │   ├── job.py            # enrich_job (HN/Lobsters search) + business logic
 │       │   └── sensor.py         # enrichment_sensor (watches unenriched content)
+│       ├── reprocess/            # Bronze reprocessing domain
+│       │   ├── __init__.py
+│       │   └── job.py            # reprocess_job (rebuild silver from bronze)
 │       └── transcription/        # Transcription domain
 │           ├── __init__.py
-│           ├── job.py            # transcribe_job (yt-dlp + whisper)
+│           ├── job.py            # transcribe_job (yt-dlp + whisper) + business logic
 │           └── sensor.py         # transcription_sensor (watches pending transcriptions)
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures (PostgreSQL test engine, table cleanup)
@@ -78,7 +78,7 @@
 │   ├── versions/                 # Migration scripts
 │   └── env.py, alembic.ini       # Alembic config
 ├── docs/                         # Documentation
-│   ├── semantic-model.md         # Entity relationships, status lifecycles
+│   ├── semantic-model.md         # Entity relationships, null-check patterns
 │   ├── medallion-guidelines.md   # Bronze/Silver patterns, wrapper prescriptions
 │   └── python-guidelines.md      # Module design, typing, import rules
 ├── data/                         # Runtime data (logs, temp files, models)
@@ -98,13 +98,8 @@
 
 **`src/aggre/`:**
 - Purpose: Main application package — infrastructure, config, and models at root; business logic in sub-packages
-- Contains: CLI, config, database models, status enums, URL normalization
+- Contains: CLI, config, database models, URL normalization
 - Key files: `dagster_defs/__init__.py` (primary entry point), `db.py` (schema), `collectors/base.py` (plugin base)
-
-**`src/aggre/pipeline/`:**
-- Purpose: Content processing pipeline modules (Layer 2 business logic)
-- Contains: HTTP download, text extraction, transcription, cross-source enrichment
-- Pattern: Each module processes batches of SilverContent by status, returns count of items processed
 
 **`src/aggre/utils/`:**
 - Purpose: Generic reusable helpers with zero Aggre-specific logic (future shared library candidate)
@@ -115,12 +110,12 @@
 - Purpose: Source-specific API clients
 - Contains: One package per source type (hackernews, reddit, rss, youtube, lobsters, huggingface, telegram)
 - Pattern: All inherit from BaseCollector, implement Collector protocol
-- Each implements: `collect(engine, config, settings, log) -> int` (required), `search_by_url()` (optional for enrichment)
+- Each implements: `collect_references(config, settings, log)` + `process_reference(raw_data, conn, source_id, log)` (required), `search_by_url()` (optional for enrichment)
 
 **`src/aggre/dagster_defs/`:**
 - Purpose: Dagster orchestration layer
-- Contains: Domain-aligned packages (collection, content, enrichment, transcription)
-- Pattern: Each domain owns its job + sensor/schedule. Sensors use DatabaseResource parameter injection.
+- Contains: Domain-aligned packages (collection, comments, content, enrichment, reprocess, transcription) with business logic in jobs
+- Pattern: Framework-first — business logic lives in job.py alongside Dagster ops. Each domain owns its job + sensor/schedule. Sensors use DatabaseResource parameter injection.
 - Entry point: `dg.Definitions` composed in `__init__.py`
 
 **`tests/`:**
@@ -136,18 +131,17 @@
 - `src/aggre/config.py`: Configuration loader (YAML + pydantic-settings with env var overrides)
 
 **Database:**
-- `src/aggre/db.py`: SQLAlchemy ORM models (Source, SilverDiscussion, SilverContent)
+- `src/aggre/db.py`: SQLAlchemy ORM models (Source, SilverObservation, SilverContent)
 - `src/aggre/utils/db.py`: Generic helpers (get_engine, now_iso)
 - `alembic/`: Database migrations (apply with `alembic upgrade head`)
 
-**Pipeline:**
-- `src/aggre/pipeline/content_downloader.py`: HTTP download → bronze (download_content)
-- `src/aggre/pipeline/content_extractor.py`: Bronze → silver text extraction (extract_html_text)
-- `src/aggre/pipeline/transcriber.py`: YouTube video transcription (transcribe)
-- `src/aggre/pipeline/enrichment.py`: Cross-source enrichment (enrich_content_discussions)
+**Content Processing (in dagster_defs):**
+- `src/aggre/dagster_defs/content/job.py`: HTTP download + text extraction (download_content, extract_html_text)
+- `src/aggre/dagster_defs/transcription/job.py`: YouTube video transcription (transcribe)
+- `src/aggre/dagster_defs/enrichment/job.py`: Cross-source enrichment (enrich_content_discussions)
 
 **Collector Infrastructure:**
-- `src/aggre/collectors/base.py`: BaseCollector with shared methods (_ensure_source, _upsert_discussion, etc.)
+- `src/aggre/collectors/base.py`: BaseCollector with shared methods (_ensure_source, _upsert_observation, etc.)
 - `src/aggre/urls.py`: URL normalization and SilverContent deduplication (ensure_content)
 
 **Utilities:**
@@ -163,18 +157,19 @@
 **New Source Collector:**
 1. Create `src/aggre/collectors/[source_type]/collector.py`
 2. Inherit from BaseCollector, implement Collector protocol
-3. `def collect(engine, config, settings, log) -> int:` (required)
-4. `def search_by_url(url, engine, config, settings, log) -> int:` (optional, for enrichment)
-5. Register in `src/aggre/collectors/__init__.py` COLLECTORS dict
-6. Add Dagster ops to collection job or create new domain package in dagster_defs/
-7. Add config model in `src/aggre/config.py`
-8. Add tests in `tests/test_[source_type].py`
+3. `def collect_references(config, settings, log) -> list[ContentReference]` (required)
+4. `def process_reference(raw_data, conn, source_id, log) -> None` (required)
+5. `def search_by_url(url, engine, config, settings, log) -> int:` (optional, for enrichment)
+6. Register in `src/aggre/collectors/__init__.py` COLLECTORS dict
+7. Add Dagster ops to collection job or create new domain package in dagster_defs/
+8. Add config model in `src/aggre/config.py`
+9. Add tests in `tests/test_[source_type].py`
 
-**New Content Pipeline Module:**
-1. Create `src/aggre/pipeline/[pipeline_stage].py`
+**New Content Processing Stage:**
+1. Add business logic functions directly in `src/aggre/dagster_defs/[domain]/job.py`
 2. Main function signature: `(engine, config, log, batch_limit=50) -> int | dict`
-3. Query SilverContent by relevant status, process batches
-4. Add Dagster job + sensor in `src/aggre/dagster_defs/[domain]/`
+3. Query SilverContent by null-check pattern, process batches
+4. Add Dagster sensor in `src/aggre/dagster_defs/[domain]/sensor.py`
 5. Create tests in `tests/test_[module].py`
 
 **New Generic Utility:**
@@ -190,4 +185,4 @@
 
 ---
 
-*Structure analysis: 2026-02-22*
+*Structure analysis: 2026-02-23*

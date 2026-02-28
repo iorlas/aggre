@@ -152,21 +152,21 @@
 **Content Fetcher:**
 - Downloads HTML from URLs discovered in discussions
 - Uses trafilatura for text extraction
-- Skips YouTube, PDF, and other non-HTML content
-- Updates `SilverContent` records with fetch status and body text
-- Implementation: `src/aggre/content_fetcher.py`
+- Skips YouTube, PDF, and other non-HTML content (sets `error = 'skipped:{reason}'`)
+- Updates `SilverContent.text` and `SilverContent.title` on success; `SilverContent.error` on failure
+- Implementation: `src/aggre/dagster_defs/content/job.py`
 
 **Transcriber:**
 - Processes YouTube videos via yt-dlp download + faster-whisper transcription
-- Stores transcripts in `SilverContent.body_text`
-- Tracks transcription status (PENDING, DOWNLOADING, TRANSCRIBING, COMPLETED, FAILED)
-- Implementation: `src/aggre/transcriber.py`
+- Stores transcripts in `SilverContent.text`, language in `SilverContent.detected_language`
+- State tracked via null-check pattern (`text IS NULL AND error IS NULL AND domain = 'youtube.com'`)
+- Implementation: `src/aggre/dagster_defs/transcription/job.py`
 
 **Enrichment:**
 - Discovers cross-source discussions for known content URLs
 - Queries each source API for discussions about a URL (SearchableCollector pattern)
-- Updates `SilverDiscussion` records with content_id foreign key
-- Implementation: `src/aggre/enrichment.py`
+- Updates `SilverObservation` records with content_id foreign key
+- Implementation: `src/aggre/dagster_defs/enrichment/job.py`
 
 ---
 

@@ -9,11 +9,11 @@ from urllib.parse import urlparse
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.base import BaseCollector
+from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.lobsters.config import LobstersConfig
 from aggre.settings import Settings
-from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
+from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
 
 LOBSTERS_BASE = "https://lobste.rs"
@@ -30,11 +30,17 @@ class LobstersCollector(BaseCollector):
     def __init__(self) -> None:
         self._domain_cache: dict[str, list[dict[str, object]]] = {}
 
-    def collect(self, engine: sa.engine.Engine, config: LobstersConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+    def collect_references(
+        self,
+        engine: sa.engine.Engine,
+        config: LobstersConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
+    ) -> list[ContentReference]:
         if not config.sources:
-            return 0
+            return []
 
-        total_new = 0
+        refs: list[ContentReference] = []
         rate_limit = settings.lobsters_rate_limit
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
@@ -68,17 +74,59 @@ class LobstersCollector(BaseCollector):
 
                 for short_id, story in stories_by_id.items():
                     self._write_bronze(short_id, story)
+                    refs.append(ContentReference(external_id=short_id, raw_data=story, source_id=source_id))
 
-                with engine.begin() as conn:
-                    for short_id, story in stories_by_id.items():
-                        discussion_id = self._store_discussion(conn, source_id, short_id, story)
-                        if discussion_id is not None:
-                            total_new += 1
-
-                log.info("lobsters.discussions_stored", new=total_new, total_seen=len(stories_by_id))
+                log.info("lobsters.references_collected", count=len(stories_by_id))
                 self._update_last_fetched(engine, source_id)
 
-        return total_new
+        return refs
+
+    def process_reference(
+        self,
+        ref_data: dict[str, object],
+        conn: sa.Connection,
+        source_id: int,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        story = ref_data
+        short_id = story.get("short_id", "")
+
+        story_url = story.get("url") or story.get("comments_url", "")
+        comments_url = story.get("comments_url", "")
+
+        content_id = None
+        if story.get("url") and story.get("url") != comments_url:
+            # Link post — ensure content for the external URL
+            content_id = ensure_content(conn, story["url"])
+        elif not story.get("url") or story.get("url") == comments_url:
+            # Self-post — create content with the description text
+            content_id = self._ensure_self_post_content(conn, comments_url, story.get("description", ""))
+
+        meta = json.dumps(
+            {
+                "tags": story.get("tags", []),
+                "lobsters_url": comments_url,
+            }
+        )
+
+        values = dict(
+            source_id=source_id,
+            source_type="lobsters",
+            external_id=short_id,
+            title=story.get("title"),
+            author=(
+                story.get("submitter_user", {}).get("username")
+                if isinstance(story.get("submitter_user"), dict)
+                else story.get("submitter_user")
+            ),
+            url=story_url,
+            published_at=story.get("created_at"),
+            meta=meta,
+            content_id=content_id,
+            score=story.get("score", 0),
+            comment_count=story.get("comment_count", 0),
+        )
+        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
 
     def collect_comments(
         self,
@@ -116,6 +164,9 @@ class LobstersCollector(BaseCollector):
                 except Exception:
                     log.exception("lobsters.comments_fetch_failed", story_id=short_id)
                     continue
+
+                # Write raw API response to bronze before storing in silver
+                write_bronze(self.source_type, short_id, "comments", json.dumps(data, ensure_ascii=False), "json")
 
                 comments = data.get("comments", [])
                 self._mark_comments_done(engine, discussion_id, json.dumps(comments), len(comments))
@@ -176,49 +227,7 @@ class LobstersCollector(BaseCollector):
                     continue
 
                 self._write_bronze(short_id, story)
-                discussion_id = self._store_discussion(conn, source_id, short_id, story)
-                if discussion_id is not None:
-                    new_count += 1
+                self.process_reference(story, conn, source_id, log)
+                new_count += 1
 
         return new_count
-
-    def _store_discussion(
-        self,
-        conn: sa.Connection,
-        source_id: int,
-        short_id: str,
-        story: dict[str, object],
-    ) -> int | None:
-        story_url = story.get("url") or story.get("comments_url", "")
-        comments_url = story.get("comments_url", "")
-
-        content_id = None
-        if story.get("url") and story.get("url") != comments_url:
-            content_id = ensure_content(conn, story["url"])
-
-        meta = json.dumps(
-            {
-                "tags": story.get("tags", []),
-                "lobsters_url": comments_url,
-            }
-        )
-
-        values = dict(
-            source_id=source_id,
-            source_type="lobsters",
-            external_id=short_id,
-            title=story.get("title"),
-            author=(
-                story.get("submitter_user", {}).get("username")
-                if isinstance(story.get("submitter_user"), dict)
-                else story.get("submitter_user")
-            ),
-            url=story_url,
-            published_at=story.get("created_at"),
-            meta=meta,
-            content_id=content_id,
-            comments_status=CommentsStatus.PENDING,
-            score=story.get("score", 0),
-            comment_count=story.get("comment_count", 0),
-        )
-        return self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

@@ -113,7 +113,8 @@ class TestEnsureContent:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.canonical_url == "https://example.com/article"
             assert row.domain == "example.com"
-            assert row.fetch_status == "pending"
+            assert row.text is None  # needs processing
+            assert row.error is None
 
     def test_returns_existing(self, engine):
         with engine.begin() as conn:

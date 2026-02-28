@@ -17,10 +17,19 @@ from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
-from aggre.db import SilverContent, SilverDiscussion
-from aggre.pipeline.content_downloader import download_content
-from aggre.pipeline.content_extractor import extract_html_text
+from aggre.dagster_defs.content.job import download_content, extract_html_text
+from aggre.db import SilverContent, SilverObservation
 from aggre.settings import Settings
+
+
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
+
 
 # ---------------------------------------------------------------------------
 # Reddit helpers
@@ -246,7 +255,7 @@ def _rss_feed(entries, feed_title="Test Feed"):
 
 
 class TestCommentsAsJsonReddit:
-    """Reddit: collect -> collect_comments -> verify comments_json on SilverDiscussion."""
+    """Reddit: collect -> collect_comments -> verify comments_json on SilverObservation."""
 
     def test_comments_stored_as_json(self, engine):
         config = AppConfig(
@@ -266,7 +275,7 @@ class TestCommentsAsJsonReddit:
             client.__enter__ = MagicMock(return_value=client)
             client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         # Step 2: collect_comments
         c1 = _reddit_comment(comment_id="rc1", body="First!")
@@ -285,15 +294,13 @@ class TestCommentsAsJsonReddit:
 
         # Step 3: verify
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            disc = conn.execute(sa.select(SilverObservation)).fetchone()
             assert disc.comments_json is not None
             comments = json.loads(disc.comments_json)
             assert len(comments) == 2
             assert comments[0]["data"]["body"] == "First!"
             assert comments[1]["data"]["body"] == "Second!"
             assert disc.comment_count == 2
-
-            assert disc.comments_status == "done"
 
     def test_no_bronze_or_silver_comments_tables(self, engine):
         inspector = sa.inspect(engine)
@@ -322,7 +329,7 @@ class TestCommentsAsJsonHackernews:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _hn_mock_client(responses)
-            collector.collect(engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
 
         # Step 2: collect_comments
         c1 = _hn_comment_child(comment_id=100, text="HN first!")
@@ -341,16 +348,13 @@ class TestCommentsAsJsonHackernews:
 
         # Step 3: verify
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            disc = conn.execute(sa.select(SilverObservation)).fetchone()
             assert disc.comments_json is not None
             comments = json.loads(disc.comments_json)
             assert len(comments) == 2
             assert comments[0]["text"] == "HN first!"
             assert comments[1]["text"] == "HN second!"
             assert disc.comment_count == 2
-
-            # HN collector updates comments_status column directly
-            assert disc.comments_status == "done"
 
     def test_no_bronze_or_silver_comments_tables(self, engine):
         inspector = sa.inspect(engine)
@@ -379,7 +383,7 @@ class TestCommentsAsJsonLobsters:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _lobsters_mock_client(responses)
-            collector.collect(engine, config.lobsters, config.settings, log)
+            _collect(collector, engine, config.lobsters, config.settings, log)
 
         # Step 2: collect_comments
         c1 = _lobsters_comment(short_id="lc1", comment="Lobsters first!")
@@ -398,15 +402,13 @@ class TestCommentsAsJsonLobsters:
 
         # Step 3: verify
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            disc = conn.execute(sa.select(SilverObservation)).fetchone()
             assert disc.comments_json is not None
             comments = json.loads(disc.comments_json)
             assert len(comments) == 2
             assert comments[0]["comment"] == "Lobsters first!"
             assert comments[1]["comment"] == "Lobsters second!"
             assert disc.comment_count == 2
-
-            assert disc.comments_status == "done"
 
     def test_no_bronze_or_silver_comments_tables(self, engine):
         inspector = sa.inspect(engine)
@@ -441,21 +443,22 @@ class TestFullPipelineFlow:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             rss = RssCollector()
-            count = rss.collect(engine, config.rss, config.settings, log)
+            count = _collect(rss, engine, config.rss, config.settings, log)
 
         assert count == 1
 
-        # Verify SilverDiscussion exists with content_id
+        # Verify SilverObservation exists with content_id
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            disc = conn.execute(sa.select(SilverObservation)).fetchone()
             assert disc is not None
             assert disc.title == "Great Article"
             assert disc.content_id is not None
 
-            # Verify SilverContent exists in pending state
+            # Verify SilverContent exists in unprocessed state
             content = conn.execute(sa.select(SilverContent).where(SilverContent.id == disc.content_id)).fetchone()
             assert content is not None
-            assert content.fetch_status == "pending"
+            assert content.text is None
+            assert content.error is None
             assert "blog.example.com" in content.canonical_url
 
         # Step 2: RSS has no comments, skip
@@ -471,7 +474,7 @@ class TestFullPipelineFlow:
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             downloaded = download_content(engine, config, log)
 
         assert downloaded == 1
@@ -479,12 +482,14 @@ class TestFullPipelineFlow:
         # Verify intermediate state: downloaded but not yet extracted
         with engine.connect() as conn:
             content = conn.execute(sa.select(SilverContent)).fetchone()
-            assert content.fetch_status == "downloaded"
+            assert content.fetched_at is not None
+            assert content.text is None
+            assert content.error is None
 
         # Step 4: Extract text from downloaded HTML
         with (
-            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Full article body here"),
-            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Full article body here"),
+            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Great Article - Full"
@@ -494,16 +499,16 @@ class TestFullPipelineFlow:
 
         assert extracted == 1
 
-        # Verify full chain: SilverDiscussion -> SilverContent
+        # Verify full chain: SilverObservation -> SilverContent
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            disc = conn.execute(sa.select(SilverObservation)).fetchone()
             assert disc.content_id is not None
 
             content = conn.execute(sa.select(SilverContent).where(SilverContent.id == disc.content_id)).fetchone()
-            assert content.fetch_status == "fetched"
-            assert content.body_text == "Full article body here"
+            assert content.text == "Full article body here"
             assert content.title == "Great Article - Full"
             assert content.fetched_at is not None
+            assert content.error is None
 
     def test_reddit_pipeline_with_comments(self, engine):
         """Reddit collect -> collect_comments -> verify discussion with comments."""
@@ -524,7 +529,7 @@ class TestFullPipelineFlow:
             client.__enter__ = MagicMock(return_value=client)
             client.__exit__ = MagicMock(return_value=False)
             mock_cls.return_value = client
-            count = collector.collect(engine, config.reddit, config.settings, log)
+            count = _collect(collector, engine, config.reddit, config.settings, log)
 
         assert count == 1
 
@@ -544,13 +549,11 @@ class TestFullPipelineFlow:
 
         # Verify full state
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            disc = conn.execute(sa.select(SilverObservation)).fetchone()
             assert disc.title == "Reddit Post"
             assert disc.source_type == "reddit"
             assert disc.comments_json is not None
             assert disc.comment_count == 1
-
-            assert disc.comments_status == "done"
 
 
 # ===========================================================================
@@ -559,14 +562,16 @@ class TestFullPipelineFlow:
 
 
 class TestContentFetcherIntegration:
-    """Content fetcher: pending -> downloaded -> fetched/skipped/failed."""
+    """Content fetcher: unprocessed -> downloaded -> text populated / error set."""
 
-    def _seed(self, engine, url, domain=None, fetch_status="pending"):
+    def _seed(self, engine, url, domain=None, text=None, error=None, fetched_at=None):
         with engine.begin() as conn:
             stmt = pg_insert(SilverContent).values(
                 canonical_url=url,
                 domain=domain,
-                fetch_status=fetch_status,
+                text=text,
+                error=error,
+                fetched_at=fetched_at,
             )
             stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
             result = conn.execute(stmt)
@@ -589,7 +594,7 @@ class TestContentFetcherIntegration:
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 2
@@ -598,11 +603,13 @@ class TestContentFetcherIntegration:
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
             for row in rows:
-                assert row.fetch_status == "downloaded"
+                assert row.fetched_at is not None
+                assert row.text is None
+                assert row.error is None
 
         with (
-            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Extracted text"),
-            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Extracted text"),
+            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Article Title"
@@ -615,10 +622,10 @@ class TestContentFetcherIntegration:
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
             for row in rows:
-                assert row.fetch_status == "fetched"
-                assert row.body_text == "Extracted text"
+                assert row.text == "Extracted text"
                 assert row.title == "Article Title"
                 assert row.fetched_at is not None
+                assert row.error is None
 
     def test_youtube_urls_skipped(self, engine):
         config = AppConfig(settings=Settings())
@@ -633,7 +640,8 @@ class TestContentFetcherIntegration:
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent)).fetchall()
             for row in rows:
-                assert row.fetch_status == "skipped"
+                assert row.error is not None
+                assert "skipped" in row.error
 
     def test_failed_download_stores_error(self, engine):
         config = AppConfig(settings=Settings())
@@ -646,15 +654,15 @@ class TestContentFetcherIntegration:
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "failed"
-            assert "Connection timeout" in row.fetch_error
+            assert row.error is not None
+            assert "Connection timeout" in row.error
             assert row.fetched_at is not None
 
     def test_mixed_statuses(self, engine):
@@ -681,7 +689,7 @@ class TestContentFetcherIntegration:
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 3
@@ -689,20 +697,23 @@ class TestContentFetcherIntegration:
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
 
-            # good article — downloaded (not yet extracted)
-            assert rows[0].fetch_status == "downloaded"
+            # good article — downloaded (fetched_at set, text/error still NULL)
+            assert rows[0].fetched_at is not None
+            assert rows[0].text is None
+            assert rows[0].error is None
 
             # youtube skipped
-            assert rows[1].fetch_status == "skipped"
+            assert rows[1].error is not None
+            assert "skipped" in rows[1].error
 
             # broken site
-            assert rows[2].fetch_status == "failed"
-            assert "DNS failure" in rows[2].fetch_error
+            assert rows[2].error is not None
+            assert "DNS failure" in rows[2].error
 
         # Now extract the downloaded one
         with (
-            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Good body"),
-            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Good body"),
+            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Good Title"
@@ -715,18 +726,17 @@ class TestContentFetcherIntegration:
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
 
-            assert rows[0].fetch_status == "fetched"
-            assert rows[0].body_text == "Good body"
+            assert rows[0].text == "Good body"
             assert rows[0].title == "Good Title"
 
-            assert rows[1].fetch_status == "skipped"
-            assert rows[2].fetch_status == "failed"
+            assert rows[1].error is not None  # youtube still skipped
+            assert rows[2].error is not None  # broken still failed
 
-    def test_already_fetched_not_reprocessed(self, engine):
+    def test_already_processed_not_reprocessed(self, engine):
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
-        self._seed(engine, "https://example.com/done", domain="example.com", fetch_status="fetched")
+        self._seed(engine, "https://example.com/done", domain="example.com", text="already done")
 
         count = download_content(engine, config, log)
         assert count == 0

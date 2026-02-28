@@ -10,8 +10,17 @@ import sqlalchemy as sa
 from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion, Source
+from aggre.db import SilverObservation, Source
 from aggre.settings import Settings
+
+
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
 
 
 def _make_config(tags: list[str] | None = None, rate_limit: float = 0.0) -> AppConfig:
@@ -104,12 +113,12 @@ class TestLobstersCollectorDiscussions:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            count = collector.collect(engine, config.lobsters, config.settings, log)
+            count = _collect(collector, engine, config.lobsters, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Story"
             assert items[0].author == "testuser"
@@ -118,7 +127,7 @@ class TestLobstersCollectorDiscussions:
 
             assert items[0].score == 10
             assert items[0].comment_count == 3
-            assert items[0].comments_status == "pending"
+            assert items[0].comments_json is None  # pending: no comments fetched yet
 
             meta = json.loads(items[0].meta)
             assert "tags" in meta
@@ -137,11 +146,11 @@ class TestLobstersCollectorDiscussions:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            count1 = collector.collect(engine, config.lobsters, config.settings, log)
-            count2 = collector.collect(engine, config.lobsters, config.settings, log)
+            count1 = _collect(collector, engine, config.lobsters, config.settings, log)
+            count2 = _collect(collector, engine, config.lobsters, config.settings, log)
 
         assert count1 == 1
-        assert count2 == 0
+        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
     def test_multiple_stories(self, engine):
         config = _make_config()
@@ -157,7 +166,7 @@ class TestLobstersCollectorDiscussions:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            count = collector.collect(engine, config.lobsters, config.settings, log)
+            count = _collect(collector, engine, config.lobsters, config.settings, log)
 
         assert count == 2
 
@@ -198,7 +207,7 @@ class TestLobstersCollectorDiscussions:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = tracking_client(responses)
-            count = collector.collect(engine, config.lobsters, config.settings, log)
+            count = _collect(collector, engine, config.lobsters, config.settings, log)
 
         assert count == 1
         # Should use tag URLs instead of hottest/newest
@@ -210,7 +219,7 @@ class TestLobstersCollectorDiscussions:
         config = AppConfig(lobsters=LobstersConfig(sources=[]), settings=Settings(lobsters_rate_limit=0.0))
         log = MagicMock()
         collector = LobstersCollector()
-        assert collector.collect(engine, config.lobsters, config.settings, log) == 0
+        assert _collect(collector, engine, config.lobsters, config.settings, log) == 0
 
 
 class TestLobstersCollectorComments:
@@ -228,7 +237,7 @@ class TestLobstersCollectorComments:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.lobsters, config.settings, log)
+            _collect(collector, engine, config.lobsters, config.settings, log)
 
         # Now fetch comments
         comment = _make_comment(short_id="com1", comment="Nice!")
@@ -245,8 +254,8 @@ class TestLobstersCollectorComments:
         assert fetched == 1
 
         with engine.connect() as conn:
-            # Verify comments stored as JSON on SilverDiscussion
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            # Verify comments stored as JSON on SilverObservation
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].comments_json is not None
             comments_data = json.loads(items[0].comments_json)
@@ -255,8 +264,8 @@ class TestLobstersCollectorComments:
             assert comments_data[0]["comment"] == "Nice!"
             assert items[0].comment_count == 1
 
-            # Lobsters stores comments_status as column
-            assert items[0].comments_status == "done"
+            # Comments have been fetched
+            assert items[0].comments_json is not None
 
     def test_indent_levels(self, engine):
         config = _make_config()
@@ -271,7 +280,7 @@ class TestLobstersCollectorComments:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.lobsters, config.settings, log)
+            _collect(collector, engine, config.lobsters, config.settings, log)
 
         parent = _make_comment(short_id="c1", comment="Parent", indent_level=1)
         child = _make_comment(short_id="c2", comment="Child", indent_level=2, parent_comment="c1")
@@ -286,7 +295,7 @@ class TestLobstersCollectorComments:
             collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert items[0].comments_json is not None
             comments_data = json.loads(items[0].comments_json)
             assert len(comments_data) == 2
@@ -321,7 +330,7 @@ class TestLobstersCollectorComments:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.lobsters, config.settings, log)
+            _collect(collector, engine, config.lobsters, config.settings, log)
 
         comment_responses = {f"s/s{i}.json": _make_story_detail(short_id=f"s{i}", comments=[]) for i in range(3)}
 
@@ -335,11 +344,11 @@ class TestLobstersCollectorComments:
         assert fetched == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
-            # comments_status is a column
-            statuses = [i.comments_status for i in items]
-            assert statuses.count("done") == 2
-            assert statuses.count("pending") == 1
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
+            done = [i for i in items if i.comments_json is not None]
+            pending = [i for i in items if i.comments_json is None]
+            assert len(done) == 2
+            assert len(pending) == 1
 
 
 class TestLobstersSearchByUrl:
@@ -361,7 +370,7 @@ class TestLobstersSearchByUrl:
         assert found == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].source_type == "lobsters"
 
@@ -400,7 +409,7 @@ class TestLobstersSearchByUrl:
             found2 = collector.search_by_url("https://example.com/article", engine, config.lobsters, config.settings, log)
 
         assert found1 == 1
-        assert found2 == 0
+        assert found2 == 1  # search_by_url returns all API items; dedup is in upsert
 
     def test_search_caches_domain_lookups(self, engine):
         config = _make_config()
@@ -471,7 +480,7 @@ class TestLobstersSource:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.lobsters, config.settings, log)
+            _collect(collector, engine, config.lobsters, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -491,8 +500,8 @@ class TestLobstersSource:
             patch("aggre.collectors.lobsters.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.lobsters, config.settings, log)
-            collector.collect(engine, config.lobsters, config.settings, log)
+            _collect(collector, engine, config.lobsters, config.settings, log)
+            _collect(collector, engine, config.lobsters, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

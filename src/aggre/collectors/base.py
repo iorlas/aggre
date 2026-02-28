@@ -6,35 +6,62 @@ import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 import sqlalchemy as sa
 import structlog
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.db import SilverDiscussion, Source
+from aggre.db import SilverContent, SilverObservation, Source
 from aggre.settings import Settings
-from aggre.statuses import CommentsStatus
+from aggre.urls import normalize_url
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
 from aggre.utils.db import now_iso
+from aggre.utils.urls import extract_domain
+
+
+class ContentReference(TypedDict):
+    """A reference to a piece of content from a collector feed."""
+
+    external_id: str
+    raw_data: dict[str, object]
+    source_id: int
 
 
 class Collector(Protocol):
     """Protocol that all collectors must implement."""
 
-    def collect(self, engine: sa.engine.Engine, config: BaseModel, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
-        """Fetch new items from the source. Returns count of new items stored."""
+    source_type: str
+
+    def collect_references(
+        self, engine: sa.engine.Engine, config: BaseModel, settings: Settings, log: structlog.stdlib.BoundLogger
+    ) -> list[ContentReference]:
+        """Fetch feed, write each item to bronze, return references.
+
+        Handles source management (ensure_source, TTL, fetch limits).
+        Writes raw data to bronze. Returns refs with source_ids for process_reference.
+        """
+        ...
+
+    def process_reference(
+        self, ref_data: dict[str, object], conn: sa.Connection, source_id: int, log: structlog.stdlib.BoundLogger
+    ) -> None:
+        """Normalize one bronze reference into silver rows.
+
+        Calls ensure_content() + _upsert_observation().
+        For self-posts: also populates SilverContent.text directly.
+        """
         ...
 
 
 class SearchableCollector(Collector, Protocol):
-    """Collector that supports searching for discussions by URL."""
+    """Collector that supports searching for observations by URL."""
 
     def search_by_url(
         self, url: str, engine: sa.engine.Engine, config: BaseModel, settings: Settings, log: structlog.stdlib.BoundLogger
     ) -> int:
-        """Search for discussions about a URL. Returns count of new items stored."""
+        """Search for observations about a URL. Returns count of new items stored."""
         ...
 
 
@@ -87,13 +114,14 @@ class BaseCollector:
         return last >= cutoff
 
     def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int) -> list[sa.Row]:
-        """Return discussions with pending comments for this source_type."""
+        """Return observations with pending comments for this source_type."""
         with engine.connect() as conn:
             return conn.execute(
-                sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
+                sa.select(SilverObservation.id, SilverObservation.external_id, SilverObservation.meta)
                 .where(
-                    SilverDiscussion.source_type == self.source_type,
-                    SilverDiscussion.comments_status == CommentsStatus.PENDING,
+                    SilverObservation.source_type == self.source_type,
+                    SilverObservation.comments_json.is_(None),
+                    SilverObservation.error.is_(None),
                 )
                 .limit(batch_limit)
             ).fetchall()
@@ -101,38 +129,37 @@ class BaseCollector:
     def _mark_comments_done(
         self,
         engine: sa.engine.Engine,
-        discussion_id: int,
+        observation_id: int,
         comments_json: str | None,
         comment_count: int,
     ) -> None:
-        """PENDING → DONE. Stores fetched comments."""
+        """Store fetched comments on an observation."""
         with engine.begin() as conn:
             conn.execute(
-                sa.update(SilverDiscussion)
-                .where(SilverDiscussion.id == discussion_id)
+                sa.update(SilverObservation)
+                .where(SilverObservation.id == observation_id)
                 .values(
-                    comments_status=CommentsStatus.DONE,
                     comments_json=comments_json,
                     comment_count=comment_count,
                 )
             )
 
     @staticmethod
-    def _upsert_discussion(
+    def _upsert_observation(
         conn: sa.Connection,
         values: dict[str, object],
         update_columns: Sequence[str] | None = None,
     ) -> int | None:
-        """Insert or update a SilverDiscussion. Returns id if new, None if existing."""
+        """Insert or update a SilverObservation. Returns id if new, None if existing."""
         # Check existence first so we can distinguish insert from update
         existing = conn.execute(
-            sa.select(SilverDiscussion.id).where(
-                SilverDiscussion.source_type == values["source_type"],
-                SilverDiscussion.external_id == values["external_id"],
+            sa.select(SilverObservation.id).where(
+                SilverObservation.source_type == values["source_type"],
+                SilverObservation.external_id == values["external_id"],
             )
         ).first()
 
-        stmt = pg_insert(SilverDiscussion).values(**values)
+        stmt = pg_insert(SilverObservation).values(**values)
         if update_columns:
             set_ = {col: getattr(stmt.excluded, col) for col in update_columns}
             stmt = stmt.on_conflict_do_update(
@@ -146,8 +173,40 @@ class BaseCollector:
         if existing:
             return None
         return conn.execute(
-            sa.select(SilverDiscussion.id).where(
-                SilverDiscussion.source_type == values["source_type"],
-                SilverDiscussion.external_id == values["external_id"],
+            sa.select(SilverObservation.id).where(
+                SilverObservation.source_type == values["source_type"],
+                SilverObservation.external_id == values["external_id"],
             )
         ).scalar()
+
+    @staticmethod
+    def _ensure_self_post_content(conn: sa.Connection, discussion_url: str, text: str) -> int | None:
+        """Create a SilverContent row for a self-post with text populated immediately.
+
+        The content pipeline will skip this row because text is already set (null-check pattern).
+        Returns the content_id, or None if text is empty.
+        """
+        if not text:
+            return None
+
+        canonical = normalize_url(discussion_url)
+        if not canonical:
+            return None
+
+        row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
+        if row:
+            return row[0]
+
+        domain = extract_domain(canonical)
+        stmt = pg_insert(SilverContent).values(
+            canonical_url=canonical,
+            domain=domain,
+            text=text,
+            fetched_at=now_iso(),
+        )
+        stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
+        result = conn.execute(stmt)
+        if result.rowcount == 0:
+            row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
+            return row[0] if row else None
+        return result.inserted_primary_key[0]

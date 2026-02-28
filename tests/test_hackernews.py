@@ -10,8 +10,17 @@ import sqlalchemy as sa
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion, Source
+from aggre.db import SilverContent, SilverObservation, Source
 from aggre.settings import Settings
+
+
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
 
 
 def _make_config(rate_limit: float = 0.0) -> AppConfig:
@@ -96,12 +105,12 @@ class TestHackernewsCollectorDiscussions:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            count = collector.collect(engine, config.hackernews, config.settings, log)
+            count = _collect(collector, engine, config.hackernews, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Story"
             assert items[0].author == "pg"
@@ -110,7 +119,7 @@ class TestHackernewsCollectorDiscussions:
 
             assert items[0].score == 100
             assert items[0].comment_count == 25
-            assert items[0].comments_status == "pending"
+            assert items[0].comments_json is None  # pending: no comments fetched yet
 
             meta = json.loads(items[0].meta)
             assert "hn_url" in meta
@@ -128,14 +137,14 @@ class TestHackernewsCollectorDiscussions:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            count1 = collector.collect(engine, config.hackernews, config.settings, log)
-            count2 = collector.collect(engine, config.hackernews, config.settings, log)
+            count1 = _collect(collector, engine, config.hackernews, config.settings, log)
+            count2 = _collect(collector, engine, config.hackernews, config.settings, log)
 
         assert count1 == 1
-        assert count2 == 0
+        assert count2 == 1  # collect_references returns refs regardless; dedup is in upsert
 
         with engine.connect() as conn:
-            assert conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar() == 1
+            assert conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar() == 1
 
     def test_multiple_stories(self, engine):
         config = _make_config()
@@ -151,17 +160,18 @@ class TestHackernewsCollectorDiscussions:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            count = collector.collect(engine, config.hackernews, config.settings, log)
+            count = _collect(collector, engine, config.hackernews, config.settings, log)
 
         assert count == 2
 
-    def test_story_without_url_uses_hn_url(self, engine):
+    def test_story_without_url_creates_self_post_content(self, engine):
         config = _make_config()
         log = MagicMock()
         collector = HackernewsCollector()
 
         hit = _make_hit(object_id="999")
         hit["url"] = None  # Ask HN / Show HN with no external URL
+        hit["story_text"] = "This is a self-post with some text content."
         responses = {"search_by_date": _make_search_response(hit)}
 
         with (
@@ -169,17 +179,23 @@ class TestHackernewsCollectorDiscussions:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
 
         with engine.connect() as conn:
-            item = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            item = conn.execute(sa.select(SilverObservation)).fetchone()
             assert item.url == "https://news.ycombinator.com/item?id=999"
+            # Self-posts now create SilverContent with text populated
+            assert item.content_id is not None
+
+            content = conn.execute(sa.select(SilverContent).where(SilverContent.id == item.content_id)).fetchone()
+            assert content is not None
+            assert content.text == "This is a self-post with some text content."
 
     def test_no_config_returns_zero(self, engine):
         config = AppConfig(hackernews=HackernewsConfig(sources=[]), settings=Settings(hn_rate_limit=0.0))
         log = MagicMock()
         collector = HackernewsCollector()
-        assert collector.collect(engine, config.hackernews, config.settings, log) == 0
+        assert _collect(collector, engine, config.hackernews, config.settings, log) == 0
 
 
 class TestHackernewsCollectorComments:
@@ -197,7 +213,7 @@ class TestHackernewsCollectorComments:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
 
         # Now fetch comments
         comment = _make_comment_child(comment_id=100, text="Nice!")
@@ -214,8 +230,8 @@ class TestHackernewsCollectorComments:
         assert fetched == 1
 
         with engine.connect() as conn:
-            # Verify comments stored as JSON on SilverDiscussion
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            # Verify comments stored as JSON on SilverObservation
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].comments_json is not None
             comments_data = json.loads(items[0].comments_json)
@@ -224,8 +240,8 @@ class TestHackernewsCollectorComments:
             assert comments_data[0]["text"] == "Nice!"
             assert items[0].comment_count == 1
 
-            # HN collector updates comments_status column directly
-            assert items[0].comments_status == "done"
+            # Comments have been fetched
+            assert items[0].comments_json is not None
 
     def test_nested_comments(self, engine):
         config = _make_config()
@@ -240,7 +256,7 @@ class TestHackernewsCollectorComments:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
 
         reply = _make_comment_child(comment_id=200, text="I agree", children=[])
         parent = _make_comment_child(comment_id=100, text="Top level", children=[reply])
@@ -255,7 +271,7 @@ class TestHackernewsCollectorComments:
             collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert items[0].comments_json is not None
             comments_data = json.loads(items[0].comments_json)
             # Top-level has 1 child (parent comment)
@@ -291,7 +307,7 @@ class TestHackernewsCollectorComments:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
 
         # Fetch comments with batch_limit=2
         comment_responses = {f"items/{i}": _make_item_response(object_id=str(i), children=[]) for i in range(3)}
@@ -306,11 +322,11 @@ class TestHackernewsCollectorComments:
         assert fetched == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
-            # HN uses comments_status column directly
-            statuses = [i.comments_status for i in items]
-            assert statuses.count("done") == 2
-            assert statuses.count("pending") == 1
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
+            done = [i for i in items if i.comments_json is not None]
+            pending = [i for i in items if i.comments_json is None]
+            assert len(done) == 2
+            assert len(pending) == 1
 
 
 class TestHackernewsSearchByUrl:
@@ -332,7 +348,7 @@ class TestHackernewsSearchByUrl:
         assert found == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].source_type == "hackernews"
 
@@ -353,7 +369,7 @@ class TestHackernewsSearchByUrl:
             found2 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings, log)
 
         assert found1 == 1
-        assert found2 == 0
+        assert found2 == 1  # search_by_url always returns hit count, dedup is in upsert
 
     def test_search_no_results(self, engine):
         config = _make_config()
@@ -385,7 +401,7 @@ class TestHackernewsSource:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -405,8 +421,8 @@ class TestHackernewsSource:
             patch("aggre.collectors.hackernews.collector.time.sleep"),
         ):
             mock_cls.return_value = _mock_httpx_client(responses)
-            collector.collect(engine, config.hackernews, config.settings, log)
-            collector.collect(engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
+            _collect(collector, engine, config.hackernews, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

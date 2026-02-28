@@ -15,7 +15,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ ./src/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
-COPY dagster.yaml workspace.yaml ./
+COPY dagster.prod.yaml ./dagster.yaml
+COPY workspace.yaml ./
 RUN uv sync --frozen --no-dev
 
 # Skip sync at runtime

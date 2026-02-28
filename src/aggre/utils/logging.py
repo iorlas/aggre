@@ -28,13 +28,29 @@ def setup_logging(log_dir: str, log_name: str = "aggre") -> structlog.stdlib.Bou
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(logging.INFO)
 
-    # Root logger config
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
-    # Clear existing handlers to avoid duplicates on repeated calls
-    root_logger.handlers.clear()
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(stdout_handler)
+    # Parent logger — Dagster attaches its DagsterLogHandler here via
+    # managed_python_loggers: [aggre].  We only ensure the level is set so
+    # messages from child loggers propagate through.
+    parent_logger = logging.getLogger("aggre")
+    parent_logger.setLevel(logging.DEBUG)
+
+    # Child logger for OUR handlers.  Python's callHandlers() processes
+    # handlers at the originating logger first, then walks up the hierarchy.
+    # By placing our ProcessorFormatter handlers on "aggre.out", they see
+    # the original dict record.msg *before* Dagster's handler on "aggre"
+    # mutates it to a string.
+    out_logger = logging.getLogger("aggre.out")
+    out_logger.setLevel(logging.DEBUG)
+
+    # Remove only OUR handlers from previous calls; preserve third-party
+    for h in out_logger.handlers[:]:
+        if getattr(h, "_aggre_managed", False):
+            out_logger.removeHandler(h)
+
+    file_handler._aggre_managed = True  # type: ignore[attr-defined]
+    stdout_handler._aggre_managed = True  # type: ignore[attr-defined]
+    out_logger.addHandler(file_handler)
+    out_logger.addHandler(stdout_handler)
 
     # structlog config
     structlog.configure(
@@ -64,4 +80,4 @@ def setup_logging(log_dir: str, log_name: str = "aggre") -> structlog.stdlib.Bou
         )
     )
 
-    return structlog.get_logger(log_name)
+    return structlog.get_logger(f"aggre.out.{log_name}")

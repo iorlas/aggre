@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion, Source
+from aggre.db import SilverObservation, Source
 
 
 def _make_config(*rss_sources):
@@ -62,6 +62,15 @@ def _fake_feed(entries, feed_title="Test Feed"):
     return Feed(entries, FeedMeta())
 
 
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
+
+
 class TestRssCollector:
     def _log(self):
         import structlog
@@ -83,14 +92,14 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed) as mock_parse:
             collector = RssCollector()
-            count = collector.collect(engine, config.rss, config.settings, self._log())
+            count = _collect(collector, engine, config.rss, config.settings, self._log())
 
         assert count == 1
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
 
         with engine.connect() as conn:
-            # Check silver_discussions
-            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            # Check silver_observations
+            rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(rows) == 1
             assert rows[0].title == "First Post"
             assert rows[0].author == "Bob"
@@ -108,14 +117,14 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count1 = collector.collect(engine, config.rss, config.settings, self._log())
-            count2 = collector.collect(engine, config.rss, config.settings, self._log())
+            count1 = _collect(collector, engine, config.rss, config.settings, self._log())
+            count2 = _collect(collector, engine, config.rss, config.settings, self._log())
 
         assert count1 == 1
-        assert count2 == 0
+        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
         with engine.connect() as conn:
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar()
+            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar()
             assert content_count == 1
 
     def test_source_row_created(self, engine):
@@ -125,7 +134,7 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collector.collect(engine, config.rss, config.settings, self._log())
+            _collect(collector, engine, config.rss, config.settings, self._log())
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -140,8 +149,8 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collector.collect(engine, config.rss, config.settings, self._log())
-            collector.collect(engine, config.rss, config.settings, self._log())
+            _collect(collector, engine, config.rss, config.settings, self._log())
+            _collect(collector, engine, config.rss, config.settings, self._log())
 
         with engine.connect() as conn:
             count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
@@ -154,7 +163,7 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collector.collect(engine, config.rss, config.settings, self._log())
+            _collect(collector, engine, config.rss, config.settings, self._log())
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(Source.last_fetched_at)).fetchone()
@@ -172,12 +181,12 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = collector.collect(engine, config.rss, config.settings, self._log())
+            count = _collect(collector, engine, config.rss, config.settings, self._log())
 
         assert count == 3
 
         with engine.connect() as conn:
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverDiscussion)).scalar()
+            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar()
             assert content_count == 3
 
     def test_entry_uses_link_as_fallback_id(self, engine):
@@ -188,12 +197,12 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = collector.collect(engine, config.rss, config.settings, self._log())
+            count = _collect(collector, engine, config.rss, config.settings, self._log())
 
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverDiscussion.external_id)).fetchone()
+            row = conn.execute(sa.select(SilverObservation.external_id)).fetchone()
             assert row[0] == "https://example.com/post-42"
 
     def test_multiple_feeds(self, engine):
@@ -212,7 +221,7 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", side_effect=mock_parse):
             collector = RssCollector()
-            count = collector.collect(engine, config.rss, config.settings, self._log())
+            count = _collect(collector, engine, config.rss, config.settings, self._log())
 
         assert count == 2
 

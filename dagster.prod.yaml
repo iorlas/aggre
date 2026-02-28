@@ -1,0 +1,33 @@
+run_storage:
+  module: dagster_postgres.run_storage
+  class: PostgresRunStorage
+  config:
+    postgres_url:
+      env: DAGSTER_PG_URL
+
+event_log_storage:
+  module: dagster_postgres.event_log
+  class: PostgresEventLogStorage
+  config:
+    postgres_url:
+      env: DAGSTER_PG_URL
+
+schedule_storage:
+  module: dagster_postgres.schedule_storage
+  class: PostgresScheduleStorage
+  config:
+    postgres_url:
+      env: DAGSTER_PG_URL
+
+concurrency:
+  default_op_concurrency_limit: 1
+
+run_queue:
+  max_concurrent_runs: 10
+
+telemetry:
+  enabled: false
+
+python_logs:
+  managed_python_loggers:
+    - aggre

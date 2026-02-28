@@ -1,4 +1,4 @@
-"""Collection job -- fetch discussions from configured sources.
+"""Collection job -- fetch references from configured sources, then process into silver.
 
 Note: ``from __future__ import annotations`` is omitted because Dagster's
 ``@op`` decorator inspects context-parameter type hints at decoration time and
@@ -13,9 +13,9 @@ from aggre.config import load_config
 from aggre.utils.logging import setup_logging
 
 
-@dg.op
+@dg.op(required_resource_keys={"database"})
 def collect_all_sources(context: OpExecutionContext) -> int:
-    """Collect discussions from all configured sources."""
+    """Collect references from all configured sources, then process into silver."""
     cfg = load_config()
     engine = context.resources.database.get_engine()
     log = setup_logging(cfg.settings.log_dir, "collect")
@@ -26,22 +26,23 @@ def collect_all_sources(context: OpExecutionContext) -> int:
     for name, collector in collectors.items():
         try:
             source_config = getattr(cfg, name)
-            count = collector.collect(engine, source_config, cfg.settings, log)
-            total += count
-            log.info("collect.source_complete", source=name, new_discussions=count)
+            refs = collector.collect_references(engine, source_config, cfg.settings, log)
+
+            new_count = 0
+            for ref in refs:
+                try:
+                    with engine.begin() as conn:
+                        collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+                    new_count += 1
+                except Exception:
+                    log.exception("collect.process_error", source=name, external_id=ref["external_id"])
+
+            total += new_count
+            log.info("collect.source_complete", source=name, new_observations=new_count)
         except Exception:
             log.exception("collect.source_error", source=name)
 
-    # Fetch comments
-    for src_name in ("reddit", "hackernews", "lobsters"):
-        coll = collectors.get(src_name)
-        if coll and hasattr(coll, "collect_comments"):
-            try:
-                coll.collect_comments(engine, getattr(cfg, src_name), cfg.settings, log, batch_limit=10)
-            except Exception:
-                log.exception("collect.comments_error", source=src_name)
-
-    context.log.info(f"Collected {total} new discussions")
+    context.log.info(f"Collected {total} new observations")
     return total
 
 

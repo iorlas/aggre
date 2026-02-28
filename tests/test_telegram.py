@@ -11,8 +11,17 @@ import sqlalchemy as sa
 from aggre.collectors.telegram.collector import TelegramCollector
 from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion, Source
+from aggre.db import SilverObservation, Source
 from aggre.settings import Settings
+
+
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
 
 
 def _make_config(channels: list[TelegramSource] | None = None) -> AppConfig:
@@ -70,12 +79,12 @@ class TestTelegramCollectorDiscussions:
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
             mock_cls.return_value = _mock_client({"testchannel": [msg]})
-            count = collector.collect(engine, config.telegram, config.settings, log)
+            count = _collect(collector, engine, config.telegram, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].title == "First line"
             assert items[0].content_text == "First line\nSecond line"
@@ -100,11 +109,11 @@ class TestTelegramCollectorDiscussions:
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
             mock_cls.return_value = _mock_client({"testchannel": [msg]})
-            count1 = collector.collect(engine, config.telegram, config.settings, log)
-            count2 = collector.collect(engine, config.telegram, config.settings, log)
+            count1 = _collect(collector, engine, config.telegram, config.settings, log)
+            count2 = _collect(collector, engine, config.telegram, config.settings, log)
 
         assert count1 == 1
-        assert count2 == 0
+        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
     def test_multiple_channels(self, engine):
         channels = [
@@ -125,12 +134,12 @@ class TestTelegramCollectorDiscussions:
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
             mock_cls.return_value = _mock_client(messages)
-            count = collector.collect(engine, config.telegram, config.settings, log)
+            count = _collect(collector, engine, config.telegram, config.settings, log)
 
         assert count == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)).fetchall()
+            items = conn.execute(sa.select(SilverObservation).order_by(SilverObservation.external_id)).fetchall()
             assert len(items) == 2
             assert items[0].external_id == "chan1:1"
             assert items[1].external_id == "chan2:2"
@@ -148,12 +157,12 @@ class TestTelegramCollectorDiscussions:
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
             mock_cls.return_value = _mock_client({"testchannel": [msg_empty, msg_good]})
-            count = collector.collect(engine, config.telegram, config.settings, log)
+            count = _collect(collector, engine, config.telegram, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].external_id == "testchannel:2"
 
@@ -161,7 +170,7 @@ class TestTelegramCollectorDiscussions:
         config = AppConfig(telegram=TelegramConfig(sources=[]), settings=Settings())
         log = MagicMock()
         collector = TelegramCollector()
-        assert collector.collect(engine, config.telegram, config.settings, log) == 0
+        assert _collect(collector, engine, config.telegram, config.settings, log) == 0
 
     def test_not_configured_returns_zero(self, engine):
         config = AppConfig(
@@ -170,7 +179,7 @@ class TestTelegramCollectorDiscussions:
         )
         log = MagicMock()
         collector = TelegramCollector()
-        assert collector.collect(engine, config.telegram, config.settings, log) == 0
+        assert _collect(collector, engine, config.telegram, config.settings, log) == 0
 
     def test_updates_score_on_rerun(self, engine):
         config = _make_config()
@@ -184,7 +193,7 @@ class TestTelegramCollectorDiscussions:
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
             mock_cls.return_value = _mock_client({"testchannel": [msg_v1]})
-            collector.collect(engine, config.telegram, config.settings, log)
+            _collect(collector, engine, config.telegram, config.settings, log)
 
         # Second run with updated views
         msg_v2 = _make_message(msg_id=1, text="Post", views=999, forwards=50)
@@ -194,13 +203,13 @@ class TestTelegramCollectorDiscussions:
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
             mock_cls.return_value = _mock_client({"testchannel": [msg_v2]})
-            count = collector.collect(engine, config.telegram, config.settings, log)
+            count = _collect(collector, engine, config.telegram, config.settings, log)
 
-        # Dedup returns 0 for new count, but score should be updated
-        assert count == 0
+        # collect_references returns all API items; dedup + score update is in upsert
+        assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].score == 999
 
@@ -219,7 +228,7 @@ class TestTelegramSource:
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
             mock_cls.return_value = _mock_client({"testchannel": []})
-            collector.collect(engine, config.telegram, config.settings, log)
+            _collect(collector, engine, config.telegram, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

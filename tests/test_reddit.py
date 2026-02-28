@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from aggre.collectors.reddit.collector import RedditCollector, _rate_limit_sleep
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.config import AppConfig
-from aggre.db import SilverDiscussion, Source
+from aggre.db import SilverObservation, Source
 from aggre.settings import Settings
 
 
@@ -96,6 +96,15 @@ def _fake_get_for_listings(mock_responses):
     return fake_get
 
 
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
+
+
 class TestRedditCollectorDiscussions:
     def test_stores_posts_in_raw_and_content(self, engine):
         config = _make_config()
@@ -120,12 +129,12 @@ class TestRedditCollectorDiscussions:
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
 
-            count = collector.collect(engine, config.reddit, config.settings, log)
+            count = _collect(collector, engine, config.reddit, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].title == "Test Post"
             assert items[0].author == "testuser"
@@ -135,7 +144,7 @@ class TestRedditCollectorDiscussions:
 
             assert items[0].score == 42
             assert items[0].comment_count == 5
-            assert items[0].comments_status == "pending"
+            assert items[0].comments_json is None  # pending: no comments fetched yet
 
             meta = json.loads(items[0].meta)
             assert meta["subreddit"] == "python"
@@ -164,12 +173,12 @@ class TestRedditCollectorDiscussions:
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
 
-            count = collector.collect(engine, config.reddit, config.settings, log)
+            count = _collect(collector, engine, config.reddit, config.settings, log)
 
         assert count == 1
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
 
     def test_multiple_unique_posts(self, engine):
@@ -197,16 +206,16 @@ class TestRedditCollectorDiscussions:
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
 
-            count = collector.collect(engine, config.reddit, config.settings, log)
+            count = _collect(collector, engine, config.reddit, config.settings, log)
 
         assert count == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 2
 
     def test_collect_does_not_fetch_comments(self, engine):
-        """collect() should only make listing requests, not comment requests."""
+        """collect_references() should only make listing requests, not comment requests."""
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -238,16 +247,16 @@ class TestRedditCollectorDiscussions:
             client_instance.get.side_effect = tracking_get
             mock_client_cls.return_value = client_instance
 
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         # No comment URLs should have been requested
         assert not any("comments/" in url for url in requested_urls)
 
-        # But comments should be pending
+        # But comments should be pending (comments_json not yet fetched)
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
-            assert items[0].comments_status == "pending"
+            assert items[0].comments_json is None
 
 
 class TestRedditCollectorComments:
@@ -271,7 +280,7 @@ class TestRedditCollectorComments:
             client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         # Now collect comments
         comment = _make_comment(comment_id="com1", body="Great post!")
@@ -293,8 +302,8 @@ class TestRedditCollectorComments:
         assert fetched == 1
 
         with engine.connect() as conn:
-            # Verify comments are stored as JSON on SilverDiscussion
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            # Verify comments are stored as JSON on SilverObservation
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
             assert items[0].comments_json is not None
             comments_data = json.loads(items[0].comments_json)
@@ -303,8 +312,8 @@ class TestRedditCollectorComments:
             assert comments_data[0]["data"]["author"] == "commenter"
             assert items[0].comment_count == 1
 
-            # Verify comments_status is now done (column)
-            assert items[0].comments_status == "done"
+            # Comments have been fetched
+            assert items[0].comments_json is not None
 
     def test_collect_comments_respects_batch_limit(self, engine):
         """collect_comments() should only process batch_limit posts."""
@@ -329,7 +338,7 @@ class TestRedditCollectorComments:
             client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         # Fetch comments with batch_limit=2
         comment_mock_responses = {
@@ -351,12 +360,13 @@ class TestRedditCollectorComments:
 
         assert fetched == 2
 
-        # One should still be pending (comments_status column)
+        # One should still be pending
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
-            statuses = [i.comments_status for i in items]
-            assert statuses.count("done") == 2
-            assert statuses.count("pending") == 1
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
+            done = [i for i in items if i.comments_json is not None]
+            pending = [i for i in items if i.comments_json is None]
+            assert len(done) == 2
+            assert len(pending) == 1
 
     def test_collect_comments_no_pending(self, engine):
         """collect_comments() returns 0 when no pending posts exist."""
@@ -395,7 +405,7 @@ class TestRedditCollectorComments:
             client_instance.__exit__ = MagicMock(return_value=False)
             client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
             mock_client_cls.return_value = client_instance
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         # Fetch comments with nested replies
         reply = _make_comment(comment_id="reply1", body="I agree", parent_id="t1_com1")
@@ -420,7 +430,7 @@ class TestRedditCollectorComments:
             collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert items[0].comments_json is not None
             comments_data = json.loads(items[0].comments_json)
             # The top-level children list has 1 comment (parent_comment)
@@ -469,7 +479,7 @@ class TestRedditCollectorRateLimit:
             client_instance.get.side_effect = fake_get
             mock_client_cls.return_value = client_instance
 
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         # Expect: sleep,get (hot), sleep,get (new) = 2 pairs
         # Every "get" must be immediately preceded by "sleep"
@@ -570,7 +580,7 @@ class TestRedditCollectorSources:
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_client_cls.return_value = client_instance
 
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -598,8 +608,8 @@ class TestRedditCollectorSources:
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_client_cls.return_value = client_instance
 
-            collector.collect(engine, config.reddit, config.settings, log)
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -608,7 +618,7 @@ class TestRedditCollectorSources:
 
 class TestRedditCollectorProxy:
     def test_collect_passes_proxy_url_to_http_client(self, engine):
-        """collect() should pass proxy_url from config to create_http_client."""
+        """collect_references() should pass proxy_url from config to create_http_client."""
         config = AppConfig(
             reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
             settings=Settings(reddit_rate_limit=0.0, proxy_url="socks5://tor-proxy:9150"),
@@ -628,12 +638,12 @@ class TestRedditCollectorProxy:
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_factory.return_value = client_instance
 
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         mock_factory.assert_called_with(proxy_url="socks5://tor-proxy:9150")
 
     def test_collect_passes_none_when_proxy_empty(self, engine):
-        """collect() should pass proxy_url=None when config has empty proxy_url."""
+        """collect_references() should pass proxy_url=None when config has empty proxy_url."""
         config = _make_config()
         log = MagicMock()
         collector = RedditCollector()
@@ -650,6 +660,6 @@ class TestRedditCollectorProxy:
             client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
             mock_factory.return_value = client_instance
 
-            collector.collect(engine, config.reddit, config.settings, log)
+            _collect(collector, engine, config.reddit, config.settings, log)
 
         mock_factory.assert_called_with(proxy_url=None)

@@ -7,9 +7,8 @@ import json
 import sqlalchemy as sa
 import structlog
 
-from aggre.collectors.base import BaseCollector
+from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.huggingface.config import HuggingfaceConfig
-from aggre.db import SilverContent
 from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.http import create_http_client
@@ -25,11 +24,18 @@ class HuggingfaceCollector(BaseCollector):
 
     source_type = "huggingface"
 
-    def collect(self, engine: sa.engine.Engine, config: HuggingfaceConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+    def collect_references(
+        self,
+        engine: sa.engine.Engine,
+        config: HuggingfaceConfig,
+        settings: Settings,
+        log: structlog.stdlib.BoundLogger,
+    ) -> list[ContentReference]:
+        """Fetch HuggingFace daily papers, write bronze, return references."""
         if not config.sources:
-            return 0
+            return []
 
-        total_new = 0
+        refs: list[ContentReference] = []
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for hf_source in config.sources:
@@ -44,48 +50,51 @@ class HuggingfaceCollector(BaseCollector):
                     log.exception("huggingface.fetch_failed")
                     continue
 
-                with engine.begin() as conn:
-                    for item in papers:
-                        paper = item.get("paper", {})
-                        paper_id = paper.get("id")
-                        if not paper_id:
-                            continue
+                for item in papers:
+                    paper = item.get("paper", {})
+                    paper_id = paper.get("id")
+                    if not paper_id:
+                        continue
 
-                        self._write_bronze(paper_id, item)
-                        discussion_id = self._store_discussion(conn, source_id, paper_id, item)
-                        if discussion_id is not None:
-                            total_new += 1
+                    self._write_bronze(paper_id, item)
+                    refs.append(
+                        ContentReference(
+                            external_id=paper_id,
+                            raw_data=item,
+                            source_id=source_id,
+                        )
+                    )
 
-                log.info("huggingface.discussions_stored", new=total_new, total_seen=len(papers))
+                log.info("huggingface.references_collected", count=len(refs), total_seen=len(papers))
                 self._update_last_fetched(engine, source_id)
 
-        return total_new
+        return refs
 
-    def _store_discussion(
+    def process_reference(
         self,
+        ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        paper_id: str,
-        item: dict[str, object],
-    ) -> int | None:
-        paper = item.get("paper", {})
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Normalize one HuggingFace paper into silver rows."""
+        paper = ref_data.get("paper", {})
+        paper_id = paper.get("id")
+        if not paper_id:
+            return
 
         authors = paper.get("authors", [])
         author_names = ", ".join(a.get("name", "") for a in authors if isinstance(a, dict)) if authors else None
 
         hf_url = f"https://huggingface.co/papers/{paper_id}"
 
-        # Create content entry and set summary as body_text
+        # Create content entry (summary stored in content_text, not SilverContent.text)
         content_id = ensure_content(conn, hf_url)
         summary = paper.get("summary")
-        if content_id and summary:
-            conn.execute(
-                sa.update(SilverContent).where(SilverContent.id == content_id, SilverContent.body_text.is_(None)).values(body_text=summary)
-            )
 
         meta = json.dumps(
             {
-                "github_repo": item.get("paper", {}).get("githubRepo"),
+                "github_repo": paper.get("githubRepo"),
             }
         )
 
@@ -100,7 +109,7 @@ class HuggingfaceCollector(BaseCollector):
             published_at=paper.get("publishedAt"),
             meta=meta,
             content_id=content_id,
-            score=item.get("paper", {}).get("upvotes", 0),
-            comment_count=item.get("numComments", 0),
+            score=paper.get("upvotes", 0),
+            comment_count=ref_data.get("numComments", 0),
         )
-        return self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)

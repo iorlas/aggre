@@ -1,8 +1,8 @@
-"""Initial schema — sources, silver_content, silver_discussions.
+"""Initial schema — sources, silver_content, silver_observations.
 
 Revision ID: 001
 Revises:
-Create Date: 2026-02-22
+Create Date: 2026-02-24
 """
 
 from __future__ import annotations
@@ -36,13 +36,10 @@ def upgrade() -> None:
         sa.Column("canonical_url", sa.Text, nullable=False, unique=True),
         sa.Column("domain", sa.Text, nullable=True),
         sa.Column("title", sa.Text, nullable=True),
-        sa.Column("body_text", sa.Text, nullable=True),
-        sa.Column("fetch_status", sa.Text, nullable=False, server_default="pending"),
-        sa.Column("fetch_error", sa.Text, nullable=True),
+        sa.Column("text", sa.Text, nullable=True),
+        sa.Column("error", sa.Text, nullable=True),
         sa.Column("fetched_at", sa.Text, nullable=True),
         sa.Column("created_at", sa.Text, server_default=sa.func.now()),
-        sa.Column("transcription_status", sa.Text, nullable=True),
-        sa.Column("transcription_error", sa.Text, nullable=True),
         sa.Column("detected_language", sa.Text, nullable=True),
         sa.Column("enriched_at", sa.Text, nullable=True),
     )
@@ -52,12 +49,11 @@ def upgrade() -> None:
         ["domain"],
         postgresql_where=sa.text("domain IS NOT NULL"),
     )
-    op.create_index("idx_silver_content_fetch_status", "silver_content", ["fetch_status"])
     op.create_index(
-        "idx_silver_content_transcription",
+        "idx_content_needs_processing",
         "silver_content",
-        ["transcription_status"],
-        postgresql_where=sa.text("transcription_status IS NOT NULL"),
+        ["id"],
+        postgresql_where=sa.text("text IS NULL AND error IS NULL"),
     )
     op.create_index(
         "idx_silver_content_enriched_at",
@@ -66,9 +62,9 @@ def upgrade() -> None:
         postgresql_where=sa.text("enriched_at IS NULL"),
     )
 
-    # -- silver_discussions --
+    # -- silver_observations --
     op.create_table(
-        "silver_discussions",
+        "silver_observations",
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("source_id", sa.Integer, sa.ForeignKey("sources.id"), nullable=True),
         sa.Column("content_id", sa.Integer, sa.ForeignKey("silver_content.id"), nullable=True),
@@ -81,41 +77,41 @@ def upgrade() -> None:
         sa.Column("published_at", sa.Text, nullable=True),
         sa.Column("fetched_at", sa.Text, server_default=sa.func.now()),
         sa.Column("meta", sa.Text, nullable=True),
-        sa.Column("comments_status", sa.Text, nullable=True),
         sa.Column("comments_json", sa.Text, nullable=True),
+        sa.Column("error", sa.Text, nullable=True),
         sa.Column("score", sa.Integer, nullable=True),
         sa.Column("comment_count", sa.Integer, nullable=True),
         sa.UniqueConstraint("source_type", "external_id"),
     )
-    op.create_index("idx_silver_discussions_source_type", "silver_discussions", ["source_type"])
-    op.create_index("idx_silver_discussions_published", "silver_discussions", ["published_at"])
-    op.create_index("idx_silver_discussions_source_id", "silver_discussions", ["source_id"])
+    op.create_index("idx_silver_observations_source_type", "silver_observations", ["source_type"])
+    op.create_index("idx_silver_observations_published", "silver_observations", ["published_at"])
+    op.create_index("idx_silver_observations_source_id", "silver_observations", ["source_id"])
     op.create_index(
-        "idx_silver_discussions_external",
-        "silver_discussions",
+        "idx_silver_observations_external",
+        "silver_observations",
         ["source_type", "external_id"],
     )
     op.create_index(
-        "idx_silver_discussions_comments_status",
-        "silver_discussions",
-        ["comments_status"],
-        postgresql_where=sa.text("comments_status IS NOT NULL"),
+        "idx_observations_needs_comments",
+        "silver_observations",
+        ["id"],
+        postgresql_where=sa.text("comments_json IS NULL AND error IS NULL"),
     )
     op.create_index(
-        "idx_silver_discussions_url",
-        "silver_discussions",
+        "idx_silver_observations_url",
+        "silver_observations",
         ["url"],
         postgresql_where=sa.text("url IS NOT NULL"),
     )
     op.create_index(
-        "idx_silver_discussions_content_id",
-        "silver_discussions",
+        "idx_silver_observations_content_id",
+        "silver_observations",
         ["content_id"],
         postgresql_where=sa.text("content_id IS NOT NULL"),
     )
 
 
 def downgrade() -> None:
-    op.drop_table("silver_discussions")
+    op.drop_table("silver_observations")
     op.drop_table("silver_content")
     op.drop_table("sources")

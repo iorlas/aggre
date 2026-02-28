@@ -55,7 +55,7 @@ class TestAlembicMigration:
 
         # Tables that SHOULD exist after upgrade head
         assert "silver_content" in table_names
-        assert "silver_discussions" in table_names
+        assert "silver_observations" in table_names
         assert "sources" in table_names
 
         # Tables that should NOT exist (removed)
@@ -64,21 +64,20 @@ class TestAlembicMigration:
         assert "bronze_comments" not in table_names
         assert "silver_posts" not in table_names
 
-        # Verify indexes on silver_discussions
-        sd_indexes = {idx["name"] for idx in inspector.get_indexes("silver_discussions")}
-        assert "idx_silver_discussions_source_type" in sd_indexes
-        assert "idx_silver_discussions_published" in sd_indexes
-        assert "idx_silver_discussions_source_id" in sd_indexes
-        assert "idx_silver_discussions_external" in sd_indexes
-        assert "idx_silver_discussions_comments_status" in sd_indexes
-        assert "idx_silver_discussions_url" in sd_indexes
-        assert "idx_silver_discussions_content_id" in sd_indexes
+        # Verify indexes on silver_observations
+        sd_indexes = {idx["name"] for idx in inspector.get_indexes("silver_observations")}
+        assert "idx_silver_observations_source_type" in sd_indexes
+        assert "idx_silver_observations_published" in sd_indexes
+        assert "idx_silver_observations_source_id" in sd_indexes
+        assert "idx_silver_observations_external" in sd_indexes
+        assert "idx_observations_needs_comments" in sd_indexes
+        assert "idx_silver_observations_url" in sd_indexes
+        assert "idx_silver_observations_content_id" in sd_indexes
 
         # Verify indexes on silver_content
         sc_indexes = {idx["name"] for idx in inspector.get_indexes("silver_content")}
         assert "idx_silver_content_domain" in sc_indexes
-        assert "idx_silver_content_fetch_status" in sc_indexes
-        assert "idx_silver_content_transcription" in sc_indexes
+        assert "idx_content_needs_processing" in sc_indexes
 
         engine.dispose()
 
@@ -100,7 +99,7 @@ class TestAlembicMigration:
         inspector = sa.inspect(engine)
         table_names = set(inspector.get_table_names())
 
-        assert "silver_discussions" not in table_names
+        assert "silver_observations" not in table_names
         assert "silver_content" not in table_names
         assert "bronze_discussions" not in table_names
         assert "sources" not in table_names

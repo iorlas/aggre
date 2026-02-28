@@ -12,7 +12,7 @@ import structlog
 from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
 from aggre.config import AppConfig
-from aggre.db import SilverContent, SilverDiscussion, Source
+from aggre.db import SilverContent, SilverObservation, Source
 from aggre.settings import Settings
 
 
@@ -51,6 +51,15 @@ def _mock_extract_info(url, download=False):
     return {"entries": FAKE_ENTRIES}
 
 
+def _collect(collector, engine, config, settings, log, **kwargs):
+    """Collect references and process them into silver. Returns count of new refs."""
+    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    for ref in refs:
+        with engine.begin() as conn:
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+    return len(refs)
+
+
 class TestYoutubeCollector:
     def test_collect_inserts_new_items(self, engine):
         config = _make_config()
@@ -63,12 +72,12 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count = collector.collect(engine, config.youtube, config.settings, log)
+            count = _collect(collector, engine, config.youtube, config.settings, log)
 
         assert count == 2
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(rows) == 2
 
             item1 = rows[0]
@@ -88,8 +97,8 @@ class TestYoutubeCollector:
             assert meta["duration"] == 600
             assert meta["view_count"] == 1000
 
-            # transcription_status is now on SilverContent
-            sc_rows = conn.execute(sa.select(SilverContent).where(SilverContent.transcription_status == "pending")).fetchall()
+            # Content rows should be ready for transcription (text=NULL, error=NULL)
+            sc_rows = conn.execute(sa.select(SilverContent).where(SilverContent.text.is_(None), SilverContent.error.is_(None))).fetchall()
             assert len(sc_rows) == 2
 
     def test_collect_creates_source_row(self, engine):
@@ -103,7 +112,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -125,11 +134,11 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         # Verify discussions exist in silver
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(rows) == 2
 
     def test_dedup_does_not_insert_duplicates(self, engine):
@@ -143,14 +152,14 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count1 = collector.collect(engine, config.youtube, config.settings, log)
-            count2 = collector.collect(engine, config.youtube, config.settings, log)
+            count1 = _collect(collector, engine, config.youtube, config.settings, log)
+            count2 = _collect(collector, engine, config.youtube, config.settings, log)
 
         assert count1 == 2
-        assert count2 == 0
+        assert count2 == 2  # collect_references returns all API items; dedup is in upsert
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(rows) == 2
 
     def test_collect_reuses_existing_source(self, engine):
@@ -164,8 +173,8 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -194,7 +203,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         opts = mock_cls.call_args[0][0]
         assert opts["playlistend"] == 25
@@ -210,7 +219,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log, backfill=True)
+            _collect(collector, engine, config.youtube, config.settings, log, backfill=True)
 
         opts = mock_cls.call_args[0][0]
         assert opts["playlistend"] is None
@@ -228,7 +237,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count = collector.collect(engine, config.youtube, config.settings, log)
+            count = _collect(collector, engine, config.youtube, config.settings, log)
 
         assert count == 2
 
@@ -243,7 +252,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count = collector.collect(engine, config.youtube, config.settings, log)
+            count = _collect(collector, engine, config.youtube, config.settings, log)
 
         assert count == 0
 
@@ -258,7 +267,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         opts = mock_cls.call_args[0][0]
         assert opts["proxy"] == "socks5://user:pass@proxy:1080"
@@ -275,7 +284,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         opts = mock_cls.call_args[0][0]
         assert "proxy" not in opts
@@ -300,10 +309,10 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverDiscussion)).fetchone()
+            row = conn.execute(sa.select(SilverObservation)).fetchone()
             assert row.url == "https://www.youtube.com/watch?v=vid_nourl"
 
     def test_recollect_fills_published_at(self, engine):
@@ -323,10 +332,10 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
+            rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert all(r.published_at is None for r in rows)
 
         # Second collection: same videos now have upload_date
@@ -337,10 +346,10 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl2):
             collector = YoutubeCollector()
-            collector.collect(engine, config.youtube, config.settings, log)
+            _collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)).fetchall()
+            rows = conn.execute(sa.select(SilverObservation).order_by(SilverObservation.external_id)).fetchall()
             assert len(rows) == 2
             assert rows[0].published_at == "2024-01-15"
             assert rows[1].published_at == "2024-01-20"
@@ -386,7 +395,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            count = collector.collect(engine, config.youtube, config.settings, log, source_ttl_minutes=60)
+            count = _collect(collector, engine, config.youtube, config.settings, log, source_ttl_minutes=60)
 
         # Only the stale channel should have triggered yt-dlp
         assert mock_cls.call_count == 1
@@ -416,7 +425,7 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            count = collector.collect(engine, config.youtube, config.settings, log, source_ttl_minutes=0)
+            count = _collect(collector, engine, config.youtube, config.settings, log, source_ttl_minutes=0)
 
         # Should still fetch even though source is fresh (TTL disabled)
         assert mock_cls.call_count == 1

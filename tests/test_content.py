@@ -8,18 +8,26 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.config import AppConfig
+from aggre.dagster_defs.content.job import download_content, extract_html_text
 from aggre.db import SilverContent
-from aggre.pipeline.content_downloader import download_content
-from aggre.pipeline.content_extractor import extract_html_text
 from aggre.settings import Settings
 
 
-def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending"):
+def _seed_content(
+    engine,
+    url: str,
+    domain: str | None = None,
+    fetched_at: str | None = None,
+    text: str | None = None,
+    error: str | None = None,
+):
     with engine.begin() as conn:
         stmt = pg_insert(SilverContent).values(
             canonical_url=url,
             domain=domain,
-            fetch_status=fetch_status,
+            fetched_at=fetched_at,
+            text=text,
+            error=error,
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
         result = conn.execute(stmt)
@@ -43,7 +51,7 @@ class TestDownloadContent:
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "skipped"
+            assert row.error == "skipped:youtube"
 
     def test_skips_pdf_urls(self, engine):
         config = AppConfig(settings=Settings())
@@ -56,7 +64,7 @@ class TestDownloadContent:
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "skipped"
+            assert row.error == "skipped:pdf"
 
     def test_downloads_and_stores_raw_html(self, engine):
         config = AppConfig(settings=Settings())
@@ -74,15 +82,16 @@ class TestDownloadContent:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "downloaded"
             assert row.fetched_at is not None
+            assert row.error is None
+            assert row.text is None  # text set by extract phase
 
     def test_handles_download_error(self, engine):
         config = AppConfig(settings=Settings())
@@ -95,15 +104,15 @@ class TestDownloadContent:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.side_effect = Exception("Connection refused")
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "failed"
-            assert "Connection refused" in row.fetch_error
+            assert row.error is not None
+            assert "Connection refused" in row.error
 
     def test_respects_batch_limit(self, engine):
         config = AppConfig(settings=Settings())
@@ -115,11 +124,11 @@ class TestDownloadContent:
         count = download_content(engine, config, log, batch_limit=3)
         assert count == 3
 
-    def test_skips_already_fetched(self, engine):
+    def test_skips_already_processed(self, engine):
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
-        _seed_content(engine, "https://example.com/already-done", fetch_status="fetched")
+        _seed_content(engine, "https://example.com/already-done", text="some text")
 
         count = download_content(engine, config, log)
         assert count == 0
@@ -141,13 +150,15 @@ class TestDownloadContent:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log, max_workers=3)
 
         assert count == 3
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverContent).where(SilverContent.fetch_status == "downloaded")).fetchall()
+            rows = conn.execute(
+                sa.select(SilverContent).where(SilverContent.fetched_at.isnot(None), SilverContent.error.is_(None))
+            ).fetchall()
             assert len(rows) == 3
 
     def test_404_logs_warning_not_exception(self, engine):
@@ -164,15 +175,15 @@ class TestDownloadContent:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "failed"
-            assert "404" in row.fetch_error
+            assert row.error is not None
+            assert "404" in row.error
 
         log.warning.assert_called()
         log.exception.assert_not_called()
@@ -192,14 +203,14 @@ class TestDownloadContent:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "skipped"
+            assert row.error == "skipped:non_text"
 
     def test_skips_video_content_type(self, engine):
         config = AppConfig(settings=Settings())
@@ -216,14 +227,14 @@ class TestDownloadContent:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get.return_value = mock_resp
 
-        with patch("aggre.pipeline.content_downloader.httpx.Client", return_value=mock_client):
+        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
             count = download_content(engine, config, log)
 
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "skipped"
+            assert row.error == "skipped:non_text"
 
 
 class TestExtractHtmlText:
@@ -237,7 +248,7 @@ class TestExtractHtmlText:
         log = MagicMock()
 
         html = "<html><body><p>Article content here</p></body></html>"
-        _seed_content(engine, "https://example.com/article", domain="example.com", fetch_status="downloaded")
+        _seed_content(engine, "https://example.com/article", domain="example.com", fetched_at="2024-01-01T00:00:00Z")
 
         # Write HTML to bronze so extract can read it
         from aggre.utils.bronze import write_bronze_by_url
@@ -245,8 +256,8 @@ class TestExtractHtmlText:
         write_bronze_by_url("content", "https://example.com/article", "response", html, "html")
 
         with (
-            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="Article content here"),
-            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Article content here"),
+            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Test Article"
@@ -258,36 +269,37 @@ class TestExtractHtmlText:
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "fetched"
-            assert row.body_text == "Article content here"
+            assert row.text == "Article content here"
             assert row.title == "Test Article"
             assert row.fetched_at is not None
+            assert row.error is None
 
     def test_handles_extraction_error(self, engine):
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
-        _seed_content(engine, "https://example.com/bad-html", domain="example.com", fetch_status="downloaded")
+        _seed_content(engine, "https://example.com/bad-html", domain="example.com", fetched_at="2024-01-01T00:00:00Z")
 
         from aggre.utils.bronze import write_bronze_by_url
 
         write_bronze_by_url("content", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
 
-        with patch("aggre.pipeline.content_extractor.trafilatura.extract", side_effect=Exception("Parse error")):
+        with patch("aggre.dagster_defs.content.job.trafilatura.extract", side_effect=Exception("Parse error")):
             count = extract_html_text(engine, config, log)
 
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetch_status == "failed"
-            assert "Parse error" in row.fetch_error
+            assert row.error is not None
+            assert "Parse error" in row.error
 
-    def test_ignores_pending_content(self, engine):
+    def test_ignores_undownloaded_content(self, engine):
         config = AppConfig(settings=Settings())
         log = MagicMock()
 
-        _seed_content(engine, "https://example.com/still-pending", fetch_status="pending")
+        # No fetched_at = not yet downloaded
+        _seed_content(engine, "https://example.com/still-pending")
 
         count = extract_html_text(engine, config, log)
         assert count == 0
@@ -304,13 +316,13 @@ class TestExtractHtmlText:
                 engine,
                 url,
                 domain="example.com",
-                fetch_status="downloaded",
+                fetched_at="2024-01-01T00:00:00Z",
             )
             write_bronze_by_url("content", url, "response", f"<html>content {i}</html>", "html")
 
         with (
-            patch("aggre.pipeline.content_extractor.trafilatura.extract", return_value="text"),
-            patch("aggre.pipeline.content_extractor.trafilatura.metadata.extract_metadata", return_value=None),
+            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="text"),
+            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata", return_value=None),
         ):
             count = extract_html_text(engine, config, log, batch_limit=3)
 

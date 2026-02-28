@@ -51,78 +51,33 @@ Anti-blocking strategy:
 
 ---
 
-## Decoupled Pipelines
+## Dagster Pipeline
 
-**Key design decision**: Polling and transcription run as **separate, independent containers**. Polling never waits for transcription.
+All jobs are orchestrated by **Dagster**. The pipeline is structured as independent jobs triggered by schedules and sensors.
 
-```
-  docker-compose
-  ┌────────────────────────────────────────────────────────┐
-  │                                                        │
-  │  ┌─────────────────────┐                               │
-  │  │ fetch (loop mode)   │──→ SQLite DB ←──┐             │
-  │  │ --loop --interval   │    (shared vol)  │             │
-  │  └─────────────────────┘                  │             │
-  │                                           │             │
-  │  ┌─────────────────────┐                  │             │
-  │  │ transcribe (loop)   │──────────────────┘             │
-  │  │ --loop --interval   │                                │
-  │  └─────────────────────┘                                │
-  │                                                        │
-  │  Shared volume: ./data/ (DB, config, logs, temp videos) │
-  └────────────────────────────────────────────────────────┘
-```
+### Jobs
 
-### `aggre fetch` (polling pipeline)
+| Job | Trigger | Description |
+|-----|---------|-------------|
+| `collect_job` | Hourly schedule | Fetch references from all configured sources. Writes bronze `raw.json`, creates SilverObservation + SilverContent rows. |
+| `comments_job` | Sensor: observations need comments | Fetch comments for HN/Reddit/Lobsters observations. Writes bronze `comments.json`, stores in `comments_json` column. |
+| `content_job` | Sensor: SilverContent needs downloading | Download HTML for non-YouTube content, extract text with trafilatura. |
+| `transcribe_job` | Sensor: YouTube content needs transcription | Download audio, transcribe with faster-whisper, store transcript. Resilient: reuses cached audio/whisper.json. |
+| `enrich_job` | Sensor: SilverContent not yet enriched | Search HN/Lobsters for cross-source discussions about collected URLs. |
+| `reprocess_job` | Manual trigger | Rebuild silver from bronze `raw.json` files without hitting external APIs. |
 
-- Polls all sources (or filtered by `--source`)
-- For YouTube: only fetches **metadata** (title, channel, date, etc.) — no video download
-- For Reddit: fetches posts + comments with conservative rate limiting
-- For RSS: fetches and parses feeds
-- Stores everything in `content_items`. YouTube items get `transcription_status = 'pending'`
-- Runs in loop mode: execute → sleep interval → repeat
+### Collector Protocol
 
-### `aggre transcribe` (transcription pipeline)
+Each collector implements two methods:
 
-- Picks up YouTube items with `transcription_status = 'pending'`
-- Downloads video → runs faster-whisper large-v3 → stores transcript → deletes video
-- Processes **one video at a time** (limits disk usage on 400GB SSD)
-- Interruptible and resumable (each video is an independent unit)
-- Can take hours/days for backfill — that's fine
-- Sets `transcription_status` to `'completed'` or `'failed'`
-- Runs in loop mode: process batch → sleep → check for more
+- `collect_references()` — fetch feed from API, write `raw.json` to bronze, return list of `ContentReference`
+- `process_reference()` — normalize one bronze reference into silver rows (SilverContent + SilverObservation)
 
-### Docker Setup
+The separation allows `reprocess_job` to call `process_reference()` alone, reading from bronze without touching APIs.
 
-```yaml
-# docker-compose.yml
-services:
-  fetch:
-    build: .
-    command: aggre fetch --loop --interval 3600
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
+### Self-Post Handling
 
-  transcribe:
-    build: .
-    command: aggre transcribe --loop --interval 900
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
-```
-
-```dockerfile
-# Dockerfile
-FROM python:3.12-slim
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-COPY pyproject.toml .
-RUN pip install uv && uv sync
-COPY . .
-RUN uv pip install -e .
-VOLUME /app/data
-```
+Self-posts (Reddit selftext, Ask HN without URL, Lobsters self-posts) create a `SilverContent` row with `text` pre-populated. The content pipeline skips these (null-check pattern: `text IS NOT NULL` means already processed).
 
 ### Logging
 
@@ -201,8 +156,9 @@ CREATE TABLE content_items (
     published_at TEXT,
     fetched_at TEXT DEFAULT (datetime('now')),
     metadata TEXT,                   -- JSON: source-specific extras
-    transcription_status TEXT,       -- 'pending', 'downloading', 'transcribing', 'completed', 'failed'
-    transcription_error TEXT,
+    -- NOTE: Current schema uses null-check pattern instead of status columns.
+    -- See docs/semantic-model.md for current schema.
+    error TEXT,                      -- error message if processing failed
     detected_language TEXT,
     UNIQUE(source_type, external_id)
 );
@@ -251,8 +207,8 @@ CREATE INDEX idx_content_source_type ON content_items(source_type);
 CREATE INDEX idx_content_published ON content_items(published_at);
 CREATE INDEX idx_content_source_id ON content_items(source_id);
 CREATE INDEX idx_content_external ON content_items(source_type, external_id);
-CREATE INDEX idx_content_transcription ON content_items(transcription_status)
-    WHERE transcription_status IS NOT NULL;
+-- NOTE: Current schema uses idx_content_needs_processing with null-check pattern.
+-- See docs/semantic-model.md for current indexes.
 CREATE INDEX idx_comments_content_item ON reddit_comments(content_item_id);
 ```
 

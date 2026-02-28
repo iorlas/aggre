@@ -22,35 +22,33 @@ tables:
     description: >
       One row per canonical URL. The content artifact (article, video, paper) itself,
       independent of discussions about it. This is the cross-source pivot table.
+      Processing state uses null-check pattern: text IS NULL AND error IS NULL = needs processing.
     columns:
       id:                     { type: serial, pk: true }
       canonical_url:          { type: text, not_null: true, unique: true, description: "Normalized URL (see urls.py)" }
       domain:                 { type: text, nullable: true, description: "Extracted domain for grouping/filtering" }
       title:                  { type: text, nullable: true, description: "Page title (from trafilatura extraction)" }
-      body_text:              { type: text, nullable: true, description: "Article body (trafilatura) OR video transcript (whisper) — check transcription_status to distinguish" }
-      fetch_status:           { type: text, not_null: true, default: "pending", values: [pending, downloaded, fetched, skipped, failed] }
-      fetch_error:            { type: text, nullable: true, description: "Error message if fetch_status = failed" }
-      fetched_at:             { type: text, nullable: true, description: "ISO 8601 — when content was fetched" }
+      text:                   { type: text, nullable: true, description: "Article body (trafilatura) OR video transcript (whisper)" }
+      error:                  { type: text, nullable: true, description: "Error message if processing failed, or 'skipped:reason' for skipped content" }
+      fetched_at:             { type: text, nullable: true, description: "ISO 8601 — when content was fetched (intermediate marker between download and extraction)" }
       created_at:             { type: text, default: "now()", description: "ISO 8601 timestamp" }
-      transcription_status:   { type: text, nullable: true, values: [pending, completed, failed], description: "NULL for non-video content" }
-      transcription_error:    { type: text, nullable: true }
       detected_language:      { type: text, nullable: true, description: "ISO language code from whisper" }
       enriched_at:            { type: text, nullable: true, description: "ISO 8601 — when HN/Lobsters enrichment was run for this URL" }
     indexes:
       - idx_silver_content_domain: { columns: [domain], where: "domain IS NOT NULL" }
-      - idx_silver_content_fetch_status: [fetch_status]
-      - idx_silver_content_transcription: { columns: [transcription_status], where: "transcription_status IS NOT NULL" }
+      - idx_content_needs_processing: { columns: [id], where: "text IS NULL AND error IS NULL" }
       - idx_silver_content_enriched_at: { columns: [enriched_at], where: "enriched_at IS NULL" }
 
-  silver_discussions:
+  silver_observations:
     description: >
       One row per source discussion (HN thread, Reddit post, RSS entry, etc.).
       Multiple discussions can reference the same silver_content row — this is the
       cross-source join. The main table for analysis queries.
+      Comment processing uses null-check pattern: comments_json IS NULL AND error IS NULL = needs fetching.
     columns:
       id:                     { type: serial, pk: true }
       source_id:              { type: integer, nullable: true, fk: "sources.id" }
-      content_id:             { type: integer, nullable: true, fk: "silver_content.id", description: "NULL for self-posts or discussions without external links" }
+      content_id:             { type: integer, nullable: true, fk: "silver_content.id", description: "Links to SilverContent. Self-posts with text create SilverContent (text pre-populated). NULL only when no external link AND no self-post text." }
       source_type:            { type: text, not_null: true, values: [rss, reddit, youtube, hackernews, lobsters, huggingface, telegram] }
       external_id:            { type: text, not_null: true, description: "Source-specific unique ID" }
       title:                  { type: text, nullable: true }
@@ -60,30 +58,30 @@ tables:
       published_at:           { type: text, nullable: true, description: "ISO 8601 — when the discussion was published" }
       fetched_at:             { type: text, default: "now()", description: "ISO 8601 — when we collected it" }
       meta:                   { type: text, nullable: true, description: "JSON string — source-specific metadata (see meta section below)" }
-      comments_status:        { type: text, nullable: true, values: [pending, done], description: "NULL = source doesn't support comments (RSS, HuggingFace, Telegram)" }
-      comments_json:          { type: text, nullable: true, description: "Raw comments JSON blob" }
+      comments_json:          { type: text, nullable: true, description: "Raw comments JSON blob. NULL = not yet fetched (for sources that support comments)" }
+      error:                  { type: text, nullable: true, description: "Error message if comment fetching failed" }
       score:                  { type: integer, nullable: true, description: "Platform-specific score — see score semantics below" }
       comment_count:          { type: integer, nullable: true }
     constraints:
       - unique: [source_type, external_id]
     indexes:
-      - idx_silver_discussions_source_type: [source_type]
-      - idx_silver_discussions_published: [published_at]
-      - idx_silver_discussions_source_id: [source_id]
-      - idx_silver_discussions_external: [source_type, external_id]
-      - idx_silver_discussions_comments_status: { columns: [comments_status], where: "comments_status IS NOT NULL" }
-      - idx_silver_discussions_url: { columns: [url], where: "url IS NOT NULL" }
-      - idx_silver_discussions_content_id: { columns: [content_id], where: "content_id IS NOT NULL" }
+      - idx_silver_observations_source_type: [source_type]
+      - idx_silver_observations_published: [published_at]
+      - idx_silver_observations_source_id: [source_id]
+      - idx_silver_observations_external: [source_type, external_id]
+      - idx_observations_needs_comments: { columns: [id], where: "comments_json IS NULL AND error IS NULL" }
+      - idx_silver_observations_url: { columns: [url], where: "url IS NOT NULL" }
+      - idx_silver_observations_content_id: { columns: [content_id], where: "content_id IS NOT NULL" }
 ```
 
 ### Relationships
 
 ```
-sources.id              <--  silver_discussions.source_id
-silver_content.id       <--  silver_discussions.content_id   (the cross-source pivot)
+sources.id              <--  silver_observations.source_id
+silver_content.id       <--  silver_observations.content_id   (the cross-source pivot)
 ```
 
-### `silver_discussions.meta` — JSON keys per source_type
+### `silver_observations.meta` — JSON keys per source_type
 
 Cast with `meta::jsonb` before querying.
 
@@ -129,17 +127,17 @@ Cast with `meta::jsonb` before querying.
    meta::jsonb->>'subreddit'
    ```
 
-3. **`body_text` can be article text OR video transcript** — check `transcription_status` on `silver_content` to distinguish. If `transcription_status = 'completed'`, `body_text` is a transcript.
+3. **`text` can be article text OR video transcript** — check `domain = 'youtube.com'` on `silver_content` to distinguish. If domain is youtube.com, `text` is a transcript.
 
-4. **`content_id` can be NULL** — some discussions don't link to external content (Reddit self-posts, Telegram messages, some HN "Ask HN" posts). Exclude NULLs for cross-source analysis.
+4. **`content_id` can be NULL** — some discussions don't link to external content (Telegram messages, self-posts without text). Self-posts with text (Reddit selftext, Ask HN story_text) DO create SilverContent with text pre-populated. Exclude NULLs for cross-source analysis.
 
-5. **The cross-source pivot** is: `silver_discussions.content_id → silver_content.id`. Multiple discussions with the same `content_id` are different platforms discussing the same URL.
+5. **The cross-source pivot** is: `silver_observations.content_id → silver_content.id`. Multiple discussions with the same `content_id` are different platforms discussing the same URL.
 
 6. **`score` means different things** per platform — see the score semantics table above. Do not compare scores across source_types directly.
 
 7. **YouTube `score` is NULL** — YouTube view counts are in `meta::jsonb->>'view_count'`, not in the `score` column.
 
-8. **Enrichment creates discussions** — the enrichment process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_discussions` rows. Check `silver_content.enriched_at IS NOT NULL` to find content that has been enriched.
+8. **Enrichment creates discussions** — the enrichment process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_observations` rows. Check `silver_content.enriched_at IS NOT NULL` to find content that has been enriched.
 
 ---
 
@@ -157,7 +155,7 @@ SELECT
   COUNT(DISTINCT sd.source_type) AS platform_count,
   ARRAY_AGG(DISTINCT sd.source_type) AS platforms
 FROM silver_content sc
-JOIN silver_discussions sd ON sd.content_id = sc.id
+JOIN silver_observations sd ON sd.content_id = sc.id
 GROUP BY sc.id
 HAVING COUNT(DISTINCT sd.source_type) >= 2
 ORDER BY platform_count DESC;
@@ -173,7 +171,7 @@ SELECT
   SUM(COALESCE(sd.comment_count, 0)) AS total_comments,
   ARRAY_AGG(DISTINCT sd.source_type) AS source_types
 FROM silver_content sc
-JOIN silver_discussions sd ON sd.content_id = sc.id
+JOIN silver_observations sd ON sd.content_id = sc.id
 GROUP BY sc.id
 ORDER BY total_score + total_comments DESC
 LIMIT 50;
@@ -188,9 +186,9 @@ SELECT
   MIN(sd.published_at::timestamptz) AS first_seen,
   MAX(sd.published_at::timestamptz) AS last_seen
 FROM silver_content sc
-JOIN silver_discussions sd ON sd.content_id = sc.id
+JOIN silver_observations sd ON sd.content_id = sc.id
 WHERE sc.id IN (
-  SELECT content_id FROM silver_discussions
+  SELECT content_id FROM silver_observations
   WHERE content_id IS NOT NULL
   GROUP BY content_id
   HAVING COUNT(DISTINCT source_type) >= 2
@@ -205,8 +203,8 @@ SELECT
   a.source_type AS source_a,
   b.source_type AS source_b,
   COUNT(DISTINCT a.content_id) AS shared_content
-FROM silver_discussions a
-JOIN silver_discussions b
+FROM silver_observations a
+JOIN silver_observations b
   ON a.content_id = b.content_id
   AND a.source_type < b.source_type
 WHERE a.content_id IS NOT NULL
@@ -222,7 +220,7 @@ SELECT
   source_type,
   COUNT(*) AS count,
   SUM(COALESCE(score, 0)) AS total_score
-FROM silver_discussions
+FROM silver_observations
 WHERE published_at::timestamptz >= CURRENT_DATE
 GROUP BY source_type
 ORDER BY count DESC;
@@ -236,7 +234,7 @@ SELECT
   COUNT(sd.id) AS discussion_count,
   SUM(COALESCE(sd.score, 0)) AS total_score
 FROM silver_content sc
-JOIN silver_discussions sd ON sd.content_id = sc.id
+JOIN silver_observations sd ON sd.content_id = sc.id
 WHERE sd.published_at::timestamptz >= CURRENT_DATE
 GROUP BY sc.domain
 ORDER BY discussion_count DESC
@@ -253,7 +251,7 @@ SELECT
   SUM(COALESCE(sd.score, 0)) AS total_score,
   SUM(COALESCE(sd.comment_count, 0)) AS total_comments
 FROM silver_content sc
-JOIN silver_discussions sd ON sd.content_id = sc.id
+JOIN silver_observations sd ON sd.content_id = sc.id
 WHERE sd.published_at::timestamptz >= CURRENT_DATE
 GROUP BY sc.id
 ORDER BY total_score DESC
@@ -265,37 +263,37 @@ LIMIT 20;
 **Parsing meta JSON — examples per source_type:**
 ```sql
 -- Reddit: filter by subreddit
-SELECT * FROM silver_discussions
+SELECT * FROM silver_observations
 WHERE source_type = 'reddit'
   AND meta::jsonb->>'subreddit' = 'programming';
 
 -- Lobsters: filter by tag
-SELECT * FROM silver_discussions
+SELECT * FROM silver_observations
 WHERE source_type = 'lobsters'
   AND meta::jsonb->'tags' ? 'rust';
 
 -- YouTube: videos longer than 30 min
 SELECT *, (meta::jsonb->>'duration')::int / 60 AS minutes
-FROM silver_discussions
+FROM silver_observations
 WHERE source_type = 'youtube'
   AND (meta::jsonb->>'duration')::int > 1800;
 
 -- YouTube: sort by view count
 SELECT title, url, (meta::jsonb->>'view_count')::int AS views
-FROM silver_discussions
+FROM silver_observations
 WHERE source_type = 'youtube'
 ORDER BY views DESC NULLS LAST
 LIMIT 20;
 
 -- HuggingFace: papers with GitHub repos
 SELECT title, url, meta::jsonb->>'github_repo' AS repo
-FROM silver_discussions
+FROM silver_observations
 WHERE source_type = 'huggingface'
   AND meta::jsonb->>'github_repo' IS NOT NULL;
 
 -- Telegram: messages with media
 SELECT title, url, meta::jsonb->>'media_type' AS media
-FROM silver_discussions
+FROM silver_observations
 WHERE source_type = 'telegram'
   AND meta::jsonb->>'media_type' IS NOT NULL;
 ```
@@ -307,7 +305,7 @@ SELECT
   ARRAY_AGG(DISTINCT source_type) AS platforms,
   COUNT(*) AS total_posts,
   COUNT(DISTINCT source_type) AS platform_count
-FROM silver_discussions
+FROM silver_observations
 WHERE author IS NOT NULL
 GROUP BY author
 HAVING COUNT(DISTINCT source_type) >= 2
@@ -315,45 +313,64 @@ ORDER BY total_posts DESC
 LIMIT 20;
 ```
 
-**Content without body text (fetch gap analysis):**
+**Content processing status (null-check pattern):**
 ```sql
+-- Processing state overview
 SELECT
-  fetch_status,
+  CASE
+    WHEN text IS NOT NULL THEN 'processed'
+    WHEN error IS NOT NULL THEN 'failed_or_skipped'
+    WHEN fetched_at IS NOT NULL THEN 'downloaded_not_extracted'
+    ELSE 'pending'
+  END AS state,
   COUNT(*) AS count
 FROM silver_content
-GROUP BY fetch_status;
+GROUP BY state;
 
--- Content that failed to fetch
-SELECT canonical_url, domain, fetch_error
+-- Content that failed to process
+SELECT canonical_url, domain, error
 FROM silver_content
-WHERE fetch_status = 'failed'
+WHERE error IS NOT NULL AND error NOT LIKE 'skipped:%'
 ORDER BY created_at::timestamptz DESC
 LIMIT 20;
 
--- Content still pending fetch
+-- Content still pending processing
 SELECT canonical_url, domain, created_at
 FROM silver_content
-WHERE fetch_status = 'pending'
+WHERE text IS NULL AND error IS NULL
 ORDER BY created_at::timestamptz DESC;
 ```
 
 ### Operational
 
-**Pipeline health — status distributions:**
+**Pipeline health — processing state distributions:**
 ```sql
--- Content fetch status
-SELECT fetch_status, COUNT(*) FROM silver_content GROUP BY fetch_status;
+-- Content processing state (null-check pattern)
+SELECT
+  CASE
+    WHEN text IS NOT NULL THEN 'processed'
+    WHEN error LIKE 'skipped:%' THEN 'skipped'
+    WHEN error IS NOT NULL THEN 'failed'
+    WHEN fetched_at IS NOT NULL THEN 'downloaded'
+    ELSE 'pending'
+  END AS state,
+  COUNT(*)
+FROM silver_content GROUP BY state;
 
--- Transcription status
-SELECT transcription_status, COUNT(*) FROM silver_content
-WHERE transcription_status IS NOT NULL GROUP BY transcription_status;
-
--- Comments status
-SELECT comments_status, COUNT(*) FROM silver_discussions
-WHERE comments_status IS NOT NULL GROUP BY comments_status;
+-- Comments processing state
+SELECT
+  CASE
+    WHEN comments_json IS NOT NULL THEN 'fetched'
+    WHEN error IS NOT NULL THEN 'failed'
+    ELSE 'pending'
+  END AS state,
+  COUNT(*)
+FROM silver_observations
+WHERE source_type IN ('hackernews', 'reddit', 'lobsters')
+GROUP BY state;
 
 -- Discussions per source
-SELECT source_type, COUNT(*) FROM silver_discussions GROUP BY source_type ORDER BY count DESC;
+SELECT source_type, COUNT(*) FROM silver_observations GROUP BY source_type ORDER BY count DESC;
 ```
 
 **Enrichment coverage:**
@@ -368,7 +385,7 @@ GROUP BY status;
 -- Content enriched but no cross-platform discussions found
 SELECT sc.canonical_url, sc.domain, sc.title
 FROM silver_content sc
-LEFT JOIN silver_discussions sd ON sd.content_id = sc.id
+LEFT JOIN silver_observations sd ON sd.content_id = sc.id
 WHERE sc.enriched_at IS NOT NULL
 GROUP BY sc.id
 HAVING COUNT(DISTINCT sd.source_type) <= 1

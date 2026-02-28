@@ -6,16 +6,18 @@ Aggre collects discussions from multiple sources (Hacker News, Reddit, Lobsters,
 
 Read the relevant docs first:
 
-- **Always read:** `docs/semantic-model.md` — entity definitions, ubiquitous language, status lifecycles
-- **Before writing Python code:** `docs/python-guidelines.md` — module design, typing, tooling, imports
+- **Always read:** `docs/guidelines/semantic-model.md` — entity definitions, ubiquitous language, status lifecycles
+- **Before writing Python code:** `docs/guidelines/python.md` — module design, typing, tooling, imports
 - **Before writing code:** `.planning/codebase/CONVENTIONS.md` — code style, naming, imports, error handling
 - **Before writing tests:** `.planning/codebase/TESTING.md` — fixtures, mocking patterns, factories
 - **Before adding features:** `.planning/codebase/ARCHITECTURE.md` — layers, data flow, entry points
 - **Before adding files:** `.planning/codebase/STRUCTURE.md` — directory layout, where to put new code
 - **Before changing deps:** `.planning/codebase/STACK.md` — tech stack, versions, configuration
 - **Before touching integrations:** `.planning/codebase/INTEGRATIONS.md` — external APIs, auth, rate limits
-- **Before touching data layers:** `docs/medallion-guidelines.md` — medallion architecture, bronze/silver patterns
+- **Before touching data layers:** `docs/guidelines/medallion.md` — medallion architecture, bronze/silver patterns
 - **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
+
+> **Note:** `.planning/codebase/` files are AI-generated snapshots of current codebase state, not human-authored guidelines. `docs/guidelines/` contains the human-authored standards.
 
 ## Dev Commands
 

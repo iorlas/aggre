@@ -53,10 +53,10 @@ PostgreSQL. Transformed, normalized, queryable.
 
 No raw data blobs in silver. Specifically:
 - Move `raw_html` out — store in bronze, not silver.
-- Store raw Whisper JSON in bronze, not as `body_text`.
-- `body_text` holds final extracted/transcribed text only.
+- Store raw Whisper JSON in bronze, not as `text`.
+- `text` holds final extracted/transcribed text only.
 
-Status tracking lives here (`fetch_status`, `transcription_status`). This is silver's own state, not bronze's concern.
+Processing state tracked via data presence (null-check pattern), not status enums. See Processing Discovery below.
 
 ## Layer Isolation
 
@@ -78,7 +78,7 @@ This makes LLM cache writes and enrichment fetches during silver transforms idio
 
 - Bronze: `data/bronze/youtube/{video_id}/whisper.json` — full Whisper output with segments, timestamps, confidence scores, detected language, model version.
 - Bronze: `data/bronze/youtube/{video_id}/audio.opus` — keep raw audio. Videos get taken down; re-download is slow or impossible.
-- Silver: `body_text` = concatenated segment text only. `detected_language` = language code. Timestamps available in bronze when needed.
+- Silver: `text` = concatenated segment text only. `detected_language` = language code. Timestamps available in bronze when needed.
 - Rule: always preserve max-fidelity raw output in bronze. Silver extracts only what's needed for queries.
 
 ### LLM Invocations
@@ -225,6 +225,39 @@ Naturally combined — LLM wrapper checks cache → miss: call API + cache → h
 - **Cheap source** (fast HTTP GET, freely re-fetchable): combined pipe.
 - Key: **combined pipe ≠ skip bronze**. Bronze is always checked first.
 
+## Processing Discovery
+
+Three patterns for tracking "what needs processing." Pick the simplest that fits.
+
+### Null-check (data presence as state)
+
+Default for Aggre. "Processed" means "data exists." No status column needed.
+
+State tracking via nullability:
+- `text IS NULL AND error IS NULL` → needs processing
+- `text IS NOT NULL` → processed
+- `error IS NOT NULL` → failed (DLQ)
+
+Use partial indexes to make these queries fast: `CREATE INDEX idx_needs_processing ON table (id) WHERE text IS NULL AND error IS NULL`.
+
+When to use: set-based ETL where items move through a single processing step. Most silver tables.
+
+Why not status enums: status columns add a column, an enum type, import dependencies, and migration steps — all for state that's already expressed by whether the output column has data. Null-check eliminates an entire class of "forgot to update status" bugs.
+
+### Status column (explicit state machine)
+
+For complex lifecycles with 3+ intermediate states that can't be inferred from data presence.
+
+When to use: items with multiple intermediate states that are meaningful to the business (e.g., "awaiting approval" vs "in review" vs "published").
+
+When NOT to use: if the states map to "has data" / "doesn't have data" / "has error" — use null-check instead.
+
+### Cursor (position tracking)
+
+For sequential/ordered processing where you need to remember your position.
+
+When to use: Kafka offsets, API pagination, incremental log processing. Dagster `context.cursor` is the built-in mechanism.
+
 ## Discovery & Orchestration
 
 ### Incremental processing: Dagster sensor + cursor
@@ -242,6 +275,7 @@ Scheduled asset materialization. Reprocess all historical data.
 
 ## Decision Tree
 
+- How to track "needs processing"? → null-check (default). Status column only for 3+ intermediate states. Cursor for sequential processing.
 - Incremental/streaming? → sensor + cursor
 - Batch/backfill? → scheduled materialization
 - Bronze→Silver discovery? → sensor scans filesystem

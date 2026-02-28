@@ -26,6 +26,14 @@ Why not separate top-level packages (`aggre_hackernews`): shared code (BaseColle
 
 Why not split by technical layer (`core/`, `pipeline/`): current flat structure works because files are small (<200 lines each) and names are self-explanatory. Layer-based splitting adds directory nesting without reducing merge conflicts — agents already work on distinct files.
 
+### Framework-First Architecture
+
+When using an orchestration framework (Dagster, Airflow), business logic goes directly in framework primitives (ops/jobs). No separate "service layer" or `pipeline/` directory.
+
+Why: single caller (the framework), integration tests more valuable than unit tests of extracted functions, AI agents handle framework migrations when needed. A separate service layer adds indirection without adding testability — the Dagster ops are already testable by calling the functions directly.
+
+Pattern: each dagster_defs sub-package (e.g., `content/job.py`) contains both the business logic functions and the Dagster ops that call them. Functions are importable for testing without Dagster.
+
 ### Dependency Layers
 
 Imports form a DAG with three layers:
@@ -33,9 +41,9 @@ Imports form a DAG with three layers:
 ```
 Layer 3 (composition root): cli.py, config.py
   ↓ imports from
-Layer 2 (business modules): collectors/*, content_fetcher.py, transcriber.py, enrichment.py
+Layer 2 (business modules): collectors/*, dagster_defs/content/, dagster_defs/transcription/, dagster_defs/enrichment/
   ↓ imports from
-Layer 1 (infrastructure): db.py, statuses.py, urls.py, http.py, logging.py, settings.py, worker.py
+Layer 1 (infrastructure): db.py, urls.py, utils/http.py, utils/logging.py, settings.py
 ```
 
 Layer 1 modules never import from layer 2 or 3. Layer 2 never imports from layer 3.
@@ -54,7 +62,7 @@ Each module owns one business capability (e.g., `collectors/hackernews/` owns HN
 
 Boundary test: "would two AI agents ever touch this same file simultaneously?" If yes, the module is doing too much — split along business lines.
 
-Shared utilities (`http.py`, `urls.py`, `statuses.py`) are stable infrastructure — they change rarely and are read-only dependencies for business modules.
+Shared utilities (`utils/http.py`, `urls.py`, `db.py`) are stable infrastructure — they change rarely and are read-only dependencies for business modules.
 
 Why: merge conflicts from concurrent AI agents are the biggest velocity killer. Business-aligned modules mean agents work in isolated directories.
 
@@ -81,7 +89,7 @@ Why: barrel files create implicit coupling, hide import chains, cause circular d
 
 Rule: imports form a DAG. If module A imports from B, B must never import from A (directly or transitively).
 
-Pattern: shared types and protocols go in leaf modules (`statuses.py`, `db.py`). Business modules depend on leaves, never on each other.
+Pattern: shared types and protocols go in leaf modules (`db.py`, `urls.py`). Business modules depend on leaves, never on each other.
 
 If two modules need each other: extract the shared concept into a new leaf module.
 
@@ -167,11 +175,11 @@ Why: typed configs catch misconfigurations at load time, not at runtime deep in 
 
 ## Constants and Enums
 
-### StrEnum for All Enums
+### StrEnum for Enums (when needed)
 
-All enums use `StrEnum` with lowercase values matching DB strings directly (`FetchStatus.PENDING == "pending"` is `True`).
+When enums are needed, use `StrEnum` with lowercase values matching DB strings directly.
 
-No plain string literals for values that have a fixed vocabulary — define a `StrEnum`.
+Prefer null-check patterns (data presence) over status enums for processing state — see `docs/medallion-guidelines.md` Processing Discovery section. Use StrEnum only for fixed vocabularies unrelated to processing state (e.g., source types).
 
 Why `StrEnum` over `Enum`: string comparison works without `.value`. DB queries, assertions, and log messages all work without coercion.
 
@@ -346,6 +354,7 @@ Helpers are private to the module (leading underscore).
 - Need retry? → tenacity inside bronze-aware wrapper
 - Need error recovery? → fail-soft with per-item catch + structured logging
 - Pure utility function? → type-annotated, no side effects, in layer 1
+- Processing state tracking? → null-check pattern (see medallion-guidelines.md). Status enum only for 3+ intermediate states.
 - Enum needed? → `StrEnum` with lowercase values
 - Constant set for membership testing? → `frozenset`
 - New I/O-bound module? → async by default. Sync only if no concurrency benefit.

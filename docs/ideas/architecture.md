@@ -59,9 +59,9 @@ All jobs are orchestrated by **Dagster**. The pipeline is structured as independ
 
 | Job | Trigger | Description |
 |-----|---------|-------------|
-| `collect_job` | Hourly schedule | Fetch references from all configured sources. Writes bronze `raw.json`, creates SilverObservation + SilverContent rows. |
-| `comments_job` | Sensor: observations need comments | Fetch comments for HN/Reddit/Lobsters observations. Writes bronze `comments.json`, stores in `comments_json` column. |
-| `content_job` | Sensor: SilverContent needs downloading | Download HTML for non-YouTube content, extract text with trafilatura. |
+| `collect_job` | Hourly schedule | Fetch discussions from all configured sources. Writes bronze `raw.json`, creates SilverDiscussion + SilverContent rows. |
+| `comments_job` | Sensor: discussions need comments | Fetch comments for HN/Reddit/Lobsters discussions. Writes bronze `comments.json`, stores in `comments_json` column. |
+| `webpage_job` | Sensor: SilverContent needs downloading | Download HTML for non-YouTube content, extract text with trafilatura. |
 | `transcribe_job` | Sensor: YouTube content needs transcription | Download audio, transcribe with faster-whisper, store transcript. Resilient: reuses cached audio/whisper.json. |
 | `enrich_job` | Sensor: SilverContent not yet enriched | Search HN/Lobsters for cross-source discussions about collected URLs. |
 | `reprocess_job` | Manual trigger | Rebuild silver from bronze `raw.json` files without hitting external APIs. |
@@ -70,10 +70,10 @@ All jobs are orchestrated by **Dagster**. The pipeline is structured as independ
 
 Each collector implements two methods:
 
-- `collect_references()` — fetch feed from API, write `raw.json` to bronze, return list of `ContentReference`
-- `process_reference()` — normalize one bronze reference into silver rows (SilverContent + SilverObservation)
+- `collect_discussions()` — fetch feed from API, write `raw.json` to bronze, return list of `DiscussionRef`
+- `process_discussion()` — normalize one bronze discussion into silver rows (SilverContent + SilverDiscussion)
 
-The separation allows `reprocess_job` to call `process_reference()` alone, reading from bronze without touching APIs.
+The separation allows `reprocess_job` to call `process_discussion()` alone, reading from bronze without touching APIs.
 
 ### Self-Post Handling
 

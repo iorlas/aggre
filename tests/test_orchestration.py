@@ -10,15 +10,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aggre.dagster_defs.collection.job import collect_all_sources as _collect_op
+from aggre.dagster_defs.collection.job import collect_source
 from aggre.dagster_defs.comments.job import fetch_comments as _comments_op
 from tests.factories import make_config
 
 pytestmark = pytest.mark.integration
 
-# Extract the raw Python functions from the Dagster @op wrappers so we can call
-# them directly with a MagicMock context, bypassing Dagster's invocation validation.
-collect_all_sources = _collect_op.compute_fn.decorated_fn  # type: ignore[union-attr]
+# Extract the raw Python function from the Dagster @op wrapper so we can call
+# it directly with a MagicMock context, bypassing Dagster's invocation validation.
 fetch_comments = _comments_op.compute_fn.decorated_fn  # type: ignore[union-attr]
 
 
@@ -43,129 +42,69 @@ def _mock_context(engine: object) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# collect_all_sources
+# collect_source
 # ---------------------------------------------------------------------------
 
 
-class TestCollectAllSources:
-    @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_calls_all_configured_collectors(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
-        """All collectors in COLLECTORS dict are instantiated and called."""
-        mock_load_config.return_value = make_config()
-
-        mock_hn_cls = MagicMock()
-        mock_hn_instance = mock_hn_cls.return_value
-        mock_hn_instance.collect_references.return_value = [
+class TestCollectSource:
+    def test_calls_collector(self) -> None:
+        """Collector is instantiated, collect_discussions and process_discussion called."""
+        cfg = make_config()
+        mock_cls = MagicMock()
+        mock_instance = mock_cls.return_value
+        mock_instance.collect_discussions.return_value = [
             {"raw_data": {"objectID": "1"}, "source_id": 1, "external_id": "1"},
         ]
 
-        mock_reddit_cls = MagicMock()
-        mock_reddit_instance = mock_reddit_cls.return_value
-        mock_reddit_instance.collect_references.return_value = [
-            {"raw_data": {"name": "t3_abc"}, "source_id": 2, "external_id": "abc"},
-        ]
-
-        mock_collectors.items.return_value = {
-            "hackernews": mock_hn_cls,
-            "reddit": mock_reddit_cls,
-        }.items()
-
-        ctx = _mock_context(MagicMock())
-        result = collect_all_sources(ctx)
-
-        assert result == 2
-        mock_hn_instance.collect_references.assert_called_once()
-        mock_reddit_instance.collect_references.assert_called_once()
-        mock_hn_instance.process_reference.assert_called_once()
-        mock_reddit_instance.process_reference.assert_called_once()
-
-    @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_isolates_errors_per_source(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
-        """One collector throwing does not stop others from running."""
-        mock_load_config.return_value = make_config()
-
-        # First collector raises during collect_references
-        mock_failing_cls = MagicMock()
-        mock_failing_cls.return_value.collect_references.side_effect = RuntimeError("boom")
-
-        # Second collector succeeds
-        mock_ok_cls = MagicMock()
-        mock_ok_instance = mock_ok_cls.return_value
-        mock_ok_instance.collect_references.return_value = [
-            {"raw_data": {"id": "x"}, "source_id": 1, "external_id": "x"},
-        ]
-
-        mock_collectors.items.return_value = {
-            "hackernews": mock_failing_cls,
-            "reddit": mock_ok_cls,
-        }.items()
-
-        ctx = _mock_context(MagicMock())
-        result = collect_all_sources(ctx)
+        engine = MagicMock()
+        result = collect_source(engine, cfg, "hackernews", mock_cls)
 
         assert result == 1
-        mock_ok_instance.collect_references.assert_called_once()
-        mock_ok_instance.process_reference.assert_called_once()
+        mock_instance.collect_discussions.assert_called_once()
+        mock_instance.process_discussion.assert_called_once()
 
-    @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_isolates_errors_per_reference(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
-        """One ref failing process_reference does not stop other refs."""
-        mock_load_config.return_value = make_config()
-
+    def test_isolates_errors_per_reference(self) -> None:
+        """One ref failing process_discussion does not stop other refs."""
+        cfg = make_config()
         mock_cls = MagicMock()
         mock_instance = mock_cls.return_value
-        mock_instance.collect_references.return_value = [
+        mock_instance.collect_discussions.return_value = [
             {"raw_data": {"id": "1"}, "source_id": 1, "external_id": "1"},
             {"raw_data": {"id": "2"}, "source_id": 1, "external_id": "2"},
             {"raw_data": {"id": "3"}, "source_id": 1, "external_id": "3"},
         ]
-        # Second call to process_reference raises
-        mock_instance.process_reference.side_effect = [None, RuntimeError("bad ref"), None]
+        # Second call to process_discussion raises
+        mock_instance.process_discussion.side_effect = [None, RuntimeError("bad ref"), None]
 
-        mock_collectors.items.return_value = {"hackernews": mock_cls}.items()
-
-        # engine.begin() must return a context-manager mock
-        mock_engine = MagicMock()
-        ctx = _mock_context(mock_engine)
-        result = collect_all_sources(ctx)
+        engine = MagicMock()
+        result = collect_source(engine, cfg, "hackernews", mock_cls)
 
         # First and third succeed, second fails -> 2 processed
         assert result == 2
-        assert mock_instance.process_reference.call_count == 3
+        assert mock_instance.process_discussion.call_count == 3
 
-    @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_returns_total_count(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
-        """Return value is the sum of all successfully processed references."""
-        mock_load_config.return_value = make_config()
-
-        mock_a_cls = MagicMock()
-        mock_a_cls.return_value.collect_references.return_value = [
+    def test_returns_count(self) -> None:
+        """Return value matches number of successfully processed refs."""
+        cfg = make_config()
+        mock_cls = MagicMock()
+        mock_cls.return_value.collect_discussions.return_value = [
             {"raw_data": {}, "source_id": 1, "external_id": "a1"},
             {"raw_data": {}, "source_id": 1, "external_id": "a2"},
+            {"raw_data": {}, "source_id": 1, "external_id": "a3"},
         ]
 
-        mock_b_cls = MagicMock()
-        mock_b_cls.return_value.collect_references.return_value = [
-            {"raw_data": {}, "source_id": 2, "external_id": "b1"},
-        ]
-
-        mock_c_cls = MagicMock()
-        mock_c_cls.return_value.collect_references.return_value = []
-
-        mock_collectors.items.return_value = {
-            "hackernews": mock_a_cls,
-            "reddit": mock_b_cls,
-            "lobsters": mock_c_cls,
-        }.items()
-
-        ctx = _mock_context(MagicMock())
-        result = collect_all_sources(ctx)
+        result = collect_source(MagicMock(), cfg, "hackernews", mock_cls)
 
         assert result == 3
+
+    def test_source_error_propagates(self) -> None:
+        """collect_discussions raising propagates — Dagster retry handles it."""
+        cfg = make_config()
+        mock_cls = MagicMock()
+        mock_cls.return_value.collect_discussions.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            collect_source(MagicMock(), cfg, "hackernews", mock_cls)
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
-from aggre.db import SilverContent, SilverObservation
+from aggre.db import SilverContent, SilverDiscussion
 from tests.factories import (
     hn_comment_child,
     hn_hit,
@@ -18,7 +18,7 @@ from tests.factories import (
     hn_search_response,
     make_config,
 )
-from tests.helpers import collect, get_observations, get_sources
+from tests.helpers import collect, get_discussions, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -41,7 +41,7 @@ class TestHackernewsCollectorDiscussions:
 
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].title == "Test Story"
         assert items[0].author == "pg"
@@ -72,9 +72,9 @@ class TestHackernewsCollectorDiscussions:
             count2 = collect(collector, engine, config.hackernews, config.settings)
 
         assert count1 == 1
-        assert count2 == 1  # collect_references returns refs regardless; dedup is in upsert
+        assert count2 == 1  # collect_discussions returns refs regardless; dedup is in upsert
 
-        assert len(get_observations(engine)) == 1
+        assert len(get_discussions(engine)) == 1
 
     def test_multiple_stories(self, engine, mock_http):
         config = make_config(
@@ -110,7 +110,7 @@ class TestHackernewsCollectorDiscussions:
             collect(collector, engine, config.hackernews, config.settings)
 
         with engine.connect() as conn:
-            item = conn.execute(sa.select(SilverObservation)).fetchone()
+            item = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert item.url == "https://news.ycombinator.com/item?id=999"
             # Self-posts now create SilverContent with text populated
             assert item.content_id is not None
@@ -156,8 +156,8 @@ class TestHackernewsCollectorComments:
 
         assert fetched == 1
 
-        # Verify comments stored as JSON on SilverObservation
-        items = get_observations(engine)
+        # Verify comments stored as JSON on SilverDiscussion
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].comments_json is not None
         comments_data = json.loads(items[0].comments_json)
@@ -193,7 +193,7 @@ class TestHackernewsCollectorComments:
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert items[0].comments_json is not None
         comments_data = json.loads(items[0].comments_json)
         # Top-level has 1 child (parent comment)
@@ -246,7 +246,7 @@ class TestHackernewsCollectorComments:
 
         assert fetched == 2
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         done = [i for i in items if i.comments_json is not None]
         pending = [i for i in items if i.comments_json is None]
         assert len(done) == 2
@@ -271,7 +271,7 @@ class TestHackernewsSearchByUrl:
 
         assert found == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].source_type == "hackernews"
 

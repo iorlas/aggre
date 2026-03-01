@@ -19,7 +19,7 @@ from aggre.collectors.rss.config import RssConfig
 from aggre.collectors.telegram.config import TelegramConfig
 from aggre.collectors.youtube.config import YoutubeConfig
 from aggre.config import AppConfig
-from aggre.db import SilverContent, SilverObservation, Source
+from aggre.db import SilverContent, SilverDiscussion, Source
 from aggre.settings import Settings
 
 # ===========================================================================
@@ -33,6 +33,7 @@ def seed_content(
     *,
     domain: str | None = None,
     text: str | None = None,
+    original_url: str | None = None,
 ) -> int:
     """Insert a SilverContent row. Returns the row id."""
     with engine.begin() as conn:
@@ -40,13 +41,14 @@ def seed_content(
             canonical_url=url,
             domain=domain,
             text=text,
+            original_url=original_url,
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
         result = conn.execute(stmt)
         return result.inserted_primary_key[0]
 
 
-def seed_observation(
+def seed_discussion(
     engine: sa.engine.Engine,
     *,
     source_type: str,
@@ -62,9 +64,9 @@ def seed_observation(
     comment_count: int | None = None,
     source_id: int | None = None,
 ) -> int:
-    """Insert a SilverObservation row. Returns the row id."""
+    """Insert a SilverDiscussion row. Returns the row id."""
     with engine.begin() as conn:
-        stmt = pg_insert(SilverObservation).values(
+        stmt = pg_insert(SilverDiscussion).values(
             source_type=source_type,
             external_id=external_id,
             content_id=content_id,

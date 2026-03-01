@@ -16,7 +16,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from aggre.collectors.base import BaseCollector, ContentReference
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.reddit.config import RedditConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
@@ -76,14 +76,14 @@ class RedditCollector(BaseCollector):
 
     source_type = "reddit"
 
-    def collect_references(
+    def collect_discussions(
         self,
         engine: sa.engine.Engine,
         config: RedditConfig,
         settings: Settings,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         """Fetch post listings, write bronze, return references with source_ids."""
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
         rate_limit = settings.reddit_rate_limit
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
@@ -115,7 +115,7 @@ class RedditCollector(BaseCollector):
                 for ext_id, post_data in posts_by_id.items():
                     self._write_bronze(ext_id, post_data)
                     refs.append(
-                        ContentReference(
+                        DiscussionRef(
                             external_id=ext_id,
                             raw_data=post_data,
                             source_id=source_id,
@@ -127,7 +127,7 @@ class RedditCollector(BaseCollector):
 
         return refs
 
-    def process_reference(
+    def process_discussion(
         self,
         ref_data: dict[str, object],
         conn: sa.Connection,
@@ -175,7 +175,7 @@ class RedditCollector(BaseCollector):
             score=post_data.get("score", 0),
             comment_count=post_data.get("num_comments", 0),
         )
-        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
     def collect_comments(
         self,

@@ -212,12 +212,12 @@ class TestNormalizeUrl:
 
 **Location:**
 - **`tests/factories.py`** — centralized test data factories (replaces per-file `_make_*` helpers):
-  - DB seeders: `seed_content()`, `seed_observation()`, `seed_source()`
+  - DB seeders: `seed_content()`, `seed_discussion()`, `seed_source()`
   - API response builders: `hn_hit()`, `hn_search_response()`, `reddit_post()`, `reddit_listing()`, `lobsters_story()`, `rss_entry()`, `rss_feed()`, `youtube_entry()`, `hf_paper()`, `telegram_message()`
   - Config: `make_config()` — builds `AppConfig` with sensible defaults for any collector
 - **`tests/helpers.py`** — shared test utilities:
-  - `collect(collector, engine, config, settings)` — run collector end-to-end (collect_references + process_reference)
-  - `get_observations(engine, **filters)` — query SilverObservation rows with optional column filters
+  - `collect(collector, engine, config, settings)` — run collector end-to-end (collect_discussions + process_discussion)
+  - `get_discussions(engine, **filters)` — query SilverDiscussion rows with optional column filters
   - `get_contents(engine, **filters)` — query SilverContent rows with optional column filters
   - `get_sources(engine, **filters)` — query Source rows with optional column filters
   - `assert_tracking(engine, source, external_id, stage, expected_status)` — assert a StageTracking row exists with expected status
@@ -306,7 +306,7 @@ pytest tests/ --cov=aggre --cov-report=term
 **Database Verification Pattern:**
 ```python
 with engine.connect() as conn:
-    rows = conn.execute(sa.select(SilverObservation)).fetchall()
+    rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
     assert len(rows) == 1
     assert rows[0].title == "Test Story"
     assert rows[0].comments_json is None  # needs comment fetching

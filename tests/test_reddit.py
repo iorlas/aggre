@@ -19,7 +19,7 @@ from tests.factories import (
     reddit_listing,
     reddit_post,
 )
-from tests.helpers import collect, get_observations, get_sources
+from tests.helpers import collect, get_discussions, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -37,7 +37,7 @@ class TestRedditCollectorDiscussions:
 
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].title == "Test Post"
         assert items[0].author == "testuser"
@@ -65,7 +65,7 @@ class TestRedditCollectorDiscussions:
 
         assert count == 1
 
-        assert len(get_observations(engine)) == 1
+        assert len(get_discussions(engine)) == 1
 
     def test_multiple_unique_posts(self, engine, mock_http):
         post1 = reddit_post(post_id="aaa", title="First")
@@ -79,10 +79,10 @@ class TestRedditCollectorDiscussions:
 
         assert count == 2
 
-        assert len(get_observations(engine)) == 2
+        assert len(get_discussions(engine)) == 2
 
     def test_collect_does_not_fetch_comments(self, engine, mock_http):
-        """collect_references() should only make listing requests, not comment requests."""
+        """collect_discussions() should only make listing requests, not comment requests."""
         post = reddit_post()
         listing = reddit_listing(post)
 
@@ -99,7 +99,7 @@ class TestRedditCollectorDiscussions:
         assert not comment_route.called
 
         # But comments should be pending (comments_json not yet fetched)
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].comments_json is None
 
@@ -130,8 +130,8 @@ class TestRedditCollectorComments:
 
         assert fetched == 1
 
-        # Verify comments are stored as JSON on SilverObservation
-        items = get_observations(engine)
+        # Verify comments are stored as JSON on SilverDiscussion
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].comments_json is not None
         comments_data = json.loads(items[0].comments_json)
@@ -172,7 +172,7 @@ class TestRedditCollectorComments:
         assert fetched == 2
 
         # One should still be pending
-        items = get_observations(engine)
+        items = get_discussions(engine)
         done = [i for i in items if i.comments_json is not None]
         pending = [i for i in items if i.comments_json is None]
         assert len(done) == 2
@@ -217,7 +217,7 @@ class TestRedditCollectorComments:
         with patch("aggre.collectors.reddit.collector.time.sleep"):
             RedditCollector().collect_comments(engine, config.reddit, config.settings, batch_limit=10)
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert items[0].comments_json is not None
         comments_data = json.loads(items[0].comments_json)
         # The top-level children list has 1 comment (parent_comment)
@@ -385,7 +385,7 @@ class TestRedditCollectorSources:
 
 class TestRedditCollectorProxy:
     def test_collect_passes_proxy_url_to_http_client(self, engine, mock_http):
-        """collect_references() should pass proxy_url from config to create_http_client."""
+        """collect_discussions() should pass proxy_url from config to create_http_client."""
         listing = reddit_listing()
         mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
@@ -406,7 +406,7 @@ class TestRedditCollectorProxy:
         mock_factory.assert_called_with(proxy_url="socks5://tor-proxy:9150")
 
     def test_collect_passes_none_when_proxy_empty(self, engine, mock_http):
-        """collect_references() should pass proxy_url=None when config has empty proxy_url."""
+        """collect_discussions() should pass proxy_url=None when config has empty proxy_url."""
         listing = reddit_listing()
         mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)

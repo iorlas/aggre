@@ -11,9 +11,9 @@ import sqlalchemy as sa
 
 from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
-from aggre.db import SilverContent, SilverObservation, Source
+from aggre.db import SilverContent, SilverDiscussion, Source
 from tests.factories import make_config, youtube_entry
-from tests.helpers import collect, get_observations, get_sources
+from tests.helpers import collect, get_discussions, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -57,7 +57,7 @@ class TestYoutubeCollector:
         assert count == 2
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 2
 
             item1 = rows[0]
@@ -106,7 +106,7 @@ class TestYoutubeCollector:
             collect(collector, engine, config.youtube, config.settings)
 
         # Verify discussions exist in silver
-        assert len(get_observations(engine)) == 2
+        assert len(get_discussions(engine)) == 2
 
     def test_dedup_does_not_insert_duplicates(self, engine):
         config = _default_config()
@@ -118,9 +118,9 @@ class TestYoutubeCollector:
             count2 = collect(collector, engine, config.youtube, config.settings)
 
         assert count1 == 2
-        assert count2 == 2  # collect_references returns all API items; dedup is in upsert
+        assert count2 == 2  # collect_discussions returns all API items; dedup is in upsert
 
-        assert len(get_observations(engine)) == 2
+        assert len(get_discussions(engine)) == 2
 
     def test_collect_reuses_existing_source(self, engine):
         config = _default_config()
@@ -233,7 +233,7 @@ class TestYoutubeCollector:
             collector = YoutubeCollector()
             collect(collector, engine, config.youtube, config.settings)
 
-        rows = get_observations(engine)
+        rows = get_discussions(engine)
         assert rows[0].url == "https://www.youtube.com/watch?v=vid_nourl"
 
     def test_recollect_fills_published_at(self, engine):
@@ -251,7 +251,7 @@ class TestYoutubeCollector:
             collector = YoutubeCollector()
             collect(collector, engine, config.youtube, config.settings)
 
-        rows = get_observations(engine)
+        rows = get_discussions(engine)
         assert all(r.published_at is None for r in rows)
 
         # Second collection: same videos now have upload_date
@@ -262,7 +262,7 @@ class TestYoutubeCollector:
             collect(collector, engine, config.youtube, config.settings)
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation).order_by(SilverObservation.external_id)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)).fetchall()
             assert len(rows) == 2
             assert rows[0].published_at == "2024-01-15"
             assert rows[1].published_at == "2024-01-20"

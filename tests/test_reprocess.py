@@ -9,7 +9,7 @@ import pytest
 import sqlalchemy as sa
 
 from aggre.dagster_defs.reprocess.job import reprocess_from_bronze
-from aggre.db import SilverObservation, Source
+from aggre.db import SilverDiscussion, Source
 from tests.factories import hn_hit, lobsters_story
 
 pytestmark = pytest.mark.integration
@@ -22,7 +22,7 @@ class TestReprocessFromBronze:
         assert count == 0
 
     def test_reprocesses_single_source_type(self, engine, tmp_bronze):
-        """Write HN raw.json, verify SilverObservation created."""
+        """Write HN raw.json, verify SilverDiscussion created."""
         hn_dir = tmp_bronze / "hackernews" / "12345"
         hn_dir.mkdir(parents=True)
 
@@ -33,7 +33,7 @@ class TestReprocessFromBronze:
         assert count == 1
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 1
             assert rows[0].source_type == "hackernews"
             assert rows[0].external_id == "12345"
@@ -56,7 +56,7 @@ class TestReprocessFromBronze:
         assert count == 2
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation).order_by(SilverObservation.source_type)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.source_type)).fetchall()
             assert len(rows) == 2
 
             source_types = {r.source_type for r in rows}
@@ -96,7 +96,7 @@ class TestReprocessFromBronze:
         assert count == 1
 
         with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation)).fetchall()
+            rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
             assert len(rows) == 1
             assert rows[0].external_id == "good"
 
@@ -120,6 +120,6 @@ class TestReprocessFromBronze:
             assert len(sources) == 1
             assert sources[0].type == "hackernews"
 
-            # Observation should reference the created source
-            obs = conn.execute(sa.select(SilverObservation)).fetchone()
+            # Discussion should reference the created source
+            obs = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert obs.source_id == sources[0].id

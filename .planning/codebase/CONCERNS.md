@@ -29,15 +29,15 @@
 - Fix approach: Use a database-level RETURNING clause or move to application-level UUID generation; add test for concurrent inserts
 
 **Upsert Logic Complexity in BaseCollector:**
-- Issue: The `_upsert_observation()` method queries for existing records, then performs an upsert, then queries again to get the ID. This is inefficient and the logic for detecting "new" vs "existing" is fragile.
+- Issue: The `_upsert_discussion()` method queries for existing records, then performs an upsert, then queries again to get the ID. This is inefficient and the logic for detecting "new" vs "existing" is fragile.
 - Files: `src/aggre/collectors/base.py:102-135`
 - Impact: Three database round-trips per upsert; if the record is inserted between first check and upsert, the return value becomes unreliable; unnecessary SELECT queries during bulk operations
 - Fix approach: Use PostgreSQL RETURNING clause with INSERT...ON CONFLICT directly; simplify by always returning the ID; profile query performance
 
 **Transcription Status Spread Across Two Tables:**
-- Issue: Transcription status and error live on `SilverContent` (lines 58-60 in `db.py`), but the transcriber joins `SilverObservation` to find what to transcribe. This creates a split concern: the content owns the state, but discussions own the reference.
+- Issue: Transcription status and error live on `SilverContent` (lines 58-60 in `db.py`), but the transcriber joins `SilverDiscussion` to find what to transcribe. This creates a split concern: the content owns the state, but discussions own the link.
 - Files: `src/aggre/db.py:57-60`, `src/aggre/transcriber.py:61-74`, `src/aggre/collectors/youtube.py:84-90`
-- Impact: Status updates require updates to SilverContent while querying SilverObservation; if a content is linked to multiple discussions (cross-source), status visibility is ambiguous; risk of transcription status inconsistency
+- Impact: Status updates require updates to SilverContent while querying SilverDiscussion; if a content is linked to multiple discussions (cross-source), status visibility is ambiguous; risk of transcription status inconsistency
 - Fix approach: Clarify whether transcription is per-discussion or per-content; if per-content, move filtering logic to identify unique content_ids; add test for multi-discussion scenarios
 
 **Enrichment Partial Failure Handling:**
@@ -67,7 +67,7 @@
 - Workaround: Currently must manually set YouTube discussion comments_json or error to skip them
 
 **Transcriber Only Processes YouTube via JOIN:**
-- Symptoms: Only YouTube videos can be transcribed because the transcriber queries `SilverObservation` with source_type filter. If another source (RSS, HN) links to video content, that content is never transcribed.
+- Symptoms: Only YouTube videos can be transcribed because the transcriber queries `SilverDiscussion` with source_type filter. If another source (RSS, HN) links to video content, that content is never transcribed.
 - Files: `src/aggre/dagster_defs/transcription/job.py`
 - Trigger: Add RSS feed with video links; fetch content; run transcriber; videos won't be transcribed
 - Workaround: Transcription sensor now checks `domain = 'youtube.com'` + null-check pattern (`text IS NULL AND error IS NULL`); non-YouTube video content needs manual intervention
@@ -89,7 +89,7 @@
 **Raw HTML Storage:**
 - Raw HTML is stored in bronze filesystem (`data/bronze/content/{url_hash}/response.html`), not in PostgreSQL.
 - Risk is mitigated: HTML is extracted into `text` by trafilatura (which strips HTML). Raw HTML stays in bronze (immutable filesystem layer), never served directly.
-- Files: `src/aggre/dagster_defs/content/job.py`, `src/aggre/utils/bronze.py`
+- Files: `src/aggre/dagster_defs/webpage/job.py`, `src/aggre/utils/bronze.py`
 
 **JSON Parsing Without Size Limits:**
 - Risk: Comments are stored as raw JSON strings. If a discussion has thousands of comments, the JSON could be very large and cause memory pressure during parsing.
@@ -142,7 +142,7 @@
 - Safe modification: Create a protocol/interface that all collectors must implement (even if no-op); validate at startup; add type hints
 - Test coverage: No unit tests for comment collection flow; only tested via acceptance tests
 
-**BaseCollector._upsert_observation Double Query:**
+**BaseCollector._upsert_discussion Double Query:**
 - Files: `src/aggre/collectors/base.py:109-135`
 - Why fragile: Logic relies on state from first query to decide what was inserted, but the upsert could have been done by another process. The second query is a fallback that could also fail in edge cases.
 - Safe modification: Refactor to use RETURNING clause; add transaction isolation level validation; test under concurrent load
@@ -203,7 +203,7 @@
 **trafilatura Extraction Fragility:**
 - Risk: Web page structures change; trafilatura heuristics may not work on custom layouts. Content extraction could silently return empty or truncated text.
 - Impact: `text` is empty for many articles; users see no content; no signal that extraction failed vs page had no content
-- Files: `src/aggre/dagster_defs/content/job.py`
+- Files: `src/aggre/dagster_defs/webpage/job.py`
 - Migration plan: Add fallback extraction method (readability, newspaper3k); validate extraction quality (e.g., min word count); log extraction length for monitoring
 
 **faster-whisper Dependency on FFmpeg:**
@@ -248,7 +248,7 @@
 ## Test Coverage Gaps
 
 **No Tests for Concurrent Database Writes:**
-- What's not tested: Race conditions in `ensure_content()`, `_upsert_observation()` under concurrent inserts
+- What's not tested: Race conditions in `ensure_content()`, `_upsert_discussion()` under concurrent inserts
 - Files: `src/aggre/urls.py:128-152`, `src/aggre/collectors/base.py:102-135`
 - Risk: Bug will only surface under real-world concurrency (multiple collectors running); hard to reproduce locally
 - Priority: High — impacts data integrity

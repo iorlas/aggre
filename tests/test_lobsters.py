@@ -18,7 +18,7 @@ from tests.factories import (
     lobsters_story_detail,
     make_config,
 )
-from tests.helpers import collect, get_observations, get_sources
+from tests.helpers import collect, get_discussions, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -35,7 +35,7 @@ class TestLobstersCollectorDiscussions:
 
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].title == "Test Story"
         assert items[0].author == "testuser"
@@ -61,7 +61,7 @@ class TestLobstersCollectorDiscussions:
             count2 = collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         assert count1 == 1
-        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
+        assert count2 == 1  # collect_discussions returns all API items; dedup is in upsert
 
     def test_multiple_stories(self, engine, mock_http):
         story1 = lobsters_story(short_id="aaa", title="First")
@@ -123,8 +123,8 @@ class TestLobstersCollectorComments:
 
         assert fetched == 1
 
-        # Verify comments stored as JSON on SilverObservation
-        items = get_observations(engine)
+        # Verify comments stored as JSON on SilverDiscussion
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].comments_json is not None
         comments_data = json.loads(items[0].comments_json)
@@ -157,7 +157,7 @@ class TestLobstersCollectorComments:
             collector = LobstersCollector()
             collector.collect_comments(engine, config.lobsters, config.settings, batch_limit=10)
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert items[0].comments_json is not None
         comments_data = json.loads(items[0].comments_json)
         assert len(comments_data) == 2
@@ -199,7 +199,7 @@ class TestLobstersCollectorComments:
 
         assert fetched == 2
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         done = [i for i in items if i.comments_json is not None]
         pending = [i for i in items if i.comments_json is None]
         assert len(done) == 2
@@ -218,7 +218,7 @@ class TestLobstersSearchByUrl:
 
         assert found == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].source_type == "lobsters"
 

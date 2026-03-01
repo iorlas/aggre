@@ -114,7 +114,7 @@ def ensure_content(conn: sa.Connection, raw_url: str) -> int | None:
 
     # Create new with ON CONFLICT DO NOTHING
     domain = extract_domain(canonical)
-    stmt = pg_insert(SilverContent).values(canonical_url=canonical, domain=domain)
+    stmt = pg_insert(SilverContent).values(canonical_url=canonical, domain=domain, original_url=raw_url)
     stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
     result = conn.execute(stmt)
     if result.rowcount == 0:

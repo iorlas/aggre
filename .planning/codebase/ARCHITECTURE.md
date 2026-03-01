@@ -9,15 +9,15 @@
 ```
   Schedule (hourly)          Sensors (30-60s poll)
        |                /       |        \        \
-  collect_job     content  transcribe  enrich  comments
+  collect_job     webpage  transcribe  enrich  comments
        |            job      job        job      job
        v            v        v          v        v
   [Collectors]  [Download→ [yt-dlp→  [Search  [Fetch HN/
    HN/Reddit/   Extract]   Whisper]   HN+Lob]  Reddit/Lob
    RSS/YT/etc]      |         |         |      comments]
        |            v         v         v        v
-       v        SilverContent           SC    SilverObs
-  SilverObs       .text       .text  .enriched  .comments_json
+       v        SilverContent           SC    SilverDisc
+  SilverDisc       .text       .text  .enriched  .comments_json
   + SilverContent .title   .detected_lang  _at
     (via ensure_content)
 
@@ -27,9 +27,9 @@
 **Key Characteristics:**
 - Dagster-first orchestration: jobs, sensors, schedules, resource injection
 - Framework-first architecture: business logic lives in dagster_defs ops/jobs, no separate pipeline layer
-- Domain-aligned dagster_defs packages (collection, comments, content, enrichment, reprocess, transcription)
+- Domain-aligned dagster_defs packages (collection, comments, webpage, enrichment, reprocess, transcription)
 - Immutable raw data in bronze filesystem (JSON files)
-- Parsed discussions (SilverObservation) with optional mutable field updates
+- Parsed discussions (SilverDiscussion) with optional mutable field updates
 - Content-independent entity (SilverContent) linked from multiple discussions
 - Source-agnostic collector plugin architecture
 - Null-check pattern for processing state (data presence, not status enums)
@@ -58,11 +58,11 @@
 **Data Models (ORM):**
 - Purpose: SQLAlchemy ORM models and database schema
 - Location: `src/aggre/db.py`
-- Contains: Source, SilverObservation, SilverContent models, index definitions
+- Contains: Source, SilverDiscussion, SilverContent models, index definitions
 - Used by: All layers writing to database
 
 **Collectors (Plugin Layer):**
-- Purpose: Source-specific API clients that fetch raw data and parse to SilverObservation
+- Purpose: Source-specific API clients that fetch raw data and parse to SilverDiscussion
 - Location: `src/aggre/collectors/`
 - Contains: BaseCollector shared helpers, individual collectors (HackerNews, Reddit, RSS, YouTube, Lobsters, HuggingFace, Telegram)
 - Depends on: db, config, urls, utils/http
@@ -86,33 +86,33 @@
 
 1. Dagster schedule triggers `collect_job` hourly
 2. Each collector executes two methods sequentially:
-   - `collect_references(config, settings, log)` → fetches API data, writes bronze `raw.json` per item, returns `list[ContentReference]`
-   - `process_reference(raw_data, conn, source_id, log)` → normalizes one bronze reference into silver rows:
+   - `collect_discussions(config, settings, log)` → fetches API data, writes bronze `raw.json` per item, returns `list[DiscussionRef]`
+   - `process_discussion(raw_data, conn, source_id, log)` → normalizes one bronze discussion into silver rows:
      - `ensure_content()` → SilverContent if URL exists
-     - `_upsert_observation()` → SilverObservation (with optional updates to mutable fields)
+     - `_upsert_discussion()` → SilverDiscussion (with optional updates to mutable fields)
      - For self-posts (Reddit selftext, Ask HN with text, Lobsters self-posts): creates SilverContent with `text` pre-populated
    - `_update_last_fetched()` on Source
-3. The two-method split enables `reprocess_job` to call `process_reference()` alone from bronze
+3. The two-method split enables `reprocess_job` to call `process_discussion()` alone from bronze
 
 **Comment Fetch Flow (Dagster comments_job, triggered by comments_sensor):**
 
-1. `comments_sensor` watches for SilverObservation where `comments_json IS NULL AND error IS NULL` for HN/Reddit/Lobsters
+1. `comments_sensor` watches for SilverDiscussion where `comments_json IS NULL AND error IS NULL` for HN/Reddit/Lobsters
 2. `comments_job` runs each collector's `collect_comments()`:
    - Fetches raw API comment response
    - Writes raw response to bronze (`{source_type}/{ext_id}/comments.json`)
-   - Parses and stores in `SilverObservation.comments_json`
+   - Parses and stores in `SilverDiscussion.comments_json`
 
-**Content Fetch Flow (Dagster content_job, triggered by content_sensor):**
+**Webpage Fetch Flow (Dagster webpage_job, triggered by webpage_sensor):**
 
-1. `content_sensor` watches for SilverContent where `text IS NULL AND error IS NULL AND (domain NOT IN SKIP_DOMAINS OR domain IS NULL)` (SKIP_DOMAINS = youtube.com, youtu.be, m.youtube.com)
-2. `content_job` runs:
+1. `webpage_sensor` watches for SilverContent where `text IS NULL AND error IS NULL AND (domain NOT IN SKIP_DOMAINS OR domain IS NULL)` (SKIP_DOMAINS = youtube.com, youtu.be, m.youtube.com)
+2. `webpage_job` runs:
    - Download phase: HTTP GET → store raw HTML in bronze filesystem → set `fetched_at`
    - Extract phase: trafilatura extraction → store `text` + `title` (queries `fetched_at IS NOT NULL AND text IS NULL AND error IS NULL`)
    - Failures set `error` with error message; skipped content sets `error = 'skipped:{reason}'`
 
 **Transcription Flow (Dagster transcribe_job, triggered by transcription_sensor):**
 
-1. `transcription_sensor` watches for SilverContent where `text IS NULL AND error IS NULL` joined to SilverObservation where `source_type = 'youtube'`
+1. `transcription_sensor` watches for SilverContent where `text IS NULL AND error IS NULL` joined to SilverDiscussion where `source_type = 'youtube'`
 2. `transcribe_job` runs with whisper resilience (3-step check):
    - Step 1: If `bronze/youtube/{id}/whisper.json` exists → use cached transcription (no audio needed)
    - Step 2: If `bronze/youtube/{id}/audio.opus` exists → transcribe from cached audio (no download needed)
@@ -132,9 +132,9 @@
 
 1. Triggered manually (no sensor/schedule)
 2. Scans `data/bronze/{source_type}/*/raw.json` for all source types
-3. For each ref file: instantiates appropriate collector, calls `process_reference()`
-4. Rebuilds SilverContent + SilverObservation from bronze without touching external APIs
-5. After reprocessing, content/transcription/comment sensors detect new work → trigger their jobs
+3. For each ref file: instantiates appropriate collector, calls `process_discussion()`
+4. Rebuilds SilverContent + SilverDiscussion from bronze without touching external APIs
+5. After reprocessing, webpage/transcription/comment sensors detect new work → trigger their jobs
 
 ## State Management
 
@@ -149,19 +149,19 @@
 Three independent processing flows tracked via data presence, not status enums:
 
 1. **Content (article/paper):** `text IS NULL AND error IS NULL` → needs processing; `text IS NOT NULL` → done; `error IS NOT NULL` → failed/skipped
-2. **Transcription (video):** Same pattern, routed by join to SilverObservation where `source_type = 'youtube'`
+2. **Transcription (video):** Same pattern, routed by join to SilverDiscussion where `source_type = 'youtube'`
 3. **Comments (discussion threads):** `comments_json IS NULL AND error IS NULL` → needs fetching; `comments_json IS NOT NULL` → done
 
 ## Key Abstractions
 
 **BaseCollector:**
 - Location: `src/aggre/collectors/base.py`
-- Methods: `_ensure_source()`, `_write_bronze()`, `_upsert_observation()`, `_ensure_self_post_content()`, `_update_last_fetched()`, `_query_pending_comments()`, `_mark_comments_done()`, `_is_source_recent()`, `_get_fetch_limit()`, `_is_initialized()`
+- Methods: `_ensure_source()`, `_write_bronze()`, `_upsert_discussion()`, `_ensure_self_post_content()`, `_update_last_fetched()`, `_query_pending_comments()`, `_mark_comments_done()`, `_is_source_recent()`, `_get_fetch_limit()`, `_is_initialized()`
 
 **Collector Protocol (two-method split):**
 - Location: `src/aggre/collectors/base.py`
-- `collect_references(config, settings, log) -> list[ContentReference]` — fetch feed, write bronze, return references (no DB access)
-- `process_reference(raw_data, conn, source_id, log) -> None` — normalize one bronze reference into silver rows
+- `collect_discussions(config, settings, log) -> list[DiscussionRef]` — fetch feed, write bronze, return discussion refs (no DB access)
+- `process_discussion(raw_data, conn, source_id, log) -> None` — normalize one bronze discussion into silver rows
 - `collect_comments(engine, config, settings, log) -> int` — optional source-specific method; fetches and stores comment threads (only HN, Reddit, Lobsters implement it)
 - SearchableCollector extends: `def search_by_url(url, engine, config, settings, log) -> int`
 - The split enables `reprocess_job` to rebuild silver from bronze without hitting APIs
@@ -177,7 +177,7 @@ Three independent processing flows tracked via data presence, not status enums:
 - Handles: Race conditions via ON CONFLICT DO NOTHING + retry
 
 **State Transition Helpers:**
-- Locations: `dagster_defs/content/job.py`, `dagster_defs/transcription/job.py`
+- Locations: `dagster_defs/webpage/job.py`, `dagster_defs/transcription/job.py`
 - Pattern: Helper functions update SilverContent columns (`text`, `error`, `fetched_at`, `detected_language`) via `engine.begin()` + `sa.update()`
 - Content job: `_mark_downloaded()` sets `fetched_at`; `_mark_extracted()` sets `text` + `title`; `_mark_failed()` sets `error` + `fetched_at`; `_mark_skipped()` sets `error='skipped:{reason}'` + `fetched_at`; `_mark_extract_failed()` sets `error` + `fetched_at`
 - Transcription job: `_mark_transcribed()` sets `text` + `detected_language`; `_mark_transcription_failed()` sets `error`
@@ -215,8 +215,8 @@ Pipeline concurrency invariants (sensor exclusion, state transitions, null-check
 - Pattern: Applied per-source in collector loop
 
 **Idempotency:**
-- Duplicates: SilverObservation dedup via (source_type, external_id) unique constraint
-- Score/title updates: SilverObservation upserts mutable fields on re-insert
+- Duplicates: SilverDiscussion dedup via (source_type, external_id) unique constraint
+- Score/title updates: SilverDiscussion upserts mutable fields on re-insert
 - Content enrichment: Tracked via enriched_at flag to avoid re-searching
 
 ---

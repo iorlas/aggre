@@ -5,8 +5,10 @@ Note: ``from __future__ import annotations`` is omitted because Dagster's
 cannot resolve deferred (stringified) annotations.
 """
 
+import concurrent.futures
 import json
 import logging
+import threading
 
 import dagster as dg
 import sqlalchemy as sa
@@ -15,13 +17,24 @@ from dagster import OpExecutionContext
 from faster_whisper import WhisperModel
 
 from aggre.config import AppConfig, load_config
-from aggre.db import SilverContent, SilverObservation, update_content
+from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
 from aggre.tracking.status import Stage
 from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
 
 logger = logging.getLogger(__name__)
+
+_thread_local = threading.local()
+
+
+def _get_model(config: AppConfig, provided_model: WhisperModel | None) -> WhisperModel:
+    """Return the provided model or a thread-local one (created lazily)."""
+    if provided_model is not None:
+        return provided_model
+    if not hasattr(_thread_local, "whisper_model"):
+        _thread_local.whisper_model = create_whisper_model(config)
+    return _thread_local.whisper_model
 
 
 def create_whisper_model(config: AppConfig) -> WhisperModel:
@@ -33,33 +46,129 @@ def create_whisper_model(config: AppConfig) -> WhisperModel:
     )
 
 
+def _transcribe_one(
+    engine: sa.engine.Engine,
+    config: AppConfig,
+    item: sa.engine.Row,
+    *,
+    model: WhisperModel | None = None,
+) -> int:
+    """Transcribe a single video. Returns 1 on success, 0 on failure/skip."""
+    content_id = item.id
+    external_id = item.external_id
+    logger.info("transcribing_video external_id=%s title=%s", external_id, item.title)
+
+    # Cache check: if whisper.json exists in bronze, skip transcription
+    if bronze_exists("youtube", external_id, "whisper", "json"):
+        logger.info("transcription_cached external_id=%s", external_id)
+        cached = json.loads(read_bronze("youtube", external_id, "whisper", "json"))
+        transcript = cached["transcript"] if isinstance(cached, dict) else ""
+        language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
+        upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
+        update_content(engine, content_id, text=transcript, detected_language=language)
+        return 1
+
+    try:
+        # Check if audio already exists in bronze (from a previous partial run)
+        audio_dest = bronze_path("youtube", external_id, "audio", "opus")
+        if audio_dest.exists():
+            logger.info("audio_cached external_id=%s", external_id)
+        else:
+            # Download audio to bronze
+            audio_dest.parent.mkdir(parents=True, exist_ok=True)
+            output_path = str(audio_dest.parent / f"{external_id}.%(ext)s")
+
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": output_path,
+                "quiet": True,
+                "no_warnings": True,
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "opus",
+                        "preferredquality": "48",
+                    }
+                ],
+            }
+            if config.settings.proxy_url:
+                ydl_opts["proxy"] = config.settings.proxy_url
+                ydl_opts["source_address"] = "0.0.0.0"
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([f"https://www.youtube.com/watch?v={external_id}"])
+
+            # Find the downloaded file and move to bronze path
+            candidates = list(audio_dest.parent.glob(f"{external_id}.*"))
+            if not candidates:
+                raise FileNotFoundError(f"No downloaded file found for {external_id}")
+            audio_file = candidates[0]
+
+            # If the downloaded file isn't already at the target path, rename it
+            if audio_file != audio_dest:
+                audio_file.rename(audio_dest)
+
+        # Check audio file size (500MB limit)
+        file_size = audio_dest.stat().st_size
+        if file_size > 500 * 1024 * 1024:
+            logger.warning("audio_file_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
+            upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, "Audio file exceeds 500MB limit")
+            return 0
+
+        # Transcribe — get thread-local or provided model
+        whisper_model = _get_model(config, model)
+        segments, info = whisper_model.transcribe(str(audio_dest))
+        transcript = " ".join(seg.text for seg in segments)
+
+        # Write full whisper output to bronze
+        whisper_output = {
+            "transcript": transcript,
+            "language": info.language,
+            "language_probability": info.language_probability,
+        }
+        write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
+
+        # Store result on SilverContent
+        upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
+        update_content(engine, content_id, text=transcript, detected_language=info.language)
+
+        logger.info("transcription_complete external_id=%s", external_id)
+        return 1
+
+    except Exception as exc:
+        logger.exception("transcription_failed external_id=%s", external_id)
+        upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, str(exc))
+        return 0
+
+
 def transcribe(
     engine: sa.engine.Engine,
     config: AppConfig,
     batch_limit: int = 0,
     *,
     model: WhisperModel | None = None,
+    max_workers: int = 2,
 ) -> int:
     # Query SilverContent needing transcription: text IS NULL, YouTube domain, stage not done
     query = (
         sa.select(
             SilverContent.id,
             SilverContent.canonical_url,
-            SilverObservation.external_id,
-            SilverObservation.title,
+            SilverDiscussion.external_id,
+            SilverDiscussion.title,
         )
-        .join(SilverObservation, SilverObservation.content_id == SilverContent.id)
+        .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
         .outerjoin(
             StageTracking,
             sa.and_(
                 StageTracking.source == "youtube",
-                StageTracking.external_id == SilverObservation.external_id,
+                StageTracking.external_id == SilverDiscussion.external_id,
                 StageTracking.stage == Stage.TRANSCRIBE,
             ),
         )
         .where(
             SilverContent.text.is_(None),
-            SilverObservation.source_type == "youtube",
+            SilverDiscussion.source_type == "youtube",
             sa.or_(
                 StageTracking.id.is_(None),
                 retry_filter(StageTracking, Stage.TRANSCRIBE),
@@ -73,96 +182,17 @@ def transcribe(
     with engine.connect() as conn:
         pending = conn.execute(query).fetchall()
 
+    if max_workers <= 1:
+        processed = 0
+        for item in pending:
+            processed += _transcribe_one(engine, config, item, model=model)
+        return processed
+
     processed = 0
-
-    for item in pending:
-        content_id = item.id
-        external_id = item.external_id
-        logger.info("transcribing_video external_id=%s title=%s", external_id, item.title)
-
-        # Cache check: if whisper.json exists in bronze, skip transcription
-        if bronze_exists("youtube", external_id, "whisper", "json"):
-            logger.info("transcription_cached external_id=%s", external_id)
-            cached = json.loads(read_bronze("youtube", external_id, "whisper", "json"))
-            transcript = cached["transcript"] if isinstance(cached, dict) else ""
-            language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
-            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
-            update_content(engine, content_id, text=transcript, detected_language=language)
-            processed += 1
-            continue
-
-        try:
-            # Check if audio already exists in bronze (from a previous partial run)
-            audio_dest = bronze_path("youtube", external_id, "audio", "opus")
-            if audio_dest.exists():
-                logger.info("audio_cached external_id=%s", external_id)
-            else:
-                # Download audio to bronze
-                audio_dest.parent.mkdir(parents=True, exist_ok=True)
-                output_path = str(audio_dest.parent / f"{external_id}.%(ext)s")
-
-                ydl_opts = {
-                    "format": "bestaudio/best",
-                    "outtmpl": output_path,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "postprocessors": [
-                        {
-                            "key": "FFmpegExtractAudio",
-                            "preferredcodec": "opus",
-                            "preferredquality": "48",
-                        }
-                    ],
-                }
-                if config.settings.proxy_url:
-                    ydl_opts["proxy"] = config.settings.proxy_url
-                    ydl_opts["source_address"] = "0.0.0.0"
-
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([f"https://www.youtube.com/watch?v={external_id}"])
-
-                # Find the downloaded file and move to bronze path
-                candidates = list(audio_dest.parent.glob(f"{external_id}.*"))
-                if not candidates:
-                    raise FileNotFoundError(f"No downloaded file found for {external_id}")
-                audio_file = candidates[0]
-
-                # If the downloaded file isn't already at the target path, rename it
-                if audio_file != audio_dest:
-                    audio_file.rename(audio_dest)
-
-            # Check audio file size (500MB limit)
-            file_size = audio_dest.stat().st_size
-            if file_size > 500 * 1024 * 1024:
-                logger.warning("audio_file_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
-                upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, "Audio file exceeds 500MB limit")
-                continue
-
-            # Transcribe — create model on first use if not provided
-            if model is None:
-                model = create_whisper_model(config)
-            segments, info = model.transcribe(str(audio_dest))
-            transcript = " ".join(seg.text for seg in segments)
-
-            # Write full whisper output to bronze
-            whisper_output = {
-                "transcript": transcript,
-                "language": info.language,
-                "language_probability": info.language_probability,
-            }
-            write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
-
-            # Store result on SilverContent
-            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
-            update_content(engine, content_id, text=transcript, detected_language=info.language)
-
-            logger.info("transcription_complete external_id=%s", external_id)
-            processed += 1
-
-        except Exception as exc:
-            logger.exception("transcription_failed external_id=%s", external_id)
-            upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, str(exc))
-
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_transcribe_one, engine, config, item, model=model) for item in pending]
+        for future in concurrent.futures.as_completed(futures):
+            processed += future.result()
     return processed
 
 

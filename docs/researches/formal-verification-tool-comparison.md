@@ -1,6 +1,6 @@
 # Formal Verification PoC — TLA+, Quint, FizzBee
 
-Comparison of three formal verification tools modeling the Aggre pipeline's null-check queue pattern. Each tool modeled the **content pipeline** (parallel workers, two-phase download+extract) and the **enrichment pipeline** (sequential, multi-platform with a known partial failure bug).
+Comparison of three formal verification tools modeling the Aggre pipeline's null-check queue pattern. Each tool modeled the **webpage pipeline** (parallel workers, two-phase download+extract) and the **enrichment pipeline** (sequential, multi-platform with a known partial failure bug).
 
 Date: 2026-03-01
 

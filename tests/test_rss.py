@@ -9,9 +9,9 @@ import sqlalchemy as sa
 
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
-from aggre.db import SilverObservation, Source
+from aggre.db import SilverDiscussion, Source
 from tests.factories import make_config, rss_entry, rss_feed
-from tests.helpers import collect, get_observations, get_sources
+from tests.helpers import collect, get_discussions, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -37,8 +37,8 @@ class TestRssCollector:
         assert count == 1
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
 
-        # Check silver_observations
-        rows = get_observations(engine)
+        # Check silver_discussions
+        rows = get_discussions(engine)
         assert len(rows) == 1
         assert rows[0].title == "First Post"
         assert rows[0].author == "Bob"
@@ -60,9 +60,9 @@ class TestRssCollector:
             count2 = collect(collector, engine, config.rss, config.settings)
 
         assert count1 == 1
-        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
+        assert count2 == 1  # collect_discussions returns all API items; dedup is in upsert
 
-        assert len(get_observations(engine)) == 1
+        assert len(get_discussions(engine)) == 1
 
     def test_source_row_created(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
@@ -119,7 +119,7 @@ class TestRssCollector:
 
         assert count == 3
 
-        assert len(get_observations(engine)) == 3
+        assert len(get_discussions(engine)) == 3
 
     def test_entry_uses_link_as_fallback_id(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
@@ -134,7 +134,7 @@ class TestRssCollector:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverObservation.external_id)).fetchone()
+            row = conn.execute(sa.select(SilverDiscussion.external_id)).fetchone()
             assert row[0] == "https://example.com/post-42"
 
     def test_multiple_feeds(self, engine):

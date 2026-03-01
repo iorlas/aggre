@@ -14,7 +14,7 @@ Reusable abstract module capturing the shared null-check queue pattern used acro
 This module defines the pattern but is not directly model-checked; the concrete pipeline specs below instantiate it.
 
 ### ContentPipeline.tla
-Models the two-phase content pipeline from `dagster_defs/content/job.py`:
+Models the two-phase webpage pipeline from `dagster_defs/webpage/job.py`:
 - **Phase 1 (Download)**: Parallel workers (ThreadPoolExecutor) query `WHERE text IS NULL AND error IS NULL AND fetched_at IS NULL`, download HTML, atomically set `fetched_at` (or `error`)
 - **Phase 2 (Extract)**: Sequential processing queries `WHERE text IS NULL AND error IS NULL AND fetched_at IS NOT NULL`, extracts text, sets `text` (or `error`)
 - **Sensor**: Singleton guard prevents concurrent job runs

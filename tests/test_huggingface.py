@@ -9,7 +9,7 @@ import pytest
 from aggre.collectors.huggingface.collector import HuggingfaceCollector
 from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource
 from tests.factories import hf_paper, make_config
-from tests.helpers import collect, get_observations, get_sources
+from tests.helpers import collect, get_discussions, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -25,7 +25,7 @@ class TestHuggingfaceCollectorDiscussions:
 
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].title == "Test Paper"
         assert items[0].content_text == "A summary of the paper."
@@ -48,7 +48,7 @@ class TestHuggingfaceCollectorDiscussions:
         count2 = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert count1 == 1
-        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
+        assert count2 == 1  # collect_discussions returns all API items; dedup is in upsert
 
     def test_multiple_papers(self, engine, mock_http):
         papers = [
@@ -92,7 +92,7 @@ class TestHuggingfaceCollectorDiscussions:
 
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert items[0].author is None
 
 

@@ -10,7 +10,7 @@
 │   ├── __init__.py               # Package version
 │   ├── cli.py                    # Click CLI (telegram-auth only)
 │   ├── config.py                 # YAML config loading + pydantic Settings
-│   ├── db.py                     # SQLAlchemy ORM models (Source, SilverObservation, SilverContent)
+│   ├── db.py                     # SQLAlchemy ORM models (Source, SilverDiscussion, SilverContent)
 │   ├── settings.py               # Pydantic settings with env var overrides
 │   ├── urls.py                   # URL normalization and SilverContent management
 │   ├── utils/                    # Generic reusable helpers (no Aggre-specific logic)
@@ -42,10 +42,10 @@
 │       │   ├── __init__.py
 │       │   ├── job.py            # comments_job (HN/Reddit/Lobsters comments)
 │       │   └── sensor.py         # comments_sensor (watches pending comments)
-│       ├── content/              # Content fetch domain
+│       ├── webpage/              # Webpage fetch domain
 │       │   ├── __init__.py
-│       │   ├── job.py            # content_job (download + extract) + business logic
-│       │   └── sensor.py         # content_sensor (watches pending downloads)
+│       │   ├── job.py            # webpage_job (download + extract) + business logic
+│       │   └── sensor.py         # webpage_sensor (watches pending downloads)
 │       ├── enrichment/           # Enrichment domain
 │       │   ├── __init__.py
 │       │   ├── job.py            # enrich_job (HN/Lobsters search) + business logic
@@ -60,7 +60,7 @@
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures (PostgreSQL test engine, table cleanup)
 │   ├── test_urls.py              # URL normalization and ensure_content tests
-│   ├── test_content.py           # Content downloader/extractor state transitions
+│   ├── test_webpage.py           # Webpage downloader/extractor state transitions
 │   ├── test_enrichment.py        # Enrichment pipeline tests
 │   ├── test_bronze.py            # Bronze filesystem writer tests
 │   ├── test_bronze_http.py       # Bronze HTTP wrapper tests
@@ -110,11 +110,11 @@
 - Purpose: Source-specific API clients
 - Contains: One package per source type (hackernews, reddit, rss, youtube, lobsters, huggingface, telegram)
 - Pattern: All inherit from BaseCollector, implement Collector protocol
-- Each implements: `collect_references(config, settings, log)` + `process_reference(raw_data, conn, source_id, log)` (required), `search_by_url()` (optional for enrichment)
+- Each implements: `collect_discussions(config, settings, log)` + `process_discussion(raw_data, conn, source_id, log)` (required), `search_by_url()` (optional for enrichment)
 
 **`src/aggre/dagster_defs/`:**
 - Purpose: Dagster orchestration layer
-- Contains: Domain-aligned packages (collection, comments, content, enrichment, reprocess, transcription) with business logic in jobs
+- Contains: Domain-aligned packages (collection, comments, webpage, enrichment, reprocess, transcription) with business logic in jobs
 - Pattern: Framework-first — business logic lives in job.py alongside Dagster ops. Each domain owns its job + sensor/schedule. Sensors use DatabaseResource parameter injection.
 - Entry point: `dg.Definitions` composed in `__init__.py`
 
@@ -131,17 +131,17 @@
 - `src/aggre/config.py`: Configuration loader (YAML + pydantic-settings with env var overrides)
 
 **Database:**
-- `src/aggre/db.py`: SQLAlchemy ORM models (Source, SilverObservation, SilverContent)
+- `src/aggre/db.py`: SQLAlchemy ORM models (Source, SilverDiscussion, SilverContent)
 - `src/aggre/utils/db.py`: Generic helpers (get_engine, now_iso)
 - `alembic/`: Database migrations (apply with `alembic upgrade head`)
 
 **Content Processing (in dagster_defs):**
-- `src/aggre/dagster_defs/content/job.py`: HTTP download + text extraction (download_content, extract_html_text)
+- `src/aggre/dagster_defs/webpage/job.py`: HTTP download + text extraction (download_content, extract_html_text)
 - `src/aggre/dagster_defs/transcription/job.py`: YouTube video transcription (transcribe)
 - `src/aggre/dagster_defs/enrichment/job.py`: Cross-source enrichment (enrich_content_discussions)
 
 **Collector Infrastructure:**
-- `src/aggre/collectors/base.py`: BaseCollector with shared methods (_ensure_source, _upsert_observation, etc.)
+- `src/aggre/collectors/base.py`: BaseCollector with shared methods (_ensure_source, _upsert_discussion, etc.)
 - `src/aggre/urls.py`: URL normalization and SilverContent deduplication (ensure_content)
 
 **Utilities:**
@@ -157,8 +157,8 @@
 **New Source Collector:**
 1. Create `src/aggre/collectors/[source_type]/collector.py`
 2. Inherit from BaseCollector, implement Collector protocol
-3. `def collect_references(config, settings, log) -> list[ContentReference]` (required)
-4. `def process_reference(raw_data, conn, source_id, log) -> None` (required)
+3. `def collect_discussions(config, settings, log) -> list[DiscussionRef]` (required)
+4. `def process_discussion(raw_data, conn, source_id, log) -> None` (required)
 5. `def search_by_url(url, engine, config, settings, log) -> int:` (optional, for enrichment)
 6. Register in `src/aggre/collectors/__init__.py` COLLECTORS dict
 7. Add Dagster ops to collection job or create new domain package in dagster_defs/

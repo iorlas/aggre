@@ -11,10 +11,10 @@ import sqlalchemy as sa
 from aggre.collectors.telegram.collector import TelegramCollector
 from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
 from aggre.config import AppConfig
-from aggre.db import SilverObservation
+from aggre.db import SilverDiscussion
 from aggre.settings import Settings
 from tests.factories import make_config, telegram_message, telegram_mock_client
-from tests.helpers import collect, get_observations, get_sources
+from tests.helpers import collect, get_discussions, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -40,7 +40,7 @@ class TestTelegramCollectorDiscussions:
 
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].title == "First line"
         assert items[0].content_text == "First line\nSecond line"
@@ -73,7 +73,7 @@ class TestTelegramCollectorDiscussions:
             count2 = collect(collector, engine, config.telegram, config.settings)
 
         assert count1 == 1
-        assert count2 == 1  # collect_references returns all API items; dedup is in upsert
+        assert count2 == 1  # collect_discussions returns all API items; dedup is in upsert
 
     def test_multiple_channels(self, engine):
         channels = [
@@ -103,7 +103,7 @@ class TestTelegramCollectorDiscussions:
         assert count == 2
 
         with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation).order_by(SilverObservation.external_id)).fetchall()
+            items = conn.execute(sa.select(SilverDiscussion).order_by(SilverDiscussion.external_id)).fetchall()
             assert len(items) == 2
             assert items[0].external_id == "chan1:1"
             assert items[1].external_id == "chan2:2"
@@ -129,7 +129,7 @@ class TestTelegramCollectorDiscussions:
 
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].external_id == "testchannel:2"
 
@@ -174,10 +174,10 @@ class TestTelegramCollectorDiscussions:
             mock_cls.return_value = telegram_mock_client({"testchannel": [msg_v2]})
             count = collect(collector, engine, config.telegram, config.settings)
 
-        # collect_references returns all API items; dedup + score update is in upsert
+        # collect_discussions returns all API items; dedup + score update is in upsert
         assert count == 1
 
-        items = get_observations(engine)
+        items = get_discussions(engine)
         assert len(items) == 1
         assert items[0].score == 999
 

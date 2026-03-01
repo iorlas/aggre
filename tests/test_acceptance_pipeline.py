@@ -16,8 +16,8 @@ from aggre.collectors.reddit.collector import RedditCollector
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
-from aggre.dagster_defs.content.job import download_content, extract_html_text
-from aggre.db import SilverContent, SilverObservation
+from aggre.dagster_defs.webpage.job import download_content, extract_html_text
+from aggre.db import SilverContent, SilverDiscussion
 from aggre.tracking.model import StageTracking
 from aggre.tracking.status import Stage, StageStatus
 from tests.factories import (
@@ -37,7 +37,7 @@ from tests.factories import (
     rss_feed,
     seed_content,
 )
-from tests.helpers import assert_no_tracking, assert_tracking, collect, get_contents, get_observations
+from tests.helpers import assert_no_tracking, assert_tracking, collect, get_contents, get_discussions
 
 pytestmark = pytest.mark.acceptance
 
@@ -47,7 +47,7 @@ pytestmark = pytest.mark.acceptance
 
 
 class TestCommentsAsJsonReddit:
-    """Reddit: collect -> collect_comments -> verify comments_json on SilverObservation."""
+    """Reddit: collect -> collect_comments -> verify comments_json on SilverDiscussion."""
 
     def test_comments_stored_as_json(self, engine, mock_http):
         config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
@@ -75,7 +75,7 @@ class TestCommentsAsJsonReddit:
         assert fetched == 1
 
         # Step 3: verify
-        disc = get_observations(engine)[0]
+        disc = get_discussions(engine)[0]
         assert disc.comments_json is not None
         comments = json.loads(disc.comments_json)
         assert len(comments) == 2
@@ -117,7 +117,7 @@ class TestCommentsAsJsonHackernews:
         assert fetched == 1
 
         # Step 3: verify
-        disc = get_observations(engine)[0]
+        disc = get_discussions(engine)[0]
         assert disc.comments_json is not None
         comments = json.loads(disc.comments_json)
         assert len(comments) == 2
@@ -160,7 +160,7 @@ class TestCommentsAsJsonLobsters:
         assert fetched == 1
 
         # Step 3: verify
-        disc = get_observations(engine)[0]
+        disc = get_discussions(engine)[0]
         assert disc.comments_json is not None
         comments = json.loads(disc.comments_json)
         assert len(comments) == 2
@@ -201,9 +201,9 @@ class TestFullPipelineFlow:
 
         assert count == 1
 
-        # Verify SilverObservation exists with content_id
+        # Verify SilverDiscussion exists with content_id
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverObservation)).fetchone()
+            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert disc is not None
             assert disc.title == "Great Article"
             assert disc.content_id is not None
@@ -230,12 +230,12 @@ class TestFullPipelineFlow:
         content = get_contents(engine)[0]
         assert content.text is None
 
-        assert_tracking(engine, "content", content.canonical_url, Stage.DOWNLOAD, StageStatus.DONE)
+        assert_tracking(engine, "webpage", content.canonical_url, Stage.DOWNLOAD, StageStatus.DONE)
 
         # Step 4: Extract text from downloaded HTML
         with (
-            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Full article body here"),
-            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Full article body here"),
+            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Great Article - Full"
@@ -245,9 +245,9 @@ class TestFullPipelineFlow:
 
         assert extracted == 1
 
-        # Verify full chain: SilverObservation -> SilverContent
+        # Verify full chain: SilverDiscussion -> SilverContent
         with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverObservation)).fetchone()
+            disc = conn.execute(sa.select(SilverDiscussion)).fetchone()
             assert disc.content_id is not None
 
             content = conn.execute(sa.select(SilverContent).where(SilverContent.id == disc.content_id)).fetchone()
@@ -282,7 +282,7 @@ class TestFullPipelineFlow:
         assert fetched == 1
 
         # Verify full state
-        disc = get_observations(engine)[0]
+        disc = get_discussions(engine)[0]
         assert disc.title == "Test Post"
         assert disc.source_type == "reddit"
         assert disc.comments_json is not None
@@ -324,7 +324,7 @@ class TestContentFetcherIntegration:
 
             tracking_rows = conn.execute(
                 sa.select(StageTracking).where(
-                    StageTracking.source == "content",
+                    StageTracking.source == "webpage",
                     StageTracking.stage == Stage.DOWNLOAD,
                     StageTracking.status == StageStatus.DONE,
                 )
@@ -332,8 +332,8 @@ class TestContentFetcherIntegration:
             assert len(tracking_rows) == 2
 
         with (
-            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Extracted text"),
-            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Extracted text"),
+            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Article Title"
@@ -371,7 +371,7 @@ class TestContentFetcherIntegration:
 
         assert_tracking(
             engine,
-            "content",
+            "webpage",
             "https://broken.example.com/page",
             Stage.DOWNLOAD,
             StageStatus.FAILED,
@@ -404,14 +404,14 @@ class TestContentFetcherIntegration:
             assert rows[0].text is None
 
         # Check tracking for each
-        assert_tracking(engine, "content", "https://example.com/good", Stage.DOWNLOAD, StageStatus.DONE)
+        assert_tracking(engine, "webpage", "https://example.com/good", Stage.DOWNLOAD, StageStatus.DONE)
 
         # YouTube URL has no download tracking (excluded from download pipeline)
-        assert_no_tracking(engine, "content", "https://youtube.com/watch?v=vid1", Stage.DOWNLOAD)
+        assert_no_tracking(engine, "webpage", "https://youtube.com/watch?v=vid1", Stage.DOWNLOAD)
 
         assert_tracking(
             engine,
-            "content",
+            "webpage",
             "https://bad.example.com/broken",
             Stage.DOWNLOAD,
             StageStatus.FAILED,
@@ -420,8 +420,8 @@ class TestContentFetcherIntegration:
 
         # Now extract the downloaded one
         with (
-            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Good body"),
-            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Good body"),
+            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Good Title"

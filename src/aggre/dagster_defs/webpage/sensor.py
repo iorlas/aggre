@@ -1,22 +1,22 @@
-"""Content sensor -- watches for content needing text extraction."""
+"""Webpage sensor -- watches for webpages needing text extraction."""
 
 import sqlalchemy as sa
 
-from aggre.dagster_defs.content.job import SKIP_DOMAINS, content_job
 from aggre.dagster_defs.sensors import make_processing_sensor
+from aggre.dagster_defs.webpage.job import SKIP_DOMAINS, webpage_job
 from aggre.db import SilverContent
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter
 from aggre.tracking.status import Stage, StageStatus
 
-content_sensor = make_processing_sensor(
-    name="content_sensor",
-    target=content_job,
+webpage_sensor = make_processing_sensor(
+    name="webpage_sensor",
+    target=webpage_job,
     query=sa.select(SilverContent.id)
     .outerjoin(
         StageTracking,
         sa.and_(
-            StageTracking.source == "content",
+            StageTracking.source == "webpage",
             StageTracking.external_id == SilverContent.canonical_url,
             StageTracking.stage == Stage.DOWNLOAD,
         ),
@@ -33,6 +33,6 @@ content_sensor = make_processing_sensor(
         ),
         sa.not_(sa.func.coalesce(StageTracking.status == StageStatus.SKIPPED, False)),
     ),
-    run_key_prefix="content",
-    skip_message="No content needs processing",
+    run_key_prefix="webpage",
+    skip_message="No webpages need processing",
 )

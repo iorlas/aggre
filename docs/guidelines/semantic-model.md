@@ -39,7 +39,7 @@ tables:
       - idx_content_needs_processing: { columns: [id], where: "text IS NULL AND error IS NULL" }
       - idx_silver_content_enriched_at: { columns: [enriched_at], where: "enriched_at IS NULL" }
 
-  silver_observations:
+  silver_discussions:
     description: >
       One row per source discussion (HN thread, Reddit post, RSS entry, etc.).
       Multiple discussions can reference the same silver_content row — this is the
@@ -65,23 +65,23 @@ tables:
     constraints:
       - unique: [source_type, external_id]
     indexes:
-      - idx_silver_observations_source_type: [source_type]
-      - idx_silver_observations_published: [published_at]
-      - idx_silver_observations_source_id: [source_id]
-      - idx_silver_observations_external: [source_type, external_id]
-      - idx_observations_needs_comments: { columns: [id], where: "comments_json IS NULL AND error IS NULL" }
-      - idx_silver_observations_url: { columns: [url], where: "url IS NOT NULL" }
-      - idx_silver_observations_content_id: { columns: [content_id], where: "content_id IS NOT NULL" }
+      - idx_silver_discussions_source_type: [source_type]
+      - idx_silver_discussions_published: [published_at]
+      - idx_silver_discussions_source_id: [source_id]
+      - idx_silver_discussions_external: [source_type, external_id]
+      - idx_discussions_needs_comments: { columns: [id], where: "comments_json IS NULL AND error IS NULL" }
+      - idx_silver_discussions_url: { columns: [url], where: "url IS NOT NULL" }
+      - idx_silver_discussions_content_id: { columns: [content_id], where: "content_id IS NOT NULL" }
 ```
 
 ### Relationships
 
 ```
-sources.id              <--  silver_observations.source_id
-silver_content.id       <--  silver_observations.content_id   (the cross-source pivot)
+sources.id              <--  silver_discussions.source_id
+silver_content.id       <--  silver_discussions.content_id   (the cross-source pivot)
 ```
 
-### `silver_observations.meta` — JSON keys per source_type
+### `silver_discussions.meta` — JSON keys per source_type
 
 Cast with `meta::jsonb` before querying.
 
@@ -131,13 +131,13 @@ Cast with `meta::jsonb` before querying.
 
 4. **`content_id` can be NULL** — some discussions don't link to external content (Telegram messages, self-posts without text). Self-posts with text (Reddit selftext, Ask HN story_text) DO create SilverContent with text pre-populated. Exclude NULLs for cross-source analysis.
 
-5. **The cross-source pivot** is: `silver_observations.content_id → silver_content.id`. Multiple discussions with the same `content_id` are different platforms discussing the same URL.
+5. **The cross-source pivot** is: `silver_discussions.content_id → silver_content.id`. Multiple discussions with the same `content_id` are different platforms discussing the same URL.
 
 6. **`score` means different things** per platform — see the score semantics table above. Do not compare scores across source_types directly.
 
 7. **YouTube `score` is NULL** — YouTube view counts are in `meta::jsonb->>'view_count'`, not in the `score` column.
 
-8. **Enrichment creates discussions** — the enrichment process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_observations` rows. Check `silver_content.enriched_at IS NOT NULL` to find content that has been enriched.
+8. **Enrichment creates discussions** — the enrichment process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_discussions` rows. Check `silver_content.enriched_at IS NOT NULL` to find content that has been enriched.
 
 ---
 
@@ -155,7 +155,7 @@ SELECT
   COUNT(DISTINCT sd.source_type) AS platform_count,
   ARRAY_AGG(DISTINCT sd.source_type) AS platforms
 FROM silver_content sc
-JOIN silver_observations sd ON sd.content_id = sc.id
+JOIN silver_discussions sd ON sd.content_id = sc.id
 GROUP BY sc.id
 HAVING COUNT(DISTINCT sd.source_type) >= 2
 ORDER BY platform_count DESC;
@@ -171,7 +171,7 @@ SELECT
   SUM(COALESCE(sd.comment_count, 0)) AS total_comments,
   ARRAY_AGG(DISTINCT sd.source_type) AS source_types
 FROM silver_content sc
-JOIN silver_observations sd ON sd.content_id = sc.id
+JOIN silver_discussions sd ON sd.content_id = sc.id
 GROUP BY sc.id
 ORDER BY total_score + total_comments DESC
 LIMIT 50;
@@ -186,9 +186,9 @@ SELECT
   MIN(sd.published_at::timestamptz) AS first_seen,
   MAX(sd.published_at::timestamptz) AS last_seen
 FROM silver_content sc
-JOIN silver_observations sd ON sd.content_id = sc.id
+JOIN silver_discussions sd ON sd.content_id = sc.id
 WHERE sc.id IN (
-  SELECT content_id FROM silver_observations
+  SELECT content_id FROM silver_discussions
   WHERE content_id IS NOT NULL
   GROUP BY content_id
   HAVING COUNT(DISTINCT source_type) >= 2
@@ -203,8 +203,8 @@ SELECT
   a.source_type AS source_a,
   b.source_type AS source_b,
   COUNT(DISTINCT a.content_id) AS shared_content
-FROM silver_observations a
-JOIN silver_observations b
+FROM silver_discussions a
+JOIN silver_discussions b
   ON a.content_id = b.content_id
   AND a.source_type < b.source_type
 WHERE a.content_id IS NOT NULL
@@ -220,7 +220,7 @@ SELECT
   source_type,
   COUNT(*) AS count,
   SUM(COALESCE(score, 0)) AS total_score
-FROM silver_observations
+FROM silver_discussions
 WHERE published_at::timestamptz >= CURRENT_DATE
 GROUP BY source_type
 ORDER BY count DESC;
@@ -234,7 +234,7 @@ SELECT
   COUNT(sd.id) AS discussion_count,
   SUM(COALESCE(sd.score, 0)) AS total_score
 FROM silver_content sc
-JOIN silver_observations sd ON sd.content_id = sc.id
+JOIN silver_discussions sd ON sd.content_id = sc.id
 WHERE sd.published_at::timestamptz >= CURRENT_DATE
 GROUP BY sc.domain
 ORDER BY discussion_count DESC
@@ -251,7 +251,7 @@ SELECT
   SUM(COALESCE(sd.score, 0)) AS total_score,
   SUM(COALESCE(sd.comment_count, 0)) AS total_comments
 FROM silver_content sc
-JOIN silver_observations sd ON sd.content_id = sc.id
+JOIN silver_discussions sd ON sd.content_id = sc.id
 WHERE sd.published_at::timestamptz >= CURRENT_DATE
 GROUP BY sc.id
 ORDER BY total_score DESC
@@ -263,37 +263,37 @@ LIMIT 20;
 **Parsing meta JSON — examples per source_type:**
 ```sql
 -- Reddit: filter by subreddit
-SELECT * FROM silver_observations
+SELECT * FROM silver_discussions
 WHERE source_type = 'reddit'
   AND meta::jsonb->>'subreddit' = 'programming';
 
 -- Lobsters: filter by tag
-SELECT * FROM silver_observations
+SELECT * FROM silver_discussions
 WHERE source_type = 'lobsters'
   AND meta::jsonb->'tags' ? 'rust';
 
 -- YouTube: videos longer than 30 min
 SELECT *, (meta::jsonb->>'duration')::int / 60 AS minutes
-FROM silver_observations
+FROM silver_discussions
 WHERE source_type = 'youtube'
   AND (meta::jsonb->>'duration')::int > 1800;
 
 -- YouTube: sort by view count
 SELECT title, url, (meta::jsonb->>'view_count')::int AS views
-FROM silver_observations
+FROM silver_discussions
 WHERE source_type = 'youtube'
 ORDER BY views DESC NULLS LAST
 LIMIT 20;
 
 -- HuggingFace: papers with GitHub repos
 SELECT title, url, meta::jsonb->>'github_repo' AS repo
-FROM silver_observations
+FROM silver_discussions
 WHERE source_type = 'huggingface'
   AND meta::jsonb->>'github_repo' IS NOT NULL;
 
 -- Telegram: messages with media
 SELECT title, url, meta::jsonb->>'media_type' AS media
-FROM silver_observations
+FROM silver_discussions
 WHERE source_type = 'telegram'
   AND meta::jsonb->>'media_type' IS NOT NULL;
 ```
@@ -305,7 +305,7 @@ SELECT
   ARRAY_AGG(DISTINCT source_type) AS platforms,
   COUNT(*) AS total_posts,
   COUNT(DISTINCT source_type) AS platform_count
-FROM silver_observations
+FROM silver_discussions
 WHERE author IS NOT NULL
 GROUP BY author
 HAVING COUNT(DISTINCT source_type) >= 2
@@ -365,12 +365,12 @@ SELECT
     ELSE 'pending'
   END AS state,
   COUNT(*)
-FROM silver_observations
+FROM silver_discussions
 WHERE source_type IN ('hackernews', 'reddit', 'lobsters')
 GROUP BY state;
 
 -- Discussions per source
-SELECT source_type, COUNT(*) FROM silver_observations GROUP BY source_type ORDER BY count DESC;
+SELECT source_type, COUNT(*) FROM silver_discussions GROUP BY source_type ORDER BY count DESC;
 ```
 
 **Enrichment coverage:**
@@ -385,7 +385,7 @@ GROUP BY status;
 -- Content enriched but no cross-platform discussions found
 SELECT sc.canonical_url, sc.domain, sc.title
 FROM silver_content sc
-LEFT JOIN silver_observations sd ON sd.content_id = sc.id
+LEFT JOIN silver_discussions sd ON sd.content_id = sc.id
 WHERE sc.enriched_at IS NOT NULL
 GROUP BY sc.id
 HAVING COUNT(DISTINCT sd.source_type) <= 1

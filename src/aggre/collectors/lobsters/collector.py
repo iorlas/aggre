@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import sqlalchemy as sa
 
-from aggre.collectors.base import BaseCollector, ContentReference
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.lobsters.config import LobstersConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
@@ -32,16 +32,16 @@ class LobstersCollector(BaseCollector):
     def __init__(self) -> None:
         self._domain_cache: dict[str, list[dict[str, object]]] = {}
 
-    def collect_references(
+    def collect_discussions(
         self,
         engine: sa.engine.Engine,
         config: LobstersConfig,
         settings: Settings,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         if not config.sources:
             return []
 
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
         rate_limit = settings.lobsters_rate_limit
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
@@ -75,14 +75,14 @@ class LobstersCollector(BaseCollector):
 
                 for short_id, story in stories_by_id.items():
                     self._write_bronze(short_id, story)
-                    refs.append(ContentReference(external_id=short_id, raw_data=story, source_id=source_id))
+                    refs.append(DiscussionRef(external_id=short_id, raw_data=story, source_id=source_id))
 
                 logger.info("lobsters.references_collected count=%d", len(stories_by_id))
                 self._update_last_fetched(engine, source_id)
 
         return refs
 
-    def process_reference(
+    def process_discussion(
         self,
         ref_data: dict[str, object],
         conn: sa.Connection,
@@ -126,7 +126,7 @@ class LobstersCollector(BaseCollector):
             score=story.get("score", 0),
             comment_count=story.get("comment_count", 0),
         )
-        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
     def collect_comments(
         self,
@@ -226,7 +226,7 @@ class LobstersCollector(BaseCollector):
                     continue
 
                 self._write_bronze(short_id, story)
-                self.process_reference(story, conn, source_id)
+                self.process_discussion(story, conn, source_id)
                 new_count += 1
 
         return new_count

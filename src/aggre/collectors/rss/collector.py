@@ -8,7 +8,7 @@ import logging
 import feedparser
 import sqlalchemy as sa
 
-from aggre.collectors.base import BaseCollector, ContentReference
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.rss.config import RssConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
@@ -25,14 +25,14 @@ class RssCollector(BaseCollector):
 
     source_type = "rss"
 
-    def collect_references(
+    def collect_discussions(
         self,
         engine: sa.engine.Engine,
         config: RssConfig,
         settings: Settings,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         """Fetch RSS/Atom feeds, write bronze, return references."""
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
 
         for rss_source in config.sources:
             logger.info("rss.collecting name=%s url=%s", rss_source.name, rss_source.url)
@@ -56,12 +56,12 @@ class RssCollector(BaseCollector):
                     continue
 
                 raw_data = dict(entry)
-                # Attach feed-level metadata so process_reference can use it
+                # Attach feed-level metadata so process_discussion can use it
                 raw_data["_feed_title"] = feed.feed.get("title", rss_source.name)
 
                 self._write_bronze(url_hash(external_id), raw_data)
                 refs.append(
-                    ContentReference(
+                    DiscussionRef(
                         external_id=external_id,
                         raw_data=raw_data,
                         source_id=source_id,
@@ -73,7 +73,7 @@ class RssCollector(BaseCollector):
 
         return refs
 
-    def process_reference(
+    def process_discussion(
         self,
         ref_data: dict[str, object],
         conn: sa.Connection,
@@ -112,4 +112,4 @@ class RssCollector(BaseCollector):
             meta=meta,
             content_id=content_id,
         )
-        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

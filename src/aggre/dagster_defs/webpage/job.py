@@ -1,4 +1,4 @@
-"""Content download and extraction job.
+"""Webpage download and extraction job.
 
 Note: ``from __future__ import annotations`` is omitted because Dagster's
 ``@op`` decorator inspects context-parameter type hints at decoration time and
@@ -25,7 +25,7 @@ from aggre.utils.http import create_http_client
 
 logger = logging.getLogger(__name__)
 
-SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
+SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com", "v.redd.it", "i.redd.it"})
 SKIP_EXTENSIONS = (".pdf",)
 
 TEXT_CONTENT_TYPES = frozenset(
@@ -49,51 +49,88 @@ def _download_one(
     engine: sa.engine.Engine,
     content_id: int,
     url: str,
+    original_url: str | None,
     domain: str | None,
+    browserless_url: str = "",
 ) -> int:
     """Download a single URL and store HTML in bronze. Returns 1 on success, 0 on skip."""
+    fetch_url = original_url or url
+
     if any(url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
-        upsert_skipped(engine, "content", url, Stage.DOWNLOAD, "pdf")
+        upsert_skipped(engine, "webpage", url, Stage.DOWNLOAD, "pdf")
         return 1
 
     # Bronze read-through cache: skip HTTP fetch if already downloaded
-    if bronze_exists_by_url("content", url, "response", "html"):
-        upsert_done(engine, "content", url, Stage.DOWNLOAD)
-        logger.info("content_downloader.bronze_hit url=%s", url)
+    if bronze_exists_by_url("webpage", url, "response", "html"):
+        upsert_done(engine, "webpage", url, Stage.DOWNLOAD)
+        logger.info("webpage_downloader.bronze_hit url=%s", url)
         return 1
 
     try:
-        resp = client.get(url)
+        if browserless_url:
+            html = _fetch_via_browserless(client, browserless_url, fetch_url)
+        else:
+            html = _fetch_direct(client, engine, url, fetch_url)
+            if html is None:
+                return 1  # Already tracked (404/410/non-text)
 
-        # 404/410 — permanently gone, no traceback needed
-        if resp.status_code in (404, 410):
-            logger.warning("content_downloader.http_gone url=%s status=%d", url, resp.status_code)
-            upsert_failed(engine, "content", url, Stage.DOWNLOAD, f"HTTP {resp.status_code}")
-            return 1
-
-        resp.raise_for_status()
-
-        # Skip binary content (images, videos, etc.)
-        content_type = resp.headers.get("content-type", "")
-        if content_type and not _is_text_content_type(content_type):
-            logger.info("content_downloader.skipped_non_text url=%s content_type=%s", url, content_type)
-            upsert_skipped(engine, "content", url, Stage.DOWNLOAD, "non_text")
-            return 1
-
-        write_bronze_by_url("content", url, "response", resp.text, "html")
-        upsert_done(engine, "content", url, Stage.DOWNLOAD)
-        logger.info("content_downloader.downloaded url=%s", url)
+        write_bronze_by_url("webpage", url, "response", html, "html")
+        upsert_done(engine, "webpage", url, Stage.DOWNLOAD)
+        logger.info("webpage_downloader.downloaded url=%s", url)
         return 1
 
     except httpx.HTTPStatusError as exc:
-        logger.warning("content_downloader.download_failed url=%s status=%d", url, exc.response.status_code)
-        upsert_failed(engine, "content", url, Stage.DOWNLOAD, str(exc))
+        logger.warning("webpage_downloader.download_failed url=%s fetch_url=%s status=%d", url, fetch_url, exc.response.status_code)
+        upsert_failed(engine, "webpage", url, Stage.DOWNLOAD, str(exc))
         return 1
 
     except Exception as exc:
-        logger.exception("content_downloader.download_failed url=%s", url)
-        upsert_failed(engine, "content", url, Stage.DOWNLOAD, str(exc))
+        logger.exception("webpage_downloader.download_failed url=%s fetch_url=%s", url, fetch_url)
+        upsert_failed(engine, "webpage", url, Stage.DOWNLOAD, str(exc))
         return 1
+
+
+def _fetch_via_browserless(client: httpx.Client, browserless_url: str, fetch_url: str) -> str:
+    """Render a page via browserless and return the HTML."""
+    resp = client.post(
+        f"{browserless_url}/content",
+        json={
+            "url": fetch_url,
+            "bestAttempt": True,
+            "gotoOptions": {"waitUntil": ["networkidle0"]},
+            "rejectResourceTypes": ["image", "font", "media", "stylesheet"],
+        },
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    return resp.text
+
+
+def _fetch_direct(
+    client: httpx.Client,
+    engine: sa.engine.Engine,
+    url: str,
+    fetch_url: str,
+) -> str | None:
+    """Fetch a page directly via httpx. Returns HTML or None if skipped/failed."""
+    resp = client.get(fetch_url)
+
+    # 404/410 — permanently gone, no traceback needed
+    if resp.status_code in (404, 410):
+        logger.warning("webpage_downloader.http_gone url=%s status=%d", url, resp.status_code)
+        upsert_failed(engine, "webpage", url, Stage.DOWNLOAD, f"HTTP {resp.status_code}")
+        return None
+
+    resp.raise_for_status()
+
+    # Skip binary content (images, videos, etc.)
+    content_type = resp.headers.get("content-type", "")
+    if content_type and not _is_text_content_type(content_type):
+        logger.info("webpage_downloader.skipped_non_text url=%s content_type=%s", url, content_type)
+        upsert_skipped(engine, "webpage", url, Stage.DOWNLOAD, "non_text")
+        return None
+
+    return resp.text
 
 
 def download_content(
@@ -105,11 +142,11 @@ def download_content(
     """Download raw HTML for unprocessed SilverContent rows (parallel HTTP fetches)."""
     with engine.connect() as conn:
         rows = conn.execute(
-            sa.select(SilverContent.id, SilverContent.canonical_url, SilverContent.domain)
+            sa.select(SilverContent.id, SilverContent.canonical_url, SilverContent.original_url, SilverContent.domain)
             .outerjoin(
                 StageTracking,
                 sa.and_(
-                    StageTracking.source == "content",
+                    StageTracking.source == "webpage",
                     StageTracking.external_id == SilverContent.canonical_url,
                     StageTracking.stage == Stage.DOWNLOAD,
                 ),
@@ -131,10 +168,11 @@ def download_content(
         ).fetchall()
 
     if not rows:
-        logger.info("content_downloader.no_pending")
+        logger.info("webpage_downloader.no_pending")
         return 0
 
-    logger.info("content_downloader.download_starting batch_size=%d", len(rows))
+    browserless_url = config.settings.browserless_url or ""
+    logger.info("webpage_downloader.download_starting batch_size=%d browserless=%s", len(rows), bool(browserless_url))
     processed = 0
 
     with (
@@ -144,11 +182,14 @@ def download_content(
         ) as client,
         concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor,
     ):
-        futures = [executor.submit(_download_one, client, engine, row.id, row.canonical_url, row.domain) for row in rows]
+        futures = [
+            executor.submit(_download_one, client, engine, row.id, row.canonical_url, row.original_url, row.domain, browserless_url)
+            for row in rows
+        ]
         for future in concurrent.futures.as_completed(futures):
             processed += future.result()
 
-    logger.info("content_downloader.download_complete processed=%d", processed)
+    logger.info("webpage_downloader.download_complete processed=%d", processed)
     return processed
 
 
@@ -166,7 +207,7 @@ def extract_html_text(
         download_done_sq = (
             sa.select(StageTracking.external_id)
             .where(
-                StageTracking.source == "content",
+                StageTracking.source == "webpage",
                 StageTracking.stage == Stage.DOWNLOAD,
                 StageTracking.status == StageStatus.DONE,
             )
@@ -185,7 +226,7 @@ def extract_html_text(
             .outerjoin(
                 st_extract,
                 sa.and_(
-                    st_extract.source == "content",
+                    st_extract.source == "webpage",
                     st_extract.external_id == SilverContent.canonical_url,
                     st_extract.stage == Stage.EXTRACT,
                 ),
@@ -201,16 +242,16 @@ def extract_html_text(
         ).fetchall()
 
     if not rows:
-        logger.info("content_extractor.no_downloaded")
+        logger.info("webpage_extractor.no_downloaded")
         return 0
 
-    logger.info("content_extractor.extract_starting batch_size=%d", len(rows))
+    logger.info("webpage_extractor.extract_starting batch_size=%d", len(rows))
     processed = 0
 
     for row in rows:
         content_id = row.id
         url = row.canonical_url
-        html = read_bronze_by_url("content", url, "response", "html")
+        html = read_bronze_by_url("webpage", url, "response", "html")
 
         try:
             # Extract text with 90s timeout
@@ -227,17 +268,17 @@ def extract_html_text(
             if metadata:
                 extracted_title = metadata.title
 
-            upsert_done(engine, "content", url, Stage.EXTRACT)
+            upsert_done(engine, "webpage", url, Stage.EXTRACT)
             update_content(engine, content_id, text=result, title=extracted_title)
             processed += 1
-            logger.info("content_extractor.extracted url=%s", url)
+            logger.info("webpage_extractor.extracted url=%s", url)
 
         except Exception as exc:
-            logger.exception("content_extractor.extract_failed url=%s", url)
-            upsert_failed(engine, "content", url, Stage.EXTRACT, str(exc))
+            logger.exception("webpage_extractor.extract_failed url=%s", url)
+            upsert_failed(engine, "webpage", url, Stage.EXTRACT, str(exc))
             processed += 1
 
-    logger.info("content_extractor.extract_complete processed=%d", processed)
+    logger.info("webpage_extractor.extract_complete processed=%d", processed)
     return processed
 
 
@@ -245,7 +286,7 @@ def extract_html_text(
 
 
 @dg.op(required_resource_keys={"database"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def download_content_op(context: OpExecutionContext) -> int:
+def download_webpage_op(context: OpExecutionContext) -> int:
     """Download raw HTML for pending content URLs."""
     cfg = load_config()
     engine = context.resources.database.get_engine()
@@ -253,7 +294,7 @@ def download_content_op(context: OpExecutionContext) -> int:
 
 
 @dg.op(required_resource_keys={"database"})
-def extract_content_op(context: OpExecutionContext, download_count: int) -> int:
+def extract_webpage_op(context: OpExecutionContext, download_count: int) -> int:
     """Extract text from downloaded HTML."""
     cfg = load_config()
     engine = context.resources.database.get_engine()
@@ -261,5 +302,5 @@ def extract_content_op(context: OpExecutionContext, download_count: int) -> int:
 
 
 @dg.job
-def content_job() -> None:
-    extract_content_op(download_content_op())
+def webpage_job() -> None:
+    extract_webpage_op(download_webpage_op())

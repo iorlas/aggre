@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import sqlalchemy as sa
 
-from aggre.dagster_defs.content.job import download_content, extract_html_text
+from aggre.dagster_defs.webpage.job import download_content, extract_html_text
 from aggre.db import SilverContent
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import upsert_done
@@ -38,7 +38,7 @@ class TestDownloadContent:
         count = download_content(engine, config)
         assert count == 1
 
-        assert_tracking(engine, "content", "https://example.com/paper.pdf", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="pdf")
+        assert_tracking(engine, "webpage", "https://example.com/paper.pdf", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="pdf")
 
     def test_downloads_and_stores_raw_html(self, engine, mock_http):
         config = make_config()
@@ -56,7 +56,7 @@ class TestDownloadContent:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.text is None  # text set by extract phase
 
-        assert_tracking(engine, "content", "https://example.com/article", Stage.DOWNLOAD, StageStatus.DONE)
+        assert_tracking(engine, "webpage", "https://example.com/article", Stage.DOWNLOAD, StageStatus.DONE)
 
     def test_handles_download_error(self, engine, mock_http):
         config = make_config()
@@ -69,7 +69,7 @@ class TestDownloadContent:
 
         assert_tracking(
             engine,
-            "content",
+            "webpage",
             "https://example.com/broken",
             Stage.DOWNLOAD,
             StageStatus.FAILED,
@@ -108,7 +108,7 @@ class TestDownloadContent:
         with engine.connect() as conn:
             tracking_rows = conn.execute(
                 sa.select(StageTracking).where(
-                    StageTracking.source == "content",
+                    StageTracking.source == "webpage",
                     StageTracking.stage == Stage.DOWNLOAD,
                     StageTracking.status == StageStatus.DONE,
                 )
@@ -121,20 +121,20 @@ class TestDownloadContent:
 
         mock_http.get("https://example.com/gone").respond(status_code=404)
 
-        with caplog.at_level(logging.WARNING, logger="aggre.dagster_defs.content.job"):
+        with caplog.at_level(logging.WARNING, logger="aggre.dagster_defs.webpage.job"):
             count = download_content(engine, config)
         assert count == 1
 
-        assert_tracking(engine, "content", "https://example.com/gone", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="404")
+        assert_tracking(engine, "webpage", "https://example.com/gone", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="404")
 
-        assert any("content_downloader.http_gone" in r.message for r in caplog.records)
+        assert any("webpage_downloader.http_gone" in r.message for r in caplog.records)
         assert not any(r.levelno >= logging.ERROR for r in caplog.records)
 
     def test_skips_non_text_content_type(self, engine, mock_http):
         config = make_config()
-        seed_content(engine, "https://i.redd.it/image.png", domain="i.redd.it")
+        seed_content(engine, "https://example.com/image.png", domain="example.com")
 
-        mock_http.get("https://i.redd.it/image.png").respond(
+        mock_http.get("https://example.com/image.png").respond(
             status_code=200,
             headers={"content-type": "image/png"},
         )
@@ -142,13 +142,13 @@ class TestDownloadContent:
         count = download_content(engine, config)
         assert count == 1
 
-        assert_tracking(engine, "content", "https://i.redd.it/image.png", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="non_text")
+        assert_tracking(engine, "webpage", "https://example.com/image.png", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="non_text")
 
     def test_skips_video_content_type(self, engine, mock_http):
         config = make_config()
-        seed_content(engine, "https://v.redd.it/video123", domain="v.redd.it")
+        seed_content(engine, "https://example.com/video123", domain="example.com")
 
-        mock_http.get("https://v.redd.it/video123").respond(
+        mock_http.get("https://example.com/video123").respond(
             status_code=200,
             headers={"content-type": "video/mp4"},
         )
@@ -156,7 +156,44 @@ class TestDownloadContent:
         count = download_content(engine, config)
         assert count == 1
 
-        assert_tracking(engine, "content", "https://v.redd.it/video123", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="non_text")
+        assert_tracking(engine, "webpage", "https://example.com/video123", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="non_text")
+
+    def test_fetches_using_original_url(self, engine, mock_http):
+        """When original_url is set, HTTP fetch uses it instead of canonical_url."""
+        config = make_config()
+        seed_content(
+            engine,
+            "https://example.com/article",
+            domain="example.com",
+            original_url="https://www.example.com/article",
+        )
+
+        # Only mock the original URL — canonical is NOT mocked
+        mock_http.get("https://www.example.com/article").respond(
+            text="<html><body><p>Content</p></body></html>",
+            headers={"content-type": "text/html"},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        # Tracking stored under canonical URL
+        assert_tracking(engine, "webpage", "https://example.com/article", Stage.DOWNLOAD, StageStatus.DONE)
+
+    def test_falls_back_to_canonical_when_no_original_url(self, engine, mock_http):
+        """When original_url is NULL, fetches using canonical_url as before."""
+        config = make_config()
+        seed_content(engine, "https://example.com/article", domain="example.com")
+
+        mock_http.get("https://example.com/article").respond(
+            text="<html><body><p>Content</p></body></html>",
+            headers={"content-type": "text/html"},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(engine, "webpage", "https://example.com/article", Stage.DOWNLOAD, StageStatus.DONE)
 
 
 class TestExtractHtmlText:
@@ -169,16 +206,16 @@ class TestExtractHtmlText:
 
         html = "<html><body><p>Article content here</p></body></html>"
         seed_content(engine, "https://example.com/article", domain="example.com")
-        upsert_done(engine, "content", "https://example.com/article", Stage.DOWNLOAD)
+        upsert_done(engine, "webpage", "https://example.com/article", Stage.DOWNLOAD)
 
         # Write HTML to bronze so extract can read it
         from aggre.utils.bronze import write_bronze_by_url
 
-        write_bronze_by_url("content", "https://example.com/article", "response", html, "html")
+        write_bronze_by_url("webpage", "https://example.com/article", "response", html, "html")
 
         with (
-            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Article content here"),
-            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Article content here"),
+            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Test Article"
@@ -193,24 +230,24 @@ class TestExtractHtmlText:
             assert row.text == "Article content here"
             assert row.title == "Test Article"
 
-        assert_tracking(engine, "content", "https://example.com/article", Stage.EXTRACT, StageStatus.DONE)
+        assert_tracking(engine, "webpage", "https://example.com/article", Stage.EXTRACT, StageStatus.DONE)
 
     def test_handles_extraction_error(self, engine):
         config = make_config()
 
         seed_content(engine, "https://example.com/bad-html", domain="example.com")
-        upsert_done(engine, "content", "https://example.com/bad-html", Stage.DOWNLOAD)
+        upsert_done(engine, "webpage", "https://example.com/bad-html", Stage.DOWNLOAD)
 
         from aggre.utils.bronze import write_bronze_by_url
 
-        write_bronze_by_url("content", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
+        write_bronze_by_url("webpage", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
 
-        with patch("aggre.dagster_defs.content.job.trafilatura.extract", side_effect=Exception("Parse error")):
+        with patch("aggre.dagster_defs.webpage.job.trafilatura.extract", side_effect=Exception("Parse error")):
             count = extract_html_text(engine, config)
 
         assert count == 1
 
-        assert_tracking(engine, "content", "https://example.com/bad-html", Stage.EXTRACT, StageStatus.FAILED, error_contains="Parse error")
+        assert_tracking(engine, "webpage", "https://example.com/bad-html", Stage.EXTRACT, StageStatus.FAILED, error_contains="Parse error")
 
     def test_ignores_undownloaded_content(self, engine):
         config = make_config()
@@ -229,12 +266,12 @@ class TestExtractHtmlText:
         for i in range(5):
             url = f"https://example.com/article-{i}"
             seed_content(engine, url, domain="example.com")
-            upsert_done(engine, "content", url, Stage.DOWNLOAD)
-            write_bronze_by_url("content", url, "response", f"<html>content {i}</html>", "html")
+            upsert_done(engine, "webpage", url, Stage.DOWNLOAD)
+            write_bronze_by_url("webpage", url, "response", f"<html>content {i}</html>", "html")
 
         with (
-            patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="text"),
-            patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata", return_value=None),
+            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="text"),
+            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata", return_value=None),
         ):
             count = extract_html_text(engine, config, batch_limit=3)
 

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     whisper_model: str = "large-v3-turbo"
     whisper_model_cache: str = "./data/models"
     proxy_url: str = ""
+    browserless_url: str = ""
     # Rate limits (operational, stay as env vars)
     reddit_rate_limit: float = 3.0
     hn_rate_limit: float = 1.0

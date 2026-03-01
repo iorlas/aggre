@@ -10,11 +10,11 @@ import pytest
 import sqlalchemy as sa
 
 from aggre.dagster_defs.comments.sensor import comments_sensor
-from aggre.dagster_defs.content.sensor import content_sensor
 from aggre.dagster_defs.enrichment.sensor import enrichment_sensor
 from aggre.dagster_defs.resources import DatabaseResource
 from aggre.dagster_defs.transcription.sensor import transcription_sensor
-from aggre.db import SilverContent, SilverObservation
+from aggre.dagster_defs.webpage.sensor import webpage_sensor
+from aggre.db import SilverContent, SilverDiscussion
 from aggre.tracking.ops import upsert_done
 from aggre.tracking.status import Stage
 
@@ -59,29 +59,29 @@ def _skip_message(result: dg.SensorResult) -> str:
 
 
 # ---------------------------------------------------------------------------
-# content_sensor
+# webpage_sensor
 # ---------------------------------------------------------------------------
 
 
-class TestContentSensor:
+class TestWebpageSensor:
     def test_skips_when_job_running(self, engine):
         ctx = _sensor_context(active_runs=[MagicMock()])
-        result = _run_sensor(content_sensor, ctx, _database(engine))
+        result = _run_sensor(webpage_sensor, ctx, _database(engine))
         assert "already running" in _skip_message(result)
         assert not result.run_requests
-        assert ctx.instance.get_runs.call_args.kwargs["filters"].job_name == "content_job"
+        assert ctx.instance.get_runs.call_args.kwargs["filters"].job_name == "webpage_job"
 
     def test_triggers_when_work_pending(self, engine):
         with engine.begin() as conn:
             conn.execute(sa.insert(SilverContent).values(canonical_url="https://example.com", domain="example.com"))
         ctx = _sensor_context()
-        result = _run_sensor(content_sensor, ctx, _database(engine))
+        result = _run_sensor(webpage_sensor, ctx, _database(engine))
         assert result.run_requests and len(result.run_requests) == 1
 
     def test_skips_when_no_work(self, engine):
         ctx = _sensor_context()
-        result = _run_sensor(content_sensor, ctx, _database(engine))
-        assert "No content" in _skip_message(result)
+        result = _run_sensor(webpage_sensor, ctx, _database(engine))
+        assert "No webpages" in _skip_message(result)
 
     def test_skips_youtube_domain_rows(self, engine):
         with engine.begin() as conn:
@@ -92,8 +92,8 @@ class TestContentSensor:
                 )
             )
         ctx = _sensor_context()
-        result = _run_sensor(content_sensor, ctx, _database(engine))
-        assert "No content" in _skip_message(result)
+        result = _run_sensor(webpage_sensor, ctx, _database(engine))
+        assert "No webpages" in _skip_message(result)
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ class TestTranscriptionSensor:
                 .returning(SilverContent.id)
             ).scalar()
             conn.execute(
-                sa.insert(SilverObservation).values(
+                sa.insert(SilverDiscussion).values(
                     source_type="youtube",
                     external_id="abc",
                     content_id=content_id,
@@ -136,7 +136,7 @@ class TestTranscriptionSensor:
         assert "No videos" in _skip_message(result)
 
     def test_requires_youtube_source_type(self, engine):
-        """Non-youtube observations with unprocessed content should not trigger."""
+        """Non-youtube discussions with unprocessed content should not trigger."""
         with engine.begin() as conn:
             content_id = conn.execute(
                 sa.insert(SilverContent)
@@ -147,7 +147,7 @@ class TestTranscriptionSensor:
                 .returning(SilverContent.id)
             ).scalar()
             conn.execute(
-                sa.insert(SilverObservation).values(
+                sa.insert(SilverDiscussion).values(
                     source_type="hackernews",
                     external_id="12345",
                     content_id=content_id,
@@ -199,7 +199,7 @@ class TestEnrichmentSensor:
                     text="Some text",
                 )
             )
-        upsert_done(engine, "content", "https://example.com", Stage.ENRICH)
+        upsert_done(engine, "webpage", "https://example.com", Stage.ENRICH)
         ctx = _sensor_context()
         result = _run_sensor(enrichment_sensor, ctx, _database(engine))
         assert "No content" in _skip_message(result)
@@ -221,7 +221,7 @@ class TestCommentsSensor:
     def test_triggers_when_pending_comments(self, engine):
         with engine.begin() as conn:
             conn.execute(
-                sa.insert(SilverObservation).values(
+                sa.insert(SilverDiscussion).values(
                     source_type="hackernews",
                     external_id="12345",
                 )
@@ -233,17 +233,17 @@ class TestCommentsSensor:
     def test_skips_when_no_work(self, engine):
         ctx = _sensor_context()
         result = _run_sensor(comments_sensor, ctx, _database(engine))
-        assert "No observations" in _skip_message(result)
+        assert "No discussions" in _skip_message(result)
 
     def test_only_counts_comment_source_types(self, engine):
         """Source types outside reddit/hackernews/lobsters should not trigger."""
         with engine.begin() as conn:
             conn.execute(
-                sa.insert(SilverObservation).values(
+                sa.insert(SilverDiscussion).values(
                     source_type="youtube",
                     external_id="vid1",
                 )
             )
         ctx = _sensor_context()
         result = _run_sensor(comments_sensor, ctx, _database(engine))
-        assert "No observations" in _skip_message(result)
+        assert "No discussions" in _skip_message(result)

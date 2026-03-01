@@ -7,7 +7,7 @@ import logging
 
 import sqlalchemy as sa
 
-from aggre.collectors.base import BaseCollector, ContentReference
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.huggingface.config import HuggingfaceConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
@@ -26,17 +26,17 @@ class HuggingfaceCollector(BaseCollector):
 
     source_type = "huggingface"
 
-    def collect_references(
+    def collect_discussions(
         self,
         engine: sa.engine.Engine,
         config: HuggingfaceConfig,
         settings: Settings,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         """Fetch HuggingFace daily papers, write bronze, return references."""
         if not config.sources:
             return []
 
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for hf_source in config.sources:
@@ -59,7 +59,7 @@ class HuggingfaceCollector(BaseCollector):
 
                     self._write_bronze(paper_id, item)
                     refs.append(
-                        ContentReference(
+                        DiscussionRef(
                             external_id=paper_id,
                             raw_data=item,
                             source_id=source_id,
@@ -71,7 +71,7 @@ class HuggingfaceCollector(BaseCollector):
 
         return refs
 
-    def process_reference(
+    def process_discussion(
         self,
         ref_data: dict[str, object],
         conn: sa.Connection,
@@ -112,4 +112,4 @@ class HuggingfaceCollector(BaseCollector):
             score=paper.get("upvotes", 0),
             comment_count=ref_data.get("numComments", 0),
         )
-        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

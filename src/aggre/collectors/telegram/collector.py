@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-from aggre.collectors.base import BaseCollector, ContentReference
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
 from aggre.settings import Settings
 
@@ -25,7 +25,7 @@ class TelegramCollector(BaseCollector):
 
     source_type = "telegram"
 
-    def collect_references(self, engine: sa.engine.Engine, config: TelegramConfig, settings: Settings) -> list[ContentReference]:
+    def collect_discussions(self, engine: sa.engine.Engine, config: TelegramConfig, settings: Settings) -> list[DiscussionRef]:
         """Fetch Telegram messages, write bronze, return references."""
         if not config.sources:
             return []
@@ -41,7 +41,7 @@ class TelegramCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: TelegramConfig,
         settings: Settings,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         client = TelegramClient(
             StringSession(settings.telegram_session),
             settings.telegram_api_id,
@@ -49,7 +49,7 @@ class TelegramCollector(BaseCollector):
         )
         await client.connect()
 
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
         try:
             for tg_source in config.sources:
                 logger.info("telegram.collecting username=%s", tg_source.username)
@@ -74,10 +74,10 @@ class TelegramCollector(BaseCollector):
         source_id: int,
         tg_source: TelegramSource,
         config: TelegramConfig,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         messages = await client.get_messages(tg_source.username, limit=config.fetch_limit)
 
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
         for msg in messages:
             text = msg.text
             if not text:
@@ -97,12 +97,12 @@ class TelegramCollector(BaseCollector):
             }
 
             self._write_bronze(external_id, raw_data)
-            refs.append(ContentReference(external_id=external_id, raw_data=raw_data, source_id=source_id))
+            refs.append(DiscussionRef(external_id=external_id, raw_data=raw_data, source_id=source_id))
 
         logger.info("telegram.references_collected username=%s count=%d total_seen=%d", tg_source.username, len(refs), len(messages))
         return refs
 
-    def process_reference(
+    def process_discussion(
         self,
         ref_data: dict[str, object],
         conn: sa.Connection,
@@ -142,4 +142,4 @@ class TelegramCollector(BaseCollector):
             comment_count=0,
             meta=json.dumps(meta_dict) if meta_dict else None,
         )
-        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

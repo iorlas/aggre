@@ -27,10 +27,11 @@ ENRICHMENT_SKIP_DOMAINS = frozenset(
         "youtube.com",
         "m.youtube.com",
         "youtu.be",
+        "reddit.com",
+        "old.reddit.com",
         "i.redd.it",
         "v.redd.it",
         "linkedin.com",
-        "www.linkedin.com",
     }
 )
 
@@ -54,13 +55,12 @@ def enrich_content_discussions(
             .outerjoin(
                 StageTracking,
                 sa.and_(
-                    StageTracking.source == "content",
+                    StageTracking.source == "webpage",
                     StageTracking.external_id == SilverContent.canonical_url,
                     StageTracking.stage == Stage.ENRICH,
                 ),
             )
             .where(
-                SilverContent.text.isnot(None),
                 SilverContent.canonical_url.isnot(None),
                 sa.or_(
                     StageTracking.id.is_(None),
@@ -105,9 +105,9 @@ def enrich_content_discussions(
                 failed = True
 
         if not failed:
-            upsert_done(engine, "content", content_url, Stage.ENRICH)
+            upsert_done(engine, "webpage", content_url, Stage.ENRICH)
         else:
-            upsert_failed(engine, "content", content_url, Stage.ENRICH, "partial failure")
+            upsert_failed(engine, "webpage", content_url, Stage.ENRICH, "partial failure")
 
     logger.info("enrich.complete totals=%s", totals)
     return totals

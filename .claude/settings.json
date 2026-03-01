@@ -5,7 +5,8 @@
         "padding": 0
     },
     "enabledMcpjsonServers": [
-        "context7"
+        "context7",
+        "local-postgres"
     ],
     "enableAllProjectMcpServers": true,
     "env": {

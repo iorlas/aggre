@@ -9,8 +9,24 @@
 
 x-app-env: &app-env
   AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
+  AGGRE_BROWSERLESS_URL: http://browserless:3000
 
 services:
+  browserless:
+    image: ghcr.io/browserless/chromium
+    restart: unless-stopped
+    environment:
+      MAX_CONCURRENT_SESSIONS: 5
+      TIMEOUT: 60000
+      HEALTH: "true"
+    ports:
+      - "3001:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/json/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -81,3 +97,5 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      browserless:
+        condition: service_healthy

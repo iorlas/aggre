@@ -27,22 +27,22 @@ def _get_tracking(engine: sa.engine.Engine, source: str, external_id: str, stage
 
 class TestUpsertDone:
     def test_creates_tracking_row(self, engine):
-        upsert_done(engine, "content", "https://example.com/a", Stage.DOWNLOAD)
+        upsert_done(engine, "webpage", "https://example.com/a", Stage.DOWNLOAD)
 
-        row = _get_tracking(engine, "content", "https://example.com/a", Stage.DOWNLOAD)
+        row = _get_tracking(engine, "webpage", "https://example.com/a", Stage.DOWNLOAD)
         assert row is not None
         assert row.status == StageStatus.DONE
         assert row.completed_at is not None
         assert row.error is None
 
     def test_idempotent_re_upsert(self, engine):
-        upsert_done(engine, "content", "https://example.com/b", Stage.DOWNLOAD)
-        upsert_done(engine, "content", "https://example.com/b", Stage.DOWNLOAD)
+        upsert_done(engine, "webpage", "https://example.com/b", Stage.DOWNLOAD)
+        upsert_done(engine, "webpage", "https://example.com/b", Stage.DOWNLOAD)
 
         with engine.connect() as conn:
             rows = conn.execute(
                 sa.select(StageTracking).where(
-                    StageTracking.source == "content",
+                    StageTracking.source == "webpage",
                     StageTracking.external_id == "https://example.com/b",
                     StageTracking.stage == Stage.DOWNLOAD,
                 )
@@ -52,20 +52,20 @@ class TestUpsertDone:
 
     def test_transitions_from_skipped(self, engine):
         """upsert_done after skipped -> status becomes DONE."""
-        upsert_skipped(engine, "content", "https://example.com/skip-then-done", Stage.DOWNLOAD, "pdf")
-        upsert_done(engine, "content", "https://example.com/skip-then-done", Stage.DOWNLOAD)
+        upsert_skipped(engine, "webpage", "https://example.com/skip-then-done", Stage.DOWNLOAD, "pdf")
+        upsert_done(engine, "webpage", "https://example.com/skip-then-done", Stage.DOWNLOAD)
 
-        row = _get_tracking(engine, "content", "https://example.com/skip-then-done", Stage.DOWNLOAD)
+        row = _get_tracking(engine, "webpage", "https://example.com/skip-then-done", Stage.DOWNLOAD)
         assert row is not None
         assert row.status == StageStatus.DONE
         assert row.error is None
         assert row.completed_at is not None
 
     def test_clears_error_on_success(self, engine):
-        upsert_failed(engine, "content", "https://example.com/c", Stage.DOWNLOAD, "timeout")
-        upsert_done(engine, "content", "https://example.com/c", Stage.DOWNLOAD)
+        upsert_failed(engine, "webpage", "https://example.com/c", Stage.DOWNLOAD, "timeout")
+        upsert_done(engine, "webpage", "https://example.com/c", Stage.DOWNLOAD)
 
-        row = _get_tracking(engine, "content", "https://example.com/c", Stage.DOWNLOAD)
+        row = _get_tracking(engine, "webpage", "https://example.com/c", Stage.DOWNLOAD)
         assert row is not None
         assert row.status == StageStatus.DONE
         assert row.error is None
@@ -74,20 +74,20 @@ class TestUpsertDone:
 
 class TestUpsertFailed:
     def test_creates_failed_row(self, engine):
-        upsert_failed(engine, "content", "https://example.com/d", Stage.DOWNLOAD, "HTTP 500")
+        upsert_failed(engine, "webpage", "https://example.com/d", Stage.DOWNLOAD, "HTTP 500")
 
-        row = _get_tracking(engine, "content", "https://example.com/d", Stage.DOWNLOAD)
+        row = _get_tracking(engine, "webpage", "https://example.com/d", Stage.DOWNLOAD)
         assert row is not None
         assert row.status == StageStatus.FAILED
         assert row.error == "HTTP 500"
         assert row.retries == 1
 
     def test_increments_retries(self, engine):
-        upsert_failed(engine, "content", "https://example.com/e", Stage.DOWNLOAD, "err1")
-        upsert_failed(engine, "content", "https://example.com/e", Stage.DOWNLOAD, "err2")
-        upsert_failed(engine, "content", "https://example.com/e", Stage.DOWNLOAD, "err3")
+        upsert_failed(engine, "webpage", "https://example.com/e", Stage.DOWNLOAD, "err1")
+        upsert_failed(engine, "webpage", "https://example.com/e", Stage.DOWNLOAD, "err2")
+        upsert_failed(engine, "webpage", "https://example.com/e", Stage.DOWNLOAD, "err3")
 
-        row = _get_tracking(engine, "content", "https://example.com/e", Stage.DOWNLOAD)
+        row = _get_tracking(engine, "webpage", "https://example.com/e", Stage.DOWNLOAD)
         assert row is not None
         assert row.retries == 3
         assert row.error == "err3"
@@ -96,9 +96,9 @@ class TestUpsertFailed:
 
 class TestUpsertSkipped:
     def test_creates_skipped_row(self, engine):
-        upsert_skipped(engine, "content", "https://example.com/f", Stage.DOWNLOAD, "pdf")
+        upsert_skipped(engine, "webpage", "https://example.com/f", Stage.DOWNLOAD, "pdf")
 
-        row = _get_tracking(engine, "content", "https://example.com/f", Stage.DOWNLOAD)
+        row = _get_tracking(engine, "webpage", "https://example.com/f", Stage.DOWNLOAD)
         assert row is not None
         assert row.status == StageStatus.SKIPPED
         assert row.error == "pdf"
@@ -106,13 +106,13 @@ class TestUpsertSkipped:
 
     def test_idempotent_re_upsert(self, engine):
         """upsert_skipped called twice -> single row, still SKIPPED."""
-        upsert_skipped(engine, "content", "https://example.com/skip2", Stage.DOWNLOAD, "pdf")
-        upsert_skipped(engine, "content", "https://example.com/skip2", Stage.DOWNLOAD, "binary")
+        upsert_skipped(engine, "webpage", "https://example.com/skip2", Stage.DOWNLOAD, "pdf")
+        upsert_skipped(engine, "webpage", "https://example.com/skip2", Stage.DOWNLOAD, "binary")
 
         with engine.connect() as conn:
             rows = conn.execute(
                 sa.select(StageTracking).where(
-                    StageTracking.source == "content",
+                    StageTracking.source == "webpage",
                     StageTracking.external_id == "https://example.com/skip2",
                     StageTracking.stage == Stage.DOWNLOAD,
                 )
@@ -128,7 +128,7 @@ class TestRetryFilter:
         with engine.begin() as conn:
             conn.execute(
                 sa.insert(StageTracking).values(
-                    source="content",
+                    source="webpage",
                     external_id=external_id,
                     stage=stage,
                     status=StageStatus.FAILED,
@@ -189,9 +189,9 @@ class TestRetryFilter:
         old_time = (datetime.now(UTC) - timedelta(seconds=cooldown + 60)).isoformat()
 
         # Insert done row
-        upsert_done(engine, "content", "url-done", Stage.DOWNLOAD)
+        upsert_done(engine, "webpage", "url-done", Stage.DOWNLOAD)
         # Insert skipped row
-        upsert_skipped(engine, "content", "url-skipped", Stage.DOWNLOAD, "pdf")
+        upsert_skipped(engine, "webpage", "url-skipped", Stage.DOWNLOAD, "pdf")
         # Insert failed row (should be the only one matched)
         self._insert_failed(engine, "url-retry", Stage.DOWNLOAD, retries=1, last_ran_at=old_time)
 

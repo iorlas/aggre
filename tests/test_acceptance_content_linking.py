@@ -30,7 +30,7 @@ from tests.factories import (
     rss_feed,
     youtube_entry,
 )
-from tests.helpers import collect, get_contents, get_observations
+from tests.helpers import collect, get_contents, get_discussions
 
 pytestmark = pytest.mark.acceptance
 
@@ -53,7 +53,7 @@ class TestRssContentLinking:
         assert sc_rows[0].canonical_url == "https://example.com/article"
         assert sc_rows[0].domain == "example.com"
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -80,7 +80,7 @@ class TestRedditContentLinking:
         assert sc_rows[0].canonical_url == "https://example.com/article"
         assert sc_rows[0].domain == "example.com"
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -100,7 +100,7 @@ class TestRedditContentLinking:
         assert len(sc_rows) == 1
         assert sc_rows[0].text is not None  # selftext populated
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -115,7 +115,7 @@ class TestRedditContentLinking:
         with patch("aggre.collectors.reddit.collector.time.sleep"):
             collect(RedditCollector(), engine, config.reddit, config.settings)
 
-        sd = get_observations(engine)[0]
+        sd = get_discussions(engine)[0]
         assert sd.score == 99
         assert sd.comment_count == 12
 
@@ -140,7 +140,7 @@ class TestHackernewsContentLinking:
         assert sc_rows[0].canonical_url == "https://example.com/article"
         assert sc_rows[0].domain == "example.com"
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -157,7 +157,7 @@ class TestHackernewsContentLinking:
 
         assert len(get_contents(engine)) == 0
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id is None
 
@@ -170,7 +170,7 @@ class TestHackernewsContentLinking:
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             collect(HackernewsCollector(), engine, config.hackernews, config.settings)
 
-        sd = get_observations(engine)[0]
+        sd = get_discussions(engine)[0]
         assert sd.score == 200
         assert sd.comment_count == 50
 
@@ -196,7 +196,7 @@ class TestLobstersContentLinking:
         assert sc_rows[0].canonical_url == "https://example.com/article"
         assert sc_rows[0].domain == "example.com"
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -210,7 +210,7 @@ class TestLobstersContentLinking:
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
             collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
-        sd = get_observations(engine)[0]
+        sd = get_discussions(engine)[0]
         assert sd.score == 77
         assert sd.comment_count == 14
 
@@ -239,7 +239,7 @@ class TestYoutubeContentLinking:
         assert "vid001" in sc_rows[0].canonical_url
         assert sc_rows[0].domain == "youtube.com"
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -262,7 +262,7 @@ class TestHuggingfaceContentLinking:
         assert sc_rows[0].canonical_url == "https://huggingface.co/papers/2401.12345"
         assert sc_rows[0].domain == "huggingface.co"
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
@@ -273,7 +273,7 @@ class TestHuggingfaceContentLinking:
 
         collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
-        sd = get_observations(engine)[0]
+        sd = get_discussions(engine)[0]
         assert sd.score == 99
         assert sd.comment_count == 7
 
@@ -304,12 +304,12 @@ class TestCrossSourceDedup:
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings)
 
-        # 3. Verify: exactly 1 SilverContent, 2 SilverObservations
+        # 3. Verify: exactly 1 SilverContent, 2 SilverDiscussions
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1, f"Expected 1 SilverContent, got {len(sc_rows)}"
         content_id = sc_rows[0].id
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 2
         source_types = {r.source_type for r in sd_rows}
         assert source_types == {"rss", "hackernews"}
@@ -342,7 +342,7 @@ class TestCrossSourceDedup:
         assert len(sc_rows) == 1
         content_id = sc_rows[0].id
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 2
         source_types = {r.source_type for r in sd_rows}
         assert source_types == {"lobsters", "hackernews"}
@@ -369,7 +369,7 @@ class TestCrossSourceDedup:
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1, f"Expected 1 SilverContent after normalization, got {len(sc_rows)}"
 
-        sd_rows = get_observations(engine)
+        sd_rows = get_discussions(engine)
         assert len(sd_rows) == 2
         assert all(r.content_id is not None for r in sd_rows)
         assert sd_rows[0].content_id == sd_rows[1].content_id

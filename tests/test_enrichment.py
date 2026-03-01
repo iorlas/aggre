@@ -24,7 +24,7 @@ class TestEnrichment:
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
-        seed_content(engine, "https://example.com/article", domain="example.com", text="article text")
+        seed_content(engine, "https://example.com/article", domain="example.com")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 2
@@ -46,7 +46,7 @@ class TestEnrichment:
         mock_lob.search_by_url.assert_called_once_with("https://example.com/article", engine, config.lobsters, config.settings)
 
         # Check enrichment tracking was set
-        assert_tracking(engine, "content", "https://example.com/article", Stage.ENRICH, StageStatus.DONE)
+        assert_tracking(engine, "webpage", "https://example.com/article", Stage.ENRICH, StageStatus.DONE)
 
     def test_skips_already_enriched(self, engine):
         config = make_config(
@@ -55,7 +55,7 @@ class TestEnrichment:
         )
 
         seed_content(engine, "https://example.com/old", domain="example.com")
-        upsert_done(engine, "content", "https://example.com/old", Stage.ENRICH)
+        upsert_done(engine, "webpage", "https://example.com/old", Stage.ENRICH)
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 0
@@ -81,9 +81,8 @@ class TestEnrichment:
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
-        # Create 5 content rows with text (enrichment requires text IS NOT NULL)
         for i in range(5):
-            seed_content(engine, f"https://example.com/{i}", domain="example.com", text=f"article {i}")
+            seed_content(engine, f"https://example.com/{i}", domain="example.com")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 0
@@ -110,7 +109,7 @@ class TestEnrichment:
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
-        seed_content(engine, "https://example.com/fail", domain="example.com", text="fail article text")
+        seed_content(engine, "https://example.com/fail", domain="example.com")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.side_effect = Exception("HN API error")
@@ -130,7 +129,30 @@ class TestEnrichment:
         assert results == {"hackernews": 0, "lobsters": 1, "processed": 1}
 
         # Content should be marked as failed (will be retried next batch)
-        assert_tracking(engine, "content", "https://example.com/fail", Stage.ENRICH, StageStatus.FAILED)
+        assert_tracking(engine, "webpage", "https://example.com/fail", Stage.ENRICH, StageStatus.FAILED)
+
+    def test_skips_reddit_domain_content(self, engine):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource()]),
+            lobsters=LobstersConfig(sources=[LobstersSource()]),
+        )
+
+        seed_content(engine, "https://reddit.com/r/python/comments/abc", domain="reddit.com")
+
+        mock_hn = MagicMock()
+        mock_lob = MagicMock()
+
+        results = enrich_content_discussions(
+            engine,
+            config,
+            batch_limit=50,
+            hn_collector=mock_hn,
+            lobsters_collector=mock_lob,
+        )
+
+        assert results == {"hackernews": 0, "lobsters": 0, "processed": 1}
+        mock_hn.search_by_url.assert_not_called()
+        mock_lob.search_by_url.assert_not_called()
 
     def test_no_pending_returns_zeros(self, engine):
         config = make_config(

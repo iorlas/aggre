@@ -6,7 +6,7 @@ Follow-up to [formal-verification-for-concurrency.md](formal-verification-for-co
 
 Two Aggre pipeline stages, both using the null-check queue pattern (`WHERE field IS NULL AND error IS NULL`):
 
-1. **Content pipeline** — two-phase (download→extract), parallel download workers (ThreadPoolExecutor), sequential extraction. Most complex stage.
+1. **Webpage pipeline** — two-phase (download→extract), parallel download workers (ThreadPoolExecutor), sequential extraction. Most complex stage.
 2. **Enrichment pipeline** — sequential, multi-platform (HN + Lobsters), known partial failure bug where one platform failing leaves the item in an infinite reprocessing loop.
 
 Specs live in `.planning/verification/{tlaplus,quint,fizzbee}/`.

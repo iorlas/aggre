@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from aggre.dagster_defs.transcription.job import transcribe
 from aggre.db import SilverContent
 from aggre.tracking.status import Stage, StageStatus
-from tests.factories import make_config, seed_content, seed_observation
+from tests.factories import make_config, seed_content, seed_discussion
 from tests.helpers import assert_tracking
 
 pytestmark = pytest.mark.integration
@@ -24,13 +24,13 @@ def _get_content(engine: sa.engine.Engine, content_id: int) -> sa.engine.Row:
 
 
 def _seed_youtube(engine: sa.engine.Engine, external_id: str = "abc123", title: str = "Test Video") -> int:
-    """Seed a SilverContent + SilverObservation pair for a YouTube video. Returns content_id."""
+    """Seed a SilverContent + SilverDiscussion pair for a YouTube video. Returns content_id."""
     content_id = seed_content(
         engine,
         f"https://youtube.com/watch?v={external_id}",
         domain="youtube.com",
     )
-    seed_observation(
+    seed_discussion(
         engine,
         source_type="youtube",
         external_id=external_id,
@@ -284,3 +284,34 @@ class TestTranscribe:
         assert written_json["language_probability"] == 0.95
 
         assert call_args[0][4] == "json"
+
+    @patch("aggre.dagster_defs.transcription.job.write_bronze")
+    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
+    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    def test_parallel_transcription(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+        """max_workers=2 processes multiple videos in parallel."""
+        _seed_youtube(engine, external_id="par01", title="Parallel 1")
+        _seed_youtube(engine, external_id="par02", title="Parallel 2")
+        config = make_config()
+        mock_model = _make_mock_model()
+
+        # Set up audio file
+        audio_file = tmp_path / "audio.opus"
+        audio_file.write_bytes(b"fake audio")
+        mock_path.return_value = audio_file
+
+        # Mock YoutubeDL context manager
+        mock_ydl_instance = MagicMock()
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = transcribe(engine, config, max_workers=2, model=mock_model)
+        assert result == 2
+
+        # Both videos should be transcribed
+        with engine.connect() as conn:
+            rows = conn.execute(sa.select(SilverContent).where(SilverContent.text.isnot(None))).fetchall()
+            assert len(rows) == 2
+
+        assert mock_model.transcribe.call_count == 2

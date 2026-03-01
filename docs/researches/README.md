@@ -34,22 +34,3 @@ Research into using formal methods to catch concurrency/integration bugs that AI
 
 All three tools modeled the Aggre pipeline and found the enrichment bug. TLA+ is the recommended tool — full liveness, fastest checker, best LLM authoring efficiency. The comparison exposed that FizzBee's "easy syntax" advantage doesn't help LLMs (2.2x more tool calls than TLA+), and Quint's broken liveness checking is a dealbreaker. Specs and results live in `.planning/verification/`.
 
----
-
-## Modern Shell & CLI Tools
-
-Research into replacing zsh/bash workflow with modern alternatives. Motivated by broken macOS zsh keybindings, slow oh-my-zsh startup, and primitive directory navigation / history search.
-
-### Documents
-
-1. **[modern-shell-and-cli-tools.md](modern-shell-and-cli-tools.md)** — Shell comparison (bash/zsh/fish/nushell), community opinions from HN/Lobsters, Claude Code compatibility analysis, tiered catalog of modern CLI replacements (atuin, zoxide, ripgrep, fd, bat, eza, lazygit, etc.), terminal emulator comparison (iTerm2/Ghostty/WezTerm/Kitty/Alacritty/cmux/Warp), and AI terminal analysis.
-
-### Key Findings Summary
-
-**Shell verdict:** Fish for interactive use, zsh as login shell (Claude Code compatibility). Skip nushell (pre-1.0, ecosystem too thin). Skip Oh My Fish (unmaintained) — use Fisher + Tide instead.
-
-**Biggest CLI wins:** atuin (shell history with fuzzy search, directory/exit code filtering) and zoxide (frecency-based `cd` — `z aggre` from anywhere). Both solve daily pain points immediately.
-
-**Terminal verdict:** iTerm2 is fine on M-series Macs — no strong reason to migrate. cmux (Ghostty-based, AGPL) solves the multi-Claude-Code-session problem with a sidebar showing git branch, working dir, and notification indicators per tab. Warp's AI features are redundant with Claude Code.
-
-**Installed:** fish 4.5.0, zoxide, fd, atuin, btop, lazygit, Fisher, Tide v6, cmux v0.61.0.

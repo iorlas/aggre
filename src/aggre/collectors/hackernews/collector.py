@@ -8,7 +8,7 @@ import time
 
 import sqlalchemy as sa
 
-from aggre.collectors.base import BaseCollector, ContentReference
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.hackernews.config import HackernewsConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
@@ -28,17 +28,17 @@ class HackernewsCollector(BaseCollector):
 
     source_type = "hackernews"
 
-    def collect_references(
+    def collect_discussions(
         self,
         engine: sa.engine.Engine,
         config: HackernewsConfig,
         settings: Settings,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         """Fetch HN front-page stories, write bronze, return references."""
         if not config.sources:
             return []
 
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
         rate_limit = settings.hn_rate_limit
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
@@ -65,7 +65,7 @@ class HackernewsCollector(BaseCollector):
 
                     self._write_bronze(object_id, hit)
                     refs.append(
-                        ContentReference(
+                        DiscussionRef(
                             external_id=object_id,
                             raw_data=hit,
                             source_id=source_id,
@@ -77,7 +77,7 @@ class HackernewsCollector(BaseCollector):
 
         return refs
 
-    def process_reference(
+    def process_discussion(
         self,
         ref_data: dict[str, object],
         conn: sa.Connection,
@@ -85,9 +85,9 @@ class HackernewsCollector(BaseCollector):
     ) -> None:
         """Normalize one HN hit into silver rows.
 
-        For stories with a URL: creates SilverContent via ensure_content, then upserts observation.
+        For stories with a URL: creates SilverContent via ensure_content, then upserts discussion.
         For self-posts (Ask HN, Show HN without URL): creates SilverContent with text populated
-        immediately via _ensure_self_post_content, then upserts observation.
+        immediately via _ensure_self_post_content, then upserts discussion.
         """
         hit = ref_data
         ext_id = str(hit.get("objectID", ""))
@@ -124,7 +124,7 @@ class HackernewsCollector(BaseCollector):
             score=hit.get("points", 0),
             comment_count=hit.get("num_comments", 0),
         )
-        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
     def collect_comments(
         self,
@@ -204,7 +204,7 @@ class HackernewsCollector(BaseCollector):
                         continue
 
                     self._write_bronze(object_id, hit)
-                    self.process_reference(hit, conn, source_id)
+                    self.process_discussion(hit, conn, source_id)
                     new_count += 1
 
         return new_count

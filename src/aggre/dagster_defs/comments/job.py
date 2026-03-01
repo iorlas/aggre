@@ -1,4 +1,4 @@
-"""Comments job -- fetch comments for observations that need them.
+"""Comments job -- fetch comments for discussions that need them.
 
 Note: ``from __future__ import annotations`` is omitted because Dagster's
 ``@op`` decorator inspects context-parameter type hints at decoration time and
@@ -21,7 +21,7 @@ _COMMENT_SOURCES = ("reddit", "hackernews", "lobsters")
 
 @dg.op(required_resource_keys={"database"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
 def fetch_comments(context: OpExecutionContext) -> int:
-    """Fetch comments for observations with comments_json=NULL."""
+    """Fetch comments for discussions with comments_json=NULL."""
     cfg = load_config()
     engine = context.resources.database.get_engine()
 
@@ -37,7 +37,7 @@ def fetch_comments(context: OpExecutionContext) -> int:
         except Exception:
             logger.exception("comments.source_error source=%s", src_name)
 
-    context.log.info(f"Fetched comments for {total} observations")
+    context.log.info(f"Fetched comments for {total} discussions")
     return total
 
 

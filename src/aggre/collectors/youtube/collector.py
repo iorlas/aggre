@@ -8,7 +8,7 @@ import logging
 import sqlalchemy as sa
 import yt_dlp
 
-from aggre.collectors.base import BaseCollector, ContentReference
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.youtube.config import YoutubeConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
@@ -24,16 +24,16 @@ class YoutubeCollector(BaseCollector):
 
     source_type = "youtube"
 
-    def collect_references(
+    def collect_discussions(
         self,
         engine: sa.engine.Engine,
         config: YoutubeConfig,
         settings: Settings,
         backfill: bool = False,
         source_ttl_minutes: int = 0,
-    ) -> list[ContentReference]:
+    ) -> list[DiscussionRef]:
         """Fetch YouTube channel metadata via yt-dlp, write bronze, return references."""
-        refs: list[ContentReference] = []
+        refs: list[DiscussionRef] = []
 
         for yt_source in config.sources:
             logger.info(
@@ -90,14 +90,14 @@ class YoutubeCollector(BaseCollector):
                     f"{idx}/{total_entries}",
                 )
 
-                # Attach channel metadata so process_reference can use it
+                # Attach channel metadata so process_discussion can use it
                 raw_data = dict(entry)
                 raw_data["_channel_id"] = yt_source.channel_id
                 raw_data["_channel_name"] = yt_source.name
 
                 self._write_bronze(external_id, raw_data)
                 refs.append(
-                    ContentReference(
+                    DiscussionRef(
                         external_id=external_id,
                         raw_data=raw_data,
                         source_id=source_id,
@@ -109,7 +109,7 @@ class YoutubeCollector(BaseCollector):
 
         return refs
 
-    def process_reference(
+    def process_discussion(
         self,
         ref_data: dict[str, object],
         conn: sa.Connection,
@@ -155,4 +155,4 @@ class YoutubeCollector(BaseCollector):
             meta=meta,
             content_id=content_id,
         )
-        self._upsert_observation(conn, values, update_columns=_UPSERT_COLS)
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

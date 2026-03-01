@@ -8,7 +8,7 @@ TLA+ specs live in `.planning/verification/`. They model pipeline concurrency, s
 
 - Concurrency controls — sensor guards, `default_op_concurrency_limit`, transaction boundaries
 - Pipeline stages — adding/removing ops, changing phase ordering
-- Mutation functions — `update_content()`, `ensure_content()`, `_upsert_observation()`
+- Mutation functions — `update_content()`, `ensure_content()`, `_upsert_discussion()`
 - Retry/backoff logic — retry counts, throttle state, partial progress
 - Parallel processing — ThreadPoolExecutor usage, batch processing
 

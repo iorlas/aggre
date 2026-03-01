@@ -11,7 +11,7 @@
 
 **Functions:**
 - Lowercase with underscores: `normalize_url()`, `extract_domain()`, `ensure_content()`
-- Internal/private functions prefixed with single underscore: `_download_one()`, `_update_content()`, `_upsert_observation()`
+- Internal/private functions prefixed with single underscore: `_download_one()`, `_update_content()`, `_upsert_discussion()`
 - State transition functions are verb phrases: `content_skipped()`, `content_downloaded()`, `content_fetched()`, `content_fetch_failed()` (see `src/aggre/content_fetcher.py`)
 - Data factory functions in tests prefixed with `_make_`: `_make_config()`, `_make_hit()`, `_make_search_response()` (e.g., `tests/test_hackernews.py`)
 
@@ -22,7 +22,7 @@
 - Config/logging objects: `config`, `log`, `engine`
 
 **Types:**
-- Classes use PascalCase: `BronzeDiscussion`, `SilverObservation`, `SilverContent`, `Source` (database models in `src/aggre/db.py`)
+- Classes use PascalCase: `BronzeDiscussion`, `SilverDiscussion`, `SilverContent`, `Source` (database models in `src/aggre/db.py`)
 - Enums use PascalCase and derive from `StrEnum` when needed (processing state uses null-check pattern instead of enums)
 - Pydantic models use PascalCase: `Settings`, `AppConfig`, `RssSource`, `RedditSource` (see `src/aggre/config.py`)
 - Protocol classes use PascalCase: `Collector`, `SearchableCollector` (see `src/aggre/collectors/base.py`)

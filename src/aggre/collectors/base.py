@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.db import SilverContent, SilverObservation, Source
+from aggre.db import SilverContent, SilverDiscussion, Source
 from aggre.settings import Settings
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
@@ -23,8 +23,8 @@ from aggre.utils.db import now_iso
 from aggre.utils.urls import extract_domain
 
 
-class ContentReference(TypedDict):
-    """A reference to a piece of content from a collector feed."""
+class DiscussionRef(TypedDict):
+    """A reference to a discussion from a collector feed."""
 
     external_id: str
     raw_data: dict[str, object]
@@ -36,28 +36,28 @@ class Collector(Protocol):
 
     source_type: str
 
-    def collect_references(self, engine: sa.engine.Engine, config: BaseModel, settings: Settings) -> list[ContentReference]:
-        """Fetch feed, write each item to bronze, return references.
+    def collect_discussions(self, engine: sa.engine.Engine, config: BaseModel, settings: Settings) -> list[DiscussionRef]:
+        """Fetch feed, write each item to bronze, return discussion refs.
 
         Handles source management (ensure_source, TTL, fetch limits).
-        Writes raw data to bronze. Returns refs with source_ids for process_reference.
+        Writes raw data to bronze. Returns refs with source_ids for process_discussion.
         """
         ...
 
-    def process_reference(self, ref_data: dict[str, object], conn: sa.Connection, source_id: int) -> None:
-        """Normalize one bronze reference into silver rows.
+    def process_discussion(self, ref_data: dict[str, object], conn: sa.Connection, source_id: int) -> None:
+        """Normalize one bronze ref into silver rows.
 
-        Calls ensure_content() + _upsert_observation().
+        Calls ensure_content() + _upsert_discussion().
         For self-posts: also populates SilverContent.text directly.
         """
         ...
 
 
 class SearchableCollector(Collector, Protocol):
-    """Collector that supports searching for observations by URL."""
+    """Collector that supports searching for discussions by URL."""
 
     def search_by_url(self, url: str, engine: sa.engine.Engine, config: BaseModel, settings: Settings) -> int:
-        """Search for observations about a URL. Returns count of new items stored."""
+        """Search for discussions about a URL. Returns count of new items stored."""
         ...
 
 
@@ -110,21 +110,21 @@ class BaseCollector:
         return last >= cutoff
 
     def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int) -> list[sa.Row]:
-        """Return observations with pending comments for this source_type."""
+        """Return discussions with pending comments for this source_type."""
         with engine.connect() as conn:
             return conn.execute(
-                sa.select(SilverObservation.id, SilverObservation.external_id, SilverObservation.meta)
+                sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
                 .outerjoin(
                     StageTracking,
                     sa.and_(
                         StageTracking.source == self.source_type,
-                        StageTracking.external_id == SilverObservation.external_id,
+                        StageTracking.external_id == SilverDiscussion.external_id,
                         StageTracking.stage == Stage.COMMENTS,
                     ),
                 )
                 .where(
-                    SilverObservation.source_type == self.source_type,
-                    SilverObservation.comments_json.is_(None),
+                    SilverDiscussion.source_type == self.source_type,
+                    SilverDiscussion.comments_json.is_(None),
                     sa.or_(
                         StageTracking.id.is_(None),
                         retry_filter(StageTracking, Stage.COMMENTS),
@@ -136,16 +136,16 @@ class BaseCollector:
     def _mark_comments_done(
         self,
         engine: sa.engine.Engine,
-        observation_id: int,
+        discussion_id: int,
         external_id: str,
         comments_json: str | None,
         comment_count: int,
     ) -> None:
-        """Store fetched comments on an observation and record tracking."""
+        """Store fetched comments on a discussion and record tracking."""
         with engine.begin() as conn:
             conn.execute(
-                sa.update(SilverObservation)
-                .where(SilverObservation.id == observation_id)
+                sa.update(SilverDiscussion)
+                .where(SilverDiscussion.id == discussion_id)
                 .values(
                     comments_json=comments_json,
                     comment_count=comment_count,
@@ -163,21 +163,21 @@ class BaseCollector:
         upsert_failed(engine, self.source_type, external_id, Stage.COMMENTS, error)
 
     @staticmethod
-    def _upsert_observation(
+    def _upsert_discussion(
         conn: sa.Connection,
         values: dict[str, object],
         update_columns: Sequence[str] | None = None,
     ) -> int | None:
-        """Insert or update a SilverObservation. Returns id if new, None if existing."""
+        """Insert or update a SilverDiscussion. Returns id if new, None if existing."""
         # Check existence first so we can distinguish insert from update
         existing = conn.execute(
-            sa.select(SilverObservation.id).where(
-                SilverObservation.source_type == values["source_type"],
-                SilverObservation.external_id == values["external_id"],
+            sa.select(SilverDiscussion.id).where(
+                SilverDiscussion.source_type == values["source_type"],
+                SilverDiscussion.external_id == values["external_id"],
             )
         ).first()
 
-        stmt = pg_insert(SilverObservation).values(**values)
+        stmt = pg_insert(SilverDiscussion).values(**values)
         if update_columns:
             set_ = {col: getattr(stmt.excluded, col) for col in update_columns}
             stmt = stmt.on_conflict_do_update(
@@ -191,9 +191,9 @@ class BaseCollector:
         if existing:
             return None
         return conn.execute(
-            sa.select(SilverObservation.id).where(
-                SilverObservation.source_type == values["source_type"],
-                SilverObservation.external_id == values["external_id"],
+            sa.select(SilverDiscussion.id).where(
+                SilverDiscussion.source_type == values["source_type"],
+                SilverDiscussion.external_id == values["external_id"],
             )
         ).scalar()
 

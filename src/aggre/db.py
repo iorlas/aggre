@@ -27,6 +27,7 @@ class SilverContent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     canonical_url: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    original_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     domain: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     title: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
@@ -34,8 +35,8 @@ class SilverContent(Base):
     detected_language: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
-class SilverObservation(Base):
-    __tablename__ = "silver_observations"
+class SilverDiscussion(Base):
+    __tablename__ = "silver_discussions"
     __table_args__ = (sa.UniqueConstraint("source_type", "external_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -64,14 +65,14 @@ sa.Index(
     postgresql_where=sa.and_(SilverContent.text.isnot(None), SilverContent.canonical_url.isnot(None)),
 )
 
-# SilverObservation indexes
-sa.Index("idx_silver_observations_source_type", SilverObservation.source_type)
-sa.Index("idx_silver_observations_published", SilverObservation.published_at)
-sa.Index("idx_silver_observations_source_id", SilverObservation.source_id)
-sa.Index("idx_silver_observations_external", SilverObservation.source_type, SilverObservation.external_id)
-sa.Index("idx_observations_comments_null", SilverObservation.id, postgresql_where=SilverObservation.comments_json.is_(None))
-sa.Index("idx_silver_observations_url", SilverObservation.url, postgresql_where=SilverObservation.url.isnot(None))
-sa.Index("idx_silver_observations_content_id", SilverObservation.content_id, postgresql_where=SilverObservation.content_id.isnot(None))
+# SilverDiscussion indexes
+sa.Index("idx_silver_discussions_source_type", SilverDiscussion.source_type)
+sa.Index("idx_silver_discussions_published", SilverDiscussion.published_at)
+sa.Index("idx_silver_discussions_source_id", SilverDiscussion.source_id)
+sa.Index("idx_silver_discussions_external", SilverDiscussion.source_type, SilverDiscussion.external_id)
+sa.Index("idx_discussions_comments_null", SilverDiscussion.id, postgresql_where=SilverDiscussion.comments_json.is_(None))
+sa.Index("idx_silver_discussions_url", SilverDiscussion.url, postgresql_where=SilverDiscussion.url.isnot(None))
+sa.Index("idx_silver_discussions_content_id", SilverDiscussion.content_id, postgresql_where=SilverDiscussion.content_id.isnot(None))
 
 
 def update_content(engine: sa.engine.Engine, content_id: int, **values: str | int | None) -> None:

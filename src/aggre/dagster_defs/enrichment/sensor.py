@@ -16,13 +16,12 @@ enrichment_sensor = make_processing_sensor(
     .outerjoin(
         StageTracking,
         sa.and_(
-            StageTracking.source == "content",
+            StageTracking.source == "webpage",
             StageTracking.external_id == SilverContent.canonical_url,
             StageTracking.stage == Stage.ENRICH,
         ),
     )
     .where(
-        SilverContent.text.isnot(None),
         SilverContent.canonical_url.isnot(None),
         sa.or_(
             StageTracking.id.is_(None),

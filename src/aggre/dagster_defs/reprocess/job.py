@@ -23,10 +23,10 @@ def reprocess_from_bronze(
     engine: sa.engine.Engine,
     bronze_root: Path = DEFAULT_BRONZE_ROOT,
 ) -> int:
-    """Scan bronze ref.json files and rebuild silver via process_reference.
+    """Scan bronze ref.json files and rebuild silver via process_discussion.
 
     For each source type, iterates bronze/{source_type}/*/raw.json,
-    loads the raw data, and calls the collector's process_reference().
+    loads the raw data, and calls the collector's process_discussion().
     Returns total count of references reprocessed.
     """
     total = 0
@@ -52,7 +52,7 @@ def reprocess_from_bronze(
             try:
                 raw_data = json.loads(ref_file.read_text())
                 with engine.begin() as conn:
-                    collector.process_reference(raw_data, conn, source_id)
+                    collector.process_discussion(raw_data, conn, source_id)
                 reprocessed += 1
             except Exception:
                 ext_id = ref_file.parent.name

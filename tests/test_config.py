@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 import yaml
 
@@ -65,7 +67,9 @@ class TestLoadConfig:
     def test_strips_settings_from_yaml(self, tmp_path, monkeypatch):
         """Settings block in YAML is ignored (env vars only)."""
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("AGGRE_DATABASE_URL", raising=False)
+        for key in list(os.environ):
+            if key.startswith("AGGRE_"):
+                monkeypatch.delenv(key, raising=False)
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
             yaml.dump(

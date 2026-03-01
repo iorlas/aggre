@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,13 +12,18 @@ from aggre.settings import Settings
 pytestmark = pytest.mark.unit
 
 
+def _clear_aggre_env(monkeypatch):
+    """Remove all AGGRE_* env vars to isolate Settings from host."""
+    for key in list(os.environ):
+        if key.startswith("AGGRE_"):
+            monkeypatch.delenv(key, raising=False)
+
+
 class TestSettings:
     def test_defaults_without_env(self, tmp_path, monkeypatch):
         """Settings() -> database_url has default value."""
         monkeypatch.chdir(tmp_path)
-        # Clear any AGGRE_* env vars that might leak from the host
-        monkeypatch.delenv("AGGRE_DATABASE_URL", raising=False)
-        monkeypatch.delenv("AGGRE_PROXY_URL", raising=False)
+        _clear_aggre_env(monkeypatch)
 
         s = Settings()
 
@@ -38,8 +45,8 @@ class TestSettings:
     def test_ignores_extra_env_vars(self, tmp_path, monkeypatch):
         """AGGRE_UNKNOWN=x -> no error (extra='ignore')."""
         monkeypatch.chdir(tmp_path)
+        _clear_aggre_env(monkeypatch)
         monkeypatch.setenv("AGGRE_UNKNOWN", "should_be_ignored")
-        monkeypatch.delenv("AGGRE_DATABASE_URL", raising=False)
 
         s = Settings()
 
@@ -58,7 +65,7 @@ class TestSettings:
     def test_proxy_url_default_empty(self, tmp_path, monkeypatch):
         """Settings().proxy_url == '' by default."""
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("AGGRE_PROXY_URL", raising=False)
+        _clear_aggre_env(monkeypatch)
 
         s = Settings()
 

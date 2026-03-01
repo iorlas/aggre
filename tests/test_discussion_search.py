@@ -150,7 +150,8 @@ class TestEnrichment:
             lobsters_collector=mock_lob,
         )
 
-        assert results == {"hackernews": 0, "lobsters": 0, "processed": 1}
+        # Reddit URLs are filtered at SQL level — never enter the batch
+        assert results == {"hackernews": 0, "lobsters": 0, "processed": 0}
         mock_hn.search_by_url.assert_not_called()
         mock_lob.search_by_url.assert_not_called()
 

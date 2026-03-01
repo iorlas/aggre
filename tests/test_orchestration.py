@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aggre.dagster_defs.collection.job import collect_source
+from aggre.dagster_defs.collection._shared import collect_source
 from aggre.dagster_defs.comments.job import fetch_comments as _comments_op
 from tests.factories import make_config
 
@@ -34,10 +34,12 @@ def clean_tables():
     yield
 
 
-def _mock_context(engine: object) -> MagicMock:
-    """Create a mock Dagster OpExecutionContext with a database resource."""
+def _mock_context(engine: object, config: object | None = None) -> MagicMock:
+    """Create a mock Dagster OpExecutionContext with database and app_config resources."""
     ctx = MagicMock()
     ctx.resources.database.get_engine.return_value = engine
+    if config is not None:
+        ctx.resources.app_config.get_config.return_value = config
     return ctx
 
 
@@ -114,11 +116,8 @@ class TestCollectSource:
 
 class TestFetchComments:
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_iterates_comment_sources(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_iterates_comment_sources(self, mock_collectors: MagicMock) -> None:
         """Calls collect_comments on reddit, hackernews, and lobsters."""
-        mock_load_config.return_value = make_config()
-
         mock_reddit_cls = MagicMock()
         mock_reddit_cls.return_value.collect_comments.return_value = 3
 
@@ -134,7 +133,7 @@ class TestFetchComments:
             "lobsters": mock_lobsters_cls,
         }.get(name)
 
-        ctx = _mock_context(MagicMock())
+        ctx = _mock_context(MagicMock(), config=make_config())
         result = fetch_comments(ctx)
 
         assert result == 10
@@ -143,11 +142,8 @@ class TestFetchComments:
         mock_lobsters_cls.return_value.collect_comments.assert_called_once()
 
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_isolates_errors_per_source(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_isolates_errors_per_source(self, mock_collectors: MagicMock) -> None:
         """One source throwing does not stop others from running."""
-        mock_load_config.return_value = make_config()
-
         mock_reddit_cls = MagicMock()
         mock_reddit_cls.return_value.collect_comments.side_effect = RuntimeError("reddit down")
 
@@ -163,7 +159,7 @@ class TestFetchComments:
             "lobsters": mock_lobsters_cls,
         }.get(name)
 
-        ctx = _mock_context(MagicMock())
+        ctx = _mock_context(MagicMock(), config=make_config())
         result = fetch_comments(ctx)
 
         # Reddit failed, HN + Lobsters succeeded
@@ -172,11 +168,8 @@ class TestFetchComments:
         mock_lobsters_cls.return_value.collect_comments.assert_called_once()
 
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_returns_total_count(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_returns_total_count(self, mock_collectors: MagicMock) -> None:
         """Return value is the sum of all collected comment counts."""
-        mock_load_config.return_value = make_config()
-
         mock_reddit_cls = MagicMock()
         mock_reddit_cls.return_value.collect_comments.return_value = 7
 
@@ -192,17 +185,14 @@ class TestFetchComments:
             "lobsters": mock_lobsters_cls,
         }.get(name)
 
-        ctx = _mock_context(MagicMock())
+        ctx = _mock_context(MagicMock(), config=make_config())
         result = fetch_comments(ctx)
 
         assert result == 10
 
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_skips_missing_collector(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_skips_missing_collector(self, mock_collectors: MagicMock) -> None:
         """If a comment source has no entry in COLLECTORS, it is skipped gracefully."""
-        mock_load_config.return_value = make_config()
-
         mock_hn_cls = MagicMock()
         mock_hn_cls.return_value.collect_comments.return_value = 2
 
@@ -211,7 +201,7 @@ class TestFetchComments:
             "hackernews": mock_hn_cls,
         }.get(name)
 
-        ctx = _mock_context(MagicMock())
+        ctx = _mock_context(MagicMock(), config=make_config())
         result = fetch_comments(ctx)
 
         assert result == 2

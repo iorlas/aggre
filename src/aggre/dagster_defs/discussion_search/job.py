@@ -51,7 +51,7 @@ def enrich_content_discussions(
     # Find content that hasn't been enriched yet
     with engine.connect() as conn:
         rows = conn.execute(
-            sa.select(SilverContent.id, SilverContent.canonical_url, SilverContent.domain)
+            sa.select(SilverContent.id, SilverContent.canonical_url)
             .outerjoin(
                 StageTracking,
                 sa.and_(
@@ -62,6 +62,7 @@ def enrich_content_discussions(
             )
             .where(
                 SilverContent.canonical_url.isnot(None),
+                SilverContent.domain.notin_(ENRICHMENT_SKIP_DOMAINS),
                 sa.or_(
                     StageTracking.id.is_(None),
                     retry_filter(StageTracking, Stage.ENRICH),
@@ -82,27 +83,23 @@ def enrich_content_discussions(
     for row in rows:
         totals["processed"] += 1
         content_url = row.canonical_url
-        domain = row.domain
         logger.info("enrich.searching url=%s", content_url)
 
         failed = False
-        skip_domain = domain and domain in ENRICHMENT_SKIP_DOMAINS
 
-        if not skip_domain:
-            try:
-                hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings)
-                totals["hackernews"] += hn_found
-            except Exception:
-                logger.exception("enrich.hn_search_failed url=%s", content_url)
-                failed = True
+        try:
+            hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings)
+            totals["hackernews"] += hn_found
+        except Exception:
+            logger.exception("enrich.hn_search_failed url=%s", content_url)
+            failed = True
 
-        if not skip_domain:
-            try:
-                lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings)
-                totals["lobsters"] += lobsters_found
-            except Exception:
-                logger.exception("enrich.lobsters_search_failed url=%s", content_url)
-                failed = True
+        try:
+            lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings)
+            totals["lobsters"] += lobsters_found
+        except Exception:
+            logger.exception("enrich.lobsters_search_failed url=%s", content_url)
+            failed = True
 
         if not failed:
             upsert_done(engine, "webpage", content_url, Stage.ENRICH)

@@ -19,6 +19,7 @@ services:
       MAX_CONCURRENT_SESSIONS: 5
       TIMEOUT: 60000
       HEALTH: "true"
+      DEBUG: "browserless.io:*:info,browserless.io:*:warn,browserless.io:*:error"
     ports:
       - "3001:3000"
     healthcheck:

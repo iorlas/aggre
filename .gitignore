@@ -104,3 +104,4 @@ tickets.jsonl
 .claude/settings.local.json
 .langgraph_api
 data/
+.hypothesis/

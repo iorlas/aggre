@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
+import pytest
 import sqlalchemy as sa
 
 from aggre.db import Base
+
+pytestmark = pytest.mark.acceptance
 
 # ---------------------------------------------------------------------------
 # Part 1: Migration tests

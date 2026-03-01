@@ -33,6 +33,10 @@ dev = [
     "pytest-recording>=0.13.4",
     "ruff>=0.14.0",
     "ty>=0.0.13",
+    "respx>=0.22",
+    "polyfactory>=2.18",
+    "hypothesis>=6.120",
+    "inline-snapshot>=0.15",
 ]
 
 [project.scripts]
@@ -86,4 +90,5 @@ markers = [
     "contract: marks tests as contract tests (external API verification)",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "acceptance: marks tests as acceptance tests (end-to-end workflows)",
 ]

@@ -4,45 +4,26 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
-from aggre.collectors.rss.config import RssConfig, RssSource
-from aggre.config import AppConfig
 from aggre.dagster_defs.enrichment.job import enrich_content_discussions
 from aggre.db import SilverContent
-from aggre.settings import Settings
+from tests.factories import make_config, seed_content
 
-
-def _make_config() -> AppConfig:
-    return AppConfig(
-        hackernews=HackernewsConfig(sources=[HackernewsSource()]),
-        lobsters=LobstersConfig(sources=[LobstersSource()]),
-        rss=RssConfig(sources=[RssSource(name="Test", url="https://example.com/feed")]),
-        settings=Settings(hn_rate_limit=0.0, lobsters_rate_limit=0.0),
-    )
-
-
-def _seed_content(engine, url: str, enriched_at: str | None = None):
-    """Insert a SilverContent row that can be enriched."""
-    with engine.begin() as conn:
-        stmt = pg_insert(SilverContent).values(
-            canonical_url=url,
-            domain="example.com",
-            enriched_at=enriched_at,
-        )
-        stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
-        conn.execute(stmt)
+pytestmark = pytest.mark.integration
 
 
 class TestEnrichment:
-    def test_enriches_content(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_enriches_content(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource()]),
+            lobsters=LobstersConfig(sources=[LobstersSource()]),
+        )
 
-        _seed_content(engine, "https://example.com/article")
+        seed_content(engine, "https://example.com/article", domain="example.com")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 2
@@ -69,11 +50,13 @@ class TestEnrichment:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.canonical_url == "https://example.com/article")).fetchone()
             assert row.enriched_at is not None
 
-    def test_skips_already_enriched(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_skips_already_enriched(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource()]),
+            lobsters=LobstersConfig(sources=[LobstersSource()]),
+        )
 
-        _seed_content(engine, "https://example.com/old", enriched_at="2024-01-01T00:00:00Z")
+        seed_content(engine, "https://example.com/old", domain="example.com", enriched_at="2024-01-01T00:00:00Z")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 0
@@ -94,13 +77,15 @@ class TestEnrichment:
         mock_hn.search_by_url.assert_not_called()
         mock_lob.search_by_url.assert_not_called()
 
-    def test_respects_batch_limit(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_respects_batch_limit(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource()]),
+            lobsters=LobstersConfig(sources=[LobstersSource()]),
+        )
 
         # Create 5 content rows
         for i in range(5):
-            _seed_content(engine, f"https://example.com/{i}")
+            seed_content(engine, f"https://example.com/{i}", domain="example.com")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 0
@@ -122,11 +107,13 @@ class TestEnrichment:
         assert mock_lob.search_by_url.call_count == 3
         assert results["processed"] == 3
 
-    def test_handles_search_failure_gracefully(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_handles_search_failure_gracefully(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource()]),
+            lobsters=LobstersConfig(sources=[LobstersSource()]),
+        )
 
-        _seed_content(engine, "https://example.com/fail")
+        seed_content(engine, "https://example.com/fail", domain="example.com")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.side_effect = Exception("HN API error")
@@ -151,9 +138,11 @@ class TestEnrichment:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.canonical_url == "https://example.com/fail")).fetchone()
             assert row.enriched_at is None
 
-    def test_no_pending_returns_zeros(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_no_pending_returns_zeros(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource()]),
+            lobsters=LobstersConfig(sources=[LobstersSource()]),
+        )
 
         mock_hn = MagicMock()
         mock_lob = MagicMock()

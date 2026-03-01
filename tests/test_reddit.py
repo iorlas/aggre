@@ -6,130 +6,35 @@ import json
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 import sqlalchemy as sa
 
 from aggre.collectors.reddit.collector import RedditCollector, _rate_limit_sleep
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
-from aggre.config import AppConfig
 from aggre.db import SilverObservation, Source
-from aggre.settings import Settings
+from aggre.utils.http import create_http_client
+from tests.factories import (
+    make_config,
+    reddit_comment,
+    reddit_comment_listing,
+    reddit_listing,
+    reddit_post,
+)
+from tests.helpers import collect
 
-
-def _make_config(subreddits: list[str] | None = None, rate_limit: float = 0.0) -> AppConfig:
-    subs = subreddits or ["python"]
-    return AppConfig(
-        reddit=RedditConfig(sources=[RedditSource(subreddit=s) for s in subs]),
-        settings=Settings(reddit_rate_limit=rate_limit),
-    )
-
-
-def _make_post(post_id: str = "abc123", title: str = "Test Post", author: str = "testuser", subreddit: str = "python"):
-    return {
-        "kind": "t3",
-        "data": {
-            "name": f"t3_{post_id}",
-            "title": title,
-            "author": author,
-            "selftext": "This is the body text",
-            "permalink": f"/r/{subreddit}/comments/{post_id}/test_post/",
-            "created_utc": 1700000000.0,
-            "score": 42,
-            "num_comments": 5,
-            "link_flair_text": "Discussion",
-            "subreddit": subreddit,
-        },
-    }
-
-
-def _make_listing(*posts):
-    return {"data": {"children": list(posts)}}
-
-
-def _make_comment(
-    comment_id: str = "com1",
-    body: str = "Nice post!",
-    author: str = "commenter",
-    parent_id: str = "t3_abc123",
-    score: int = 10,
-    replies=None,
-):
-    comment_data = {
-        "name": f"t1_{comment_id}",
-        "author": author,
-        "body": body,
-        "score": score,
-        "parent_id": parent_id,
-        "created_utc": 1700001000.0,
-        "replies": replies or "",
-    }
-    return {"kind": "t1", "data": comment_data}
-
-
-def _make_comment_listing(*comments):
-    """Build the [post_listing, comments_listing] structure returned by comment endpoints."""
-    post_part = {"data": {"children": [_make_post()]}}
-    comment_part = {"data": {"children": list(comments)}}
-    return [post_part, comment_part]
-
-
-def _make_response(headers: dict | None = None):
-    """Create a mock httpx.Response with optional headers."""
-    resp = MagicMock()
-    resp.headers = headers or {}
-    return resp
-
-
-def _fake_get_for_listings(mock_responses):
-    """Return a fake_get that returns (data, mock_response) tuples matching _fetch_json signature."""
-
-    def fake_get(url):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {}
-        for key, data in mock_responses.items():
-            if key in url:
-                resp.json.return_value = data
-                return resp
-        resp.json.return_value = _make_listing()
-        return resp
-
-    return fake_get
-
-
-def _collect(collector, engine, config, settings, log, **kwargs):
-    """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
-    for ref in refs:
-        with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
-    return len(refs)
+pytestmark = pytest.mark.integration
 
 
 class TestRedditCollectorDiscussions:
-    def test_stores_posts_in_raw_and_content(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
+    def test_stores_posts_in_raw_and_content(self, engine, mock_http, log):
+        post = reddit_post()
+        listing = reddit_listing(post)
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        post = _make_post()
-        listing = _make_listing(post)
-
-        mock_responses = {
-            "hot.json": listing,
-            "new.json": listing,
-        }
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
-            mock_client_cls.return_value = client_instance
-
-            count = _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            count = collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         assert count == 1
 
@@ -150,30 +55,15 @@ class TestRedditCollectorDiscussions:
             assert meta["subreddit"] == "python"
             assert meta["flair"] == "Discussion"
 
-    def test_dedup_same_post_in_hot_and_new(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
+    def test_dedup_same_post_in_hot_and_new(self, engine, mock_http, log):
+        post = reddit_post()
+        listing = reddit_listing(post)
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        post = _make_post()
-        listing = _make_listing(post)
-
-        mock_responses = {
-            "hot.json": listing,
-            "new.json": listing,
-        }
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
-            mock_client_cls.return_value = client_instance
-
-            count = _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            count = collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         assert count == 1
 
@@ -181,32 +71,15 @@ class TestRedditCollectorDiscussions:
             items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 1
 
-    def test_multiple_unique_posts(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
+    def test_multiple_unique_posts(self, engine, mock_http, log):
+        post1 = reddit_post(post_id="aaa", title="First")
+        post2 = reddit_post(post_id="bbb", title="Second")
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=reddit_listing(post1))
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=reddit_listing(post2))
 
-        post1 = _make_post(post_id="aaa", title="First")
-        post2 = _make_post(post_id="bbb", title="Second")
-        hot_listing = _make_listing(post1)
-        new_listing = _make_listing(post2)
-
-        mock_responses = {
-            "hot.json": hot_listing,
-            "new.json": new_listing,
-        }
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
-            mock_client_cls.return_value = client_instance
-
-            count = _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            count = collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         assert count == 2
 
@@ -214,43 +87,22 @@ class TestRedditCollectorDiscussions:
             items = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(items) == 2
 
-    def test_collect_does_not_fetch_comments(self, engine):
+    def test_collect_does_not_fetch_comments(self, engine, mock_http, log):
         """collect_references() should only make listing requests, not comment requests."""
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
+        post = reddit_post()
+        listing = reddit_listing(post)
 
-        post = _make_post()
-        listing = _make_listing(post)
-        mock_responses = {"hot.json": listing, "new.json": listing}
-        requested_urls: list[str] = []
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
+        # Catch-all for comment URLs — should never be called
+        comment_route = mock_http.get(url__regex=r".*/comments/.*\.json.*").respond(json=[])
 
-        def tracking_get(url):
-            requested_urls.append(url)
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.headers = {}
-            for key, data in mock_responses.items():
-                if key in url:
-                    resp.json.return_value = data
-                    return resp
-            resp.json.return_value = _make_listing()
-            return resp
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = tracking_get
-            mock_client_cls.return_value = client_instance
-
-            _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         # No comment URLs should have been requested
-        assert not any("comments/" in url for url in requested_urls)
+        assert not comment_route.called
 
         # But comments should be pending (comments_json not yet fetched)
         with engine.connect() as conn:
@@ -260,44 +112,28 @@ class TestRedditCollectorDiscussions:
 
 
 class TestRedditCollectorComments:
-    def test_collect_comments_fetches_and_marks_done(self, engine):
+    def test_collect_comments_fetches_and_marks_done(self, engine, mock_http, log):
         """collect_comments() should fetch comments for pending posts and mark them done."""
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
-
         # First, collect posts
-        post = _make_post()
-        listing = _make_listing(post)
-        mock_responses = {"hot.json": listing, "new.json": listing}
+        post = reddit_post()
+        listing = reddit_listing(post)
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
-            mock_client_cls.return_value = client_instance
-            _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+
+        # Reset mock_http for comment requests
+        mock_http.reset()
 
         # Now collect comments
-        comment = _make_comment(comment_id="com1", body="Great post!")
-        comment_response = _make_comment_listing(comment)
+        comment = reddit_comment(comment_id="com1", body="Great post!")
+        comment_response = reddit_comment_listing(comment)
+        mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_response)
 
-        comment_mock_responses = {"comments/abc123.json": comment_response}
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
-            mock_client_cls.return_value = client_instance
-            fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         assert fetched == 1
 
@@ -315,48 +151,31 @@ class TestRedditCollectorComments:
             # Comments have been fetched
             assert items[0].comments_json is not None
 
-    def test_collect_comments_respects_batch_limit(self, engine):
+    def test_collect_comments_respects_batch_limit(self, engine, mock_http, log):
         """collect_comments() should only process batch_limit posts."""
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
-
         # Create 3 posts
-        post1 = _make_post(post_id="aaa", title="First")
-        post2 = _make_post(post_id="bbb", title="Second")
-        post3 = _make_post(post_id="ccc", title="Third")
-        listing = _make_listing(post1, post2, post3)
+        post1 = reddit_post(post_id="aaa", title="First")
+        post2 = reddit_post(post_id="bbb", title="Second")
+        post3 = reddit_post(post_id="ccc", title="Third")
+        listing = reddit_listing(post1, post2, post3)
 
-        mock_responses = {"hot.json": listing, "new.json": _make_listing()}
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=reddit_listing())
 
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
-            mock_client_cls.return_value = client_instance
-            _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+
+        # Reset mock_http for comment requests
+        mock_http.reset()
 
         # Fetch comments with batch_limit=2
-        comment_mock_responses = {
-            "comments/aaa.json": _make_comment_listing(),
-            "comments/bbb.json": _make_comment_listing(),
-            "comments/ccc.json": _make_comment_listing(),
-        }
+        mock_http.get(url__regex=r".*/comments/aaa\.json.*").respond(json=reddit_comment_listing())
+        mock_http.get(url__regex=r".*/comments/bbb\.json.*").respond(json=reddit_comment_listing())
+        mock_http.get(url__regex=r".*/comments/ccc\.json.*").respond(json=reddit_comment_listing())
 
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
-            mock_client_cls.return_value = client_instance
-            fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=2)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, log, batch_limit=2)
 
         assert fetched == 2
 
@@ -368,66 +187,44 @@ class TestRedditCollectorComments:
             assert len(done) == 2
             assert len(pending) == 1
 
-    def test_collect_comments_no_pending(self, engine):
+    def test_collect_comments_no_pending(self, engine, log):
         """collect_comments() returns 0 when no pending posts exist."""
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
-
-        fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
+        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+        fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
         assert fetched == 0
 
-    def test_collect_comments_zero_batch_limit(self, engine):
+    def test_collect_comments_zero_batch_limit(self, engine, log):
         """collect_comments() returns 0 when batch_limit is 0."""
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
-
-        fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=0)
+        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+        fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, log, batch_limit=0)
         assert fetched == 0
 
-    def test_nested_comments(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
-
+    def test_nested_comments(self, engine, mock_http, log):
         # Collect posts first
-        post = _make_post()
-        listing = _make_listing(post)
-        mock_responses = {"hot.json": listing, "new.json": listing}
+        post = reddit_post()
+        listing = reddit_listing(post)
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(mock_responses)
-            mock_client_cls.return_value = client_instance
-            _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+
+        # Reset mock_http for comment requests
+        mock_http.reset()
 
         # Fetch comments with nested replies
-        reply = _make_comment(comment_id="reply1", body="I agree", parent_id="t1_com1")
-        parent_comment = _make_comment(
+        reply = reddit_comment(comment_id="reply1", body="I agree", parent_id="t1_com1")
+        parent_comment = reddit_comment(
             comment_id="com1",
             body="Top level",
             replies={"data": {"children": [reply]}},
         )
-        comment_response = _make_comment_listing(parent_comment)
+        comment_response = reddit_comment_listing(parent_comment)
+        mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_response)
 
-        comment_mock_responses = {"comments/abc123.json": comment_response}
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings(comment_mock_responses)
-            mock_client_cls.return_value = client_instance
-            collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            RedditCollector().collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         with engine.connect() as conn:
             items = conn.execute(sa.select(SilverObservation)).fetchall()
@@ -445,12 +242,15 @@ class TestRedditCollectorComments:
 class TestRedditCollectorRateLimit:
     def test_sleep_called_before_each_listing_request(self, engine):
         """Verify rate-limit sleep fires before each listing HTTP request."""
-        config = _make_config(rate_limit=2.0)
+        config = make_config(
+            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
+            rate_limit=2.0,
+        )
         log = MagicMock()
         collector = RedditCollector()
 
-        post1 = _make_post(post_id="aaa", title="First")
-        hot_listing = _make_listing(post1)
+        post1 = reddit_post(post_id="aaa", title="First")
+        hot_listing = reddit_listing(post1)
 
         call_order: list[str] = []
 
@@ -462,7 +262,7 @@ class TestRedditCollectorRateLimit:
             if "hot.json" in url:
                 resp.json.return_value = hot_listing
             else:
-                resp.json.return_value = _make_listing()
+                resp.json.return_value = reddit_listing()
             return resp
 
         def fake_sleep(seconds):
@@ -479,7 +279,7 @@ class TestRedditCollectorRateLimit:
             client_instance.get.side_effect = fake_get
             mock_client_cls.return_value = client_instance
 
-            _collect(collector, engine, config.reddit, config.settings, log)
+            collect(collector, engine, config.reddit, config.settings, log)
 
         # Expect: sleep,get (hot), sleep,get (new) = 2 pairs
         # Every "get" must be immediately preceded by "sleep"
@@ -494,7 +294,8 @@ class TestAdaptiveRateLimit:
     def test_exhausted_rate_limit_sleeps_for_reset(self):
         """When remaining <= 1, sleep for the full reset duration."""
         log = MagicMock()
-        resp = _make_response({"x-ratelimit-remaining": "0", "x-ratelimit-reset": "30"})
+        resp = MagicMock()
+        resp.headers = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "30"}
 
         with patch("aggre.collectors.reddit.collector.time.sleep") as mock_sleep:
             _rate_limit_sleep(resp, 1.0, log)
@@ -505,7 +306,8 @@ class TestAdaptiveRateLimit:
     def test_low_rate_limit_sleeps_proportionally(self):
         """When remaining < 5, sleep for reset/remaining."""
         log = MagicMock()
-        resp = _make_response({"x-ratelimit-remaining": "3", "x-ratelimit-reset": "30"})
+        resp = MagicMock()
+        resp.headers = {"x-ratelimit-remaining": "3", "x-ratelimit-reset": "30"}
 
         with patch("aggre.collectors.reddit.collector.time.sleep") as mock_sleep:
             _rate_limit_sleep(resp, 1.0, log)
@@ -516,7 +318,8 @@ class TestAdaptiveRateLimit:
     def test_healthy_rate_limit_sleeps_min_delay(self):
         """When remaining >= 5, sleep for min_delay."""
         log = MagicMock()
-        resp = _make_response({"x-ratelimit-remaining": "50", "x-ratelimit-reset": "60"})
+        resp = MagicMock()
+        resp.headers = {"x-ratelimit-remaining": "50", "x-ratelimit-reset": "60"}
 
         with patch("aggre.collectors.reddit.collector.time.sleep") as mock_sleep:
             _rate_limit_sleep(resp, 2.0, log)
@@ -526,7 +329,8 @@ class TestAdaptiveRateLimit:
     def test_missing_headers_sleeps_min_delay(self):
         """When rate-limit headers are absent, fall back to min_delay."""
         log = MagicMock()
-        resp = _make_response({})
+        resp = MagicMock()
+        resp.headers = {}
 
         with patch("aggre.collectors.reddit.collector.time.sleep") as mock_sleep:
             _rate_limit_sleep(resp, 3.0, log)
@@ -563,24 +367,14 @@ class TestRetryAfter429:
 
 
 class TestRedditCollectorSources:
-    def test_creates_source_row(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
+    def test_creates_source_row(self, engine, mock_http, log):
+        listing = reddit_listing()
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        listing = _make_listing()
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
-            mock_client_cls.return_value = client_instance
-
-            _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -591,25 +385,15 @@ class TestRedditCollectorSources:
             assert src_config["subreddit"] == "python"
             assert rows[0].last_fetched_at is not None
 
-    def test_reuses_existing_source(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
+    def test_reuses_existing_source(self, engine, mock_http, log):
+        listing = reddit_listing()
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        listing = _make_listing()
-
-        with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
-            patch("aggre.collectors.reddit.collector.time.sleep"),
-        ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
-            mock_client_cls.return_value = client_instance
-
-            _collect(collector, engine, config.reddit, config.settings, log)
-            _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -617,49 +401,41 @@ class TestRedditCollectorSources:
 
 
 class TestRedditCollectorProxy:
-    def test_collect_passes_proxy_url_to_http_client(self, engine):
+    def test_collect_passes_proxy_url_to_http_client(self, engine, mock_http, log):
         """collect_references() should pass proxy_url from config to create_http_client."""
-        config = AppConfig(
-            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
-            settings=Settings(reddit_rate_limit=0.0, proxy_url="socks5://tor-proxy:9150"),
-        )
-        log = MagicMock()
-        collector = RedditCollector()
-
-        listing = _make_listing()
+        listing = reddit_listing()
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_factory,
+            patch(
+                "aggre.collectors.reddit.collector.create_http_client",
+                wraps=create_http_client,
+            ) as mock_factory,
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
-            mock_factory.return_value = client_instance
-
-            _collect(collector, engine, config.reddit, config.settings, log)
+            config = make_config(
+                reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
+                proxy_url="socks5://tor-proxy:9150",
+            )
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         mock_factory.assert_called_with(proxy_url="socks5://tor-proxy:9150")
 
-    def test_collect_passes_none_when_proxy_empty(self, engine):
+    def test_collect_passes_none_when_proxy_empty(self, engine, mock_http, log):
         """collect_references() should pass proxy_url=None when config has empty proxy_url."""
-        config = _make_config()
-        log = MagicMock()
-        collector = RedditCollector()
-
-        listing = _make_listing()
+        listing = reddit_listing()
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with (
-            patch("aggre.collectors.reddit.collector.create_http_client") as mock_factory,
+            patch(
+                "aggre.collectors.reddit.collector.create_http_client",
+                wraps=create_http_client,
+            ) as mock_factory,
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
-            client_instance = MagicMock()
-            client_instance.__enter__ = MagicMock(return_value=client_instance)
-            client_instance.__exit__ = MagicMock(return_value=False)
-            client_instance.get.side_effect = _fake_get_for_listings({"hot.json": listing, "new.json": listing})
-            mock_factory.return_value = client_instance
-
-            _collect(collector, engine, config.reddit, config.settings, log)
+            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+            collect(RedditCollector(), engine, config.reddit, config.settings, log)
 
         mock_factory.assert_called_with(proxy_url=None)

@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import dagster as dg
+import pytest
 import sqlalchemy as sa
 
 from aggre.dagster_defs.comments.sensor import comments_sensor
@@ -14,6 +15,8 @@ from aggre.dagster_defs.enrichment.sensor import enrichment_sensor
 from aggre.dagster_defs.resources import DatabaseResource
 from aggre.dagster_defs.transcription.sensor import transcription_sensor
 from aggre.db import SilverContent, SilverObservation
+
+pytestmark = pytest.mark.integration
 
 
 def _sensor_context(*, cursor: str | None = None, active_runs: list[Any] | None = None) -> MagicMock:

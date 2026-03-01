@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
 import sqlalchemy as sa
 
 from aggre.db import SilverContent
 from aggre.urls import ensure_content, normalize_url
 from aggre.utils.urls import extract_domain
+
+pytestmark = pytest.mark.unit
 
 
 class TestNormalizeUrl:

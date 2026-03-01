@@ -12,6 +12,8 @@ import pytest
 from aggre.utils.bronze import url_hash, write_bronze, write_bronze_json
 from aggre.utils.bronze_http import fetch_item_json, fetch_url_text
 
+pytestmark = pytest.mark.unit
+
 
 def _mock_json_response(data: object, status_code: int = 200) -> MagicMock:
     """Create a mock httpx.Response returning JSON data."""

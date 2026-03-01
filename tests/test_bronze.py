@@ -20,6 +20,8 @@ from aggre.utils.bronze import (
     write_bronze_json,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestBronzePath:
     def test_returns_correct_path_structure(self, tmp_path: Path) -> None:

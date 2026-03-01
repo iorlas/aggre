@@ -3,80 +3,27 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
 
+import pytest
 import sqlalchemy as sa
 
 from aggre.collectors.huggingface.collector import HuggingfaceCollector
 from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource
-from aggre.config import AppConfig
 from aggre.db import SilverObservation, Source
-from aggre.settings import Settings
+from tests.factories import hf_paper, make_config
+from tests.helpers import collect
 
+pytestmark = pytest.mark.integration
 
-def _make_config() -> AppConfig:
-    return AppConfig(
-        huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]),
-        settings=Settings(),
-    )
-
-
-def _make_paper(
-    paper_id: str = "2401.12345",
-    title: str = "Test Paper",
-    summary: str = "A summary of the paper.",
-    upvotes: int = 42,
-    num_comments: int = 5,
-    authors: list[dict] | None = None,  # None = default authors; pass explicit list to override
-    github_repo: str | None = "https://github.com/example/repo",
-    published_at: str = "2024-01-15T00:00:00.000Z",
-):
-    return {
-        "paper": {
-            "id": paper_id,
-            "title": title,
-            "summary": summary,
-            "authors": [{"name": "Alice"}, {"name": "Bob"}] if authors is None else authors,
-            "publishedAt": published_at,
-            "upvotes": upvotes,
-            "numComments": num_comments,
-            "githubRepo": github_repo,
-        },
-        "numComments": num_comments,
-    }
-
-
-def _mock_httpx_client(papers: list[dict]):
-    client = MagicMock()
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = papers
-    client.get.return_value = resp
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    return client
-
-
-def _collect(collector, engine, config, settings, log, **kwargs):
-    """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
-    for ref in refs:
-        with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
-    return len(refs)
+HF_API = "https://huggingface.co/api/daily_papers"
 
 
 class TestHuggingfaceCollectorDiscussions:
-    def test_stores_papers(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
+    def test_stores_papers(self, engine, mock_http, log):
+        mock_http.get(HF_API).respond(json=[hf_paper()])
 
-        paper = _make_paper()
-
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = _mock_httpx_client([paper])
-            count = _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
@@ -96,84 +43,55 @@ class TestHuggingfaceCollectorDiscussions:
             meta = json.loads(items[0].meta)
             assert meta["github_repo"] == "https://github.com/example/repo"
 
-    def test_dedup_across_runs(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
+    def test_dedup_across_runs(self, engine, mock_http, log):
+        mock_http.get(HF_API).respond(json=[hf_paper()])
 
-        paper = _make_paper()
-
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = _mock_httpx_client([paper])
-            count1 = _collect(collector, engine, config.huggingface, config.settings, log)
-            count2 = _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        count1 = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        count2 = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         assert count1 == 1
         assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
-    def test_multiple_papers(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
-
+    def test_multiple_papers(self, engine, mock_http, log):
         papers = [
-            _make_paper(paper_id="2401.11111", title="First"),
-            _make_paper(paper_id="2401.22222", title="Second"),
-            _make_paper(paper_id="2401.33333", title="Third"),
+            hf_paper(paper_id="2401.11111", title="First"),
+            hf_paper(paper_id="2401.22222", title="Second"),
+            hf_paper(paper_id="2401.33333", title="Third"),
         ]
+        mock_http.get(HF_API).respond(json=papers)
 
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = _mock_httpx_client(papers)
-            count = _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         assert count == 3
 
-    def test_skips_paper_without_id(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
-
+    def test_skips_paper_without_id(self, engine, mock_http, log):
         bad_paper = {"paper": {"title": "No ID"}}
-        good_paper = _make_paper()
+        mock_http.get(HF_API).respond(json=[bad_paper, hf_paper()])
 
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = _mock_httpx_client([bad_paper, good_paper])
-            count = _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
-    def test_no_config_returns_zero(self, engine):
-        config = AppConfig(huggingface=HuggingfaceConfig(sources=[]), settings=Settings())
-        log = MagicMock()
-        collector = HuggingfaceCollector()
-        assert _collect(collector, engine, config.huggingface, config.settings, log) == 0
+    def test_no_config_returns_zero(self, engine, mock_http, log):
+        config = make_config(huggingface=HuggingfaceConfig(sources=[]))
+        assert collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log) == 0
 
-    def test_handles_fetch_error(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
+    def test_handles_fetch_error(self, engine, mock_http, log):
+        mock_http.get(HF_API).mock(side_effect=Exception("network error"))
 
-        client = MagicMock()
-        client.get.side_effect = Exception("network error")
-        client.__enter__ = MagicMock(return_value=client)
-        client.__exit__ = MagicMock(return_value=False)
-
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = client
-            count = _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         assert count == 0
 
-    def test_paper_with_no_authors(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
+    def test_paper_with_no_authors(self, engine, mock_http, log):
+        mock_http.get(HF_API).respond(json=[hf_paper(authors=[])])
 
-        paper = _make_paper(authors=[])
-
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = _mock_httpx_client([paper])
-            count = _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         assert count == 1
 
@@ -183,14 +101,11 @@ class TestHuggingfaceCollectorDiscussions:
 
 
 class TestHuggingfaceSource:
-    def test_creates_source_row(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
+    def test_creates_source_row(self, engine, mock_http, log):
+        mock_http.get(HF_API).respond(json=[])
 
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = _mock_httpx_client([])
-            _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -198,15 +113,12 @@ class TestHuggingfaceSource:
             assert rows[0].type == "huggingface"
             assert rows[0].name == "HuggingFace Papers"
 
-    def test_reuses_existing_source(self, engine):
-        config = _make_config()
-        log = MagicMock()
-        collector = HuggingfaceCollector()
+    def test_reuses_existing_source(self, engine, mock_http, log):
+        mock_http.get(HF_API).respond(json=[])
 
-        with patch("aggre.collectors.huggingface.collector.create_http_client") as mock_cls:
-            mock_cls.return_value = _mock_httpx_client([])
-            _collect(collector, engine, config.huggingface, config.settings, log)
-            _collect(collector, engine, config.huggingface, config.settings, log)
+        config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

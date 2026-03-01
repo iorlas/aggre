@@ -4,83 +4,23 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 import sqlalchemy as sa
 
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
-from aggre.config import AppConfig
 from aggre.db import SilverObservation, Source
+from tests.factories import make_config, rss_entry, rss_feed
+from tests.helpers import collect
 
-
-def _make_config(*rss_sources):
-    return AppConfig(rss=RssConfig(sources=list(rss_sources)))
-
-
-def _fake_entry(**kwargs):
-    """Build a dict-like object that supports both attribute access and .get().
-
-    Real feedparser entries are FeedParserDict (a dict subclass with attribute access),
-    so our fake must also support dict() conversion.
-    """
-    defaults = {
-        "id": "entry-1",
-        "title": "Test Post",
-        "link": "https://example.com/1",
-        "author": "Alice",
-        "summary": "Hello world",
-        "published": "2025-01-01T00:00:00Z",
-    }
-    defaults.update(kwargs)
-    # Filter out None values so entry.get("id") returns None (missing key) vs literal None
-    data = {k: v for k, v in defaults.items() if v is not None}
-
-    class Entry(dict):
-        """Mimics feedparser's FeedParserDict: a dict with attribute access."""
-
-        def __getattr__(self, name):
-            try:
-                return self[name]
-            except KeyError:
-                return None
-
-    return Entry(data)
-
-
-def _fake_feed(entries, feed_title="Test Feed"):
-    feed_meta = {"title": feed_title}
-
-    class FeedMeta:
-        def get(self, key, default=None):
-            return feed_meta.get(key, default)
-
-    class Feed:
-        def __init__(self, entries, feed):
-            self.entries = entries
-            self.feed = feed
-            self.bozo = False
-
-    return Feed(entries, FeedMeta())
-
-
-def _collect(collector, engine, config, settings, log, **kwargs):
-    """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
-    for ref in refs:
-        with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
-    return len(refs)
+pytestmark = pytest.mark.integration
 
 
 class TestRssCollector:
-    def _log(self):
-        import structlog
+    def test_new_items_stored(self, engine, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
 
-        return structlog.get_logger()
-
-    def test_new_items_stored(self, engine):
-        config = _make_config(RssSource(name="Test Blog", url="https://example.com/feed.xml"))
-
-        entry = _fake_entry(
+        entry = rss_entry(
             id="post-1",
             title="First Post",
             link="https://example.com/post-1",
@@ -88,11 +28,11 @@ class TestRssCollector:
             summary="Content here",
             published="2025-06-01T12:00:00Z",
         )
-        feed = _fake_feed([entry])
+        feed = rss_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed) as mock_parse:
             collector = RssCollector()
-            count = _collect(collector, engine, config.rss, config.settings, self._log())
+            count = collect(collector, engine, config.rss, config.settings, log)
 
         assert count == 1
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
@@ -109,16 +49,16 @@ class TestRssCollector:
             assert rows[0].source_type == "rss"
             assert rows[0].external_id == "post-1"
 
-    def test_duplicate_items_skipped(self, engine):
-        config = _make_config(RssSource(name="Test Blog", url="https://example.com/feed.xml"))
+    def test_duplicate_items_skipped(self, engine, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
 
-        entry = _fake_entry(id="post-1", title="First Post")
-        feed = _fake_feed([entry])
+        entry = rss_entry(id="post-1", title="First Post")
+        feed = rss_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count1 = _collect(collector, engine, config.rss, config.settings, self._log())
-            count2 = _collect(collector, engine, config.rss, config.settings, self._log())
+            count1 = collect(collector, engine, config.rss, config.settings, log)
+            count2 = collect(collector, engine, config.rss, config.settings, log)
 
         assert count1 == 1
         assert count2 == 1  # collect_references returns all API items; dedup is in upsert
@@ -127,14 +67,14 @@ class TestRssCollector:
             content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar()
             assert content_count == 1
 
-    def test_source_row_created(self, engine):
-        config = _make_config(RssSource(name="My Feed", url="https://example.com/rss"))
+    def test_source_row_created(self, engine, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
 
-        feed = _fake_feed([])
+        feed = rss_feed([])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            _collect(collector, engine, config.rss, config.settings, self._log())
+            collect(collector, engine, config.rss, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -142,46 +82,46 @@ class TestRssCollector:
             assert rows[0].type == "rss"
             assert rows[0].name == "My Feed"
 
-    def test_source_row_reused_on_second_run(self, engine):
-        config = _make_config(RssSource(name="My Feed", url="https://example.com/rss"))
+    def test_source_row_reused_on_second_run(self, engine, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
 
-        feed = _fake_feed([])
+        feed = rss_feed([])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            _collect(collector, engine, config.rss, config.settings, self._log())
-            _collect(collector, engine, config.rss, config.settings, self._log())
+            collect(collector, engine, config.rss, config.settings, log)
+            collect(collector, engine, config.rss, config.settings, log)
 
         with engine.connect() as conn:
             count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
             assert count == 1
 
-    def test_last_fetched_at_updated(self, engine):
-        config = _make_config(RssSource(name="My Feed", url="https://example.com/rss"))
+    def test_last_fetched_at_updated(self, engine, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
 
-        feed = _fake_feed([_fake_entry()])
+        feed = rss_feed([rss_entry()])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            _collect(collector, engine, config.rss, config.settings, self._log())
+            collect(collector, engine, config.rss, config.settings, log)
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(Source.last_fetched_at)).fetchone()
             assert row[0] is not None
 
-    def test_multiple_entries(self, engine):
-        config = _make_config(RssSource(name="Blog", url="https://example.com/feed"))
+    def test_multiple_entries(self, engine, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
 
         entries = [
-            _fake_entry(id="a", title="Post A", link="https://example.com/a"),
-            _fake_entry(id="b", title="Post B", link="https://example.com/b"),
-            _fake_entry(id="c", title="Post C", link="https://example.com/c"),
+            rss_entry(id="a", title="Post A", link="https://example.com/a"),
+            rss_entry(id="b", title="Post B", link="https://example.com/b"),
+            rss_entry(id="c", title="Post C", link="https://example.com/c"),
         ]
-        feed = _fake_feed(entries)
+        feed = rss_feed(entries)
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = _collect(collector, engine, config.rss, config.settings, self._log())
+            count = collect(collector, engine, config.rss, config.settings, log)
 
         assert count == 3
 
@@ -189,15 +129,15 @@ class TestRssCollector:
             content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar()
             assert content_count == 3
 
-    def test_entry_uses_link_as_fallback_id(self, engine):
-        config = _make_config(RssSource(name="Blog", url="https://example.com/feed"))
+    def test_entry_uses_link_as_fallback_id(self, engine, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
 
-        entry = _fake_entry(id=None, link="https://example.com/post-42")
-        feed = _fake_feed([entry])
+        entry = rss_entry(id=None, link="https://example.com/post-42")
+        feed = rss_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = _collect(collector, engine, config.rss, config.settings, self._log())
+            count = collect(collector, engine, config.rss, config.settings, log)
 
         assert count == 1
 
@@ -205,14 +145,18 @@ class TestRssCollector:
             row = conn.execute(sa.select(SilverObservation.external_id)).fetchone()
             assert row[0] == "https://example.com/post-42"
 
-    def test_multiple_feeds(self, engine):
-        config = _make_config(
-            RssSource(name="Feed A", url="https://a.com/feed"),
-            RssSource(name="Feed B", url="https://b.com/feed"),
+    def test_multiple_feeds(self, engine, log):
+        config = make_config(
+            rss=RssConfig(
+                sources=[
+                    RssSource(name="Feed A", url="https://a.com/feed"),
+                    RssSource(name="Feed B", url="https://b.com/feed"),
+                ]
+            )
         )
 
-        feed_a = _fake_feed([_fake_entry(id="a1", title="A1")])
-        feed_b = _fake_feed([_fake_entry(id="b1", title="B1")])
+        feed_a = rss_feed([rss_entry(id="a1", title="A1")])
+        feed_b = rss_feed([rss_entry(id="b1", title="B1")])
 
         def mock_parse(url):
             if url == "https://a.com/feed":
@@ -221,7 +165,7 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", side_effect=mock_parse):
             collector = RssCollector()
-            count = _collect(collector, engine, config.rss, config.settings, self._log())
+            count = collect(collector, engine, config.rss, config.settings, log)
 
         assert count == 2
 

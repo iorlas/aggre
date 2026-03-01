@@ -3,109 +3,41 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import pytest
 import sqlalchemy as sa
 
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
-from aggre.config import AppConfig
 from aggre.db import SilverContent, SilverObservation, Source
-from aggre.settings import Settings
+from tests.factories import (
+    hn_comment_child,
+    hn_hit,
+    hn_item_response,
+    hn_search_response,
+    make_config,
+)
+from tests.helpers import collect
 
-
-def _collect(collector, engine, config, settings, log, **kwargs):
-    """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
-    for ref in refs:
-        with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
-    return len(refs)
-
-
-def _make_config(rate_limit: float = 0.0) -> AppConfig:
-    return AppConfig(
-        hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
-        settings=Settings(hn_rate_limit=rate_limit),
-    )
-
-
-def _make_hit(object_id: str = "12345", title: str = "Test Story", author: str = "pg", url: str = "https://example.com/article"):
-    return {
-        "objectID": object_id,
-        "title": title,
-        "author": author,
-        "url": url,
-        "points": 100,
-        "num_comments": 25,
-        "created_at": "2024-01-15T12:00:00.000Z",
-    }
-
-
-def _make_search_response(*hits):
-    return {"hits": list(hits)}
-
-
-def _make_item_response(object_id: str = "12345", children: list | None = None):
-    return {
-        "id": int(object_id),
-        "children": children or [],
-    }
-
-
-def _make_comment_child(
-    comment_id: int = 100,
-    author: str = "commenter",
-    text: str = "Great article!",
-    points: int = 5,
-    children: list | None = None,
-):
-    return {
-        "id": comment_id,
-        "author": author,
-        "text": text,
-        "points": points,
-        "parent_id": 12345,
-        "created_at": "2024-01-15T13:00:00.000Z",
-        "children": children or [],
-    }
-
-
-def _mock_httpx_client(responses: dict):
-    """Create a mock httpx.Client that returns configured responses based on URL patterns."""
-    client = MagicMock()
-
-    def fake_get(url):
-        resp = MagicMock()
-        resp.status_code = 200
-        for pattern, data in responses.items():
-            if pattern in url:
-                resp.json.return_value = data
-                return resp
-        resp.json.return_value = {"hits": []}
-        return resp
-
-    client.get.side_effect = fake_get
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    return client
+pytestmark = pytest.mark.integration
 
 
 class TestHackernewsCollectorDiscussions:
-    def test_stores_posts(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_stores_posts(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        hit = _make_hit()
-        responses = {"search_by_date": _make_search_response(hit)}
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            count = _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            count = collect(collector, engine, config.hackernews, config.settings, log)
 
         assert count == 1
 
@@ -124,21 +56,21 @@ class TestHackernewsCollectorDiscussions:
             meta = json.loads(items[0].meta)
             assert "hn_url" in meta
 
-    def test_dedup_same_story(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_dedup_same_story(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        hit = _make_hit()
-        responses = {"search_by_date": _make_search_response(hit)}
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            count1 = _collect(collector, engine, config.hackernews, config.settings, log)
-            count2 = _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            count1 = collect(collector, engine, config.hackernews, config.settings, log)
+            count2 = collect(collector, engine, config.hackernews, config.settings, log)
 
         assert count1 == 1
         assert count2 == 1  # collect_references returns refs regardless; dedup is in upsert
@@ -146,40 +78,38 @@ class TestHackernewsCollectorDiscussions:
         with engine.connect() as conn:
             assert conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar() == 1
 
-    def test_multiple_stories(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_multiple_stories(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        hit1 = _make_hit(object_id="111", title="First")
-        hit2 = _make_hit(object_id="222", title="Second")
-        responses = {"search_by_date": _make_search_response(hit1, hit2)}
+        hit1 = hn_hit(object_id="111", title="First")
+        hit2 = hn_hit(object_id="222", title="Second")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit1, hit2),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            count = _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            count = collect(collector, engine, config.hackernews, config.settings, log)
 
         assert count == 2
 
-    def test_story_without_url_creates_self_post_content(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_story_without_url_creates_self_post_content(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        hit = _make_hit(object_id="999")
-        hit["url"] = None  # Ask HN / Show HN with no external URL
-        hit["story_text"] = "This is a self-post with some text content."
-        responses = {"search_by_date": _make_search_response(hit)}
+        hit = hn_hit(object_id="999", url=None, story_text="This is a self-post with some text content.")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings, log)
 
         with engine.connect() as conn:
             item = conn.execute(sa.select(SilverObservation)).fetchone()
@@ -191,40 +121,39 @@ class TestHackernewsCollectorDiscussions:
             assert content is not None
             assert content.text == "This is a self-post with some text content."
 
-    def test_no_config_returns_zero(self, engine):
-        config = AppConfig(hackernews=HackernewsConfig(sources=[]), settings=Settings(hn_rate_limit=0.0))
-        log = MagicMock()
+    def test_no_config_returns_zero(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
-        assert _collect(collector, engine, config.hackernews, config.settings, log) == 0
+        assert collect(collector, engine, config.hackernews, config.settings, log) == 0
 
 
 class TestHackernewsCollectorComments:
-    def test_fetches_comments_and_marks_done(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_fetches_comments_and_marks_done(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
         # First, collect a story
-        hit = _make_hit()
-        responses = {"search_by_date": _make_search_response(hit)}
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings, log)
 
         # Now fetch comments
-        comment = _make_comment_child(comment_id=100, text="Nice!")
-        item_response = _make_item_response(object_id="12345", children=[comment])
-        comment_responses = {"items/12345": item_response}
+        comment = hn_comment_child(comment_id=100, text="Nice!")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").respond(
+            json=hn_item_response(object_id="12345", children=[comment]),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(comment_responses)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
             fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
         assert fetched == 1
@@ -243,31 +172,28 @@ class TestHackernewsCollectorComments:
             # Comments have been fetched
             assert items[0].comments_json is not None
 
-    def test_nested_comments(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_nested_comments(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        hit = _make_hit()
-        responses = {"search_by_date": _make_search_response(hit)}
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings, log)
 
-        reply = _make_comment_child(comment_id=200, text="I agree", children=[])
-        parent = _make_comment_child(comment_id=100, text="Top level", children=[reply])
-        item_response = _make_item_response(object_id="12345", children=[parent])
-        comment_responses = {"items/12345": item_response}
+        reply = hn_comment_child(comment_id=200, text="I agree", children=[])
+        parent = hn_comment_child(comment_id=100, text="Top level", children=[reply])
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").respond(
+            json=hn_item_response(object_id="12345", children=[parent]),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(comment_responses)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
             collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
         with engine.connect() as conn:
@@ -281,42 +207,45 @@ class TestHackernewsCollectorComments:
             assert len(comments_data[0]["children"]) == 1
             assert comments_data[0]["children"][0]["text"] == "I agree"
 
-    def test_no_pending_returns_zero(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_no_pending_returns_zero(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
         assert collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10) == 0
 
-    def test_zero_batch_returns_zero(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_zero_batch_returns_zero(self, engine, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
         assert collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=0) == 0
 
-    def test_respects_batch_limit(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_respects_batch_limit(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
         # Collect 3 stories
-        hits = [_make_hit(object_id=str(i), title=f"Story {i}") for i in range(3)]
-        responses = {"search_by_date": _make_search_response(*hits)}
+        hits = [hn_hit(object_id=str(i), title=f"Story {i}") for i in range(3)]
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(*hits),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings, log)
 
-        # Fetch comments with batch_limit=2
-        comment_responses = {f"items/{i}": _make_item_response(object_id=str(i), children=[]) for i in range(3)}
+        # Fetch comments with batch_limit=2 — set up routes for all 3 stories
+        for i in range(3):
+            mock_http.get(url__startswith=f"https://hn.algolia.com/api/v1/items/{i}").respond(
+                json=hn_item_response(object_id=str(i), children=[]),
+            )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(comment_responses)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
             fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=2)
 
         assert fetched == 2
@@ -330,19 +259,19 @@ class TestHackernewsCollectorComments:
 
 
 class TestHackernewsSearchByUrl:
-    def test_search_finds_and_stores(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_search_finds_and_stores(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        hit = _make_hit(object_id="42", url="https://example.com/article")
-        responses = {"search?query": _make_search_response(hit)}
+        hit = hn_hit(object_id="42", url="https://example.com/article")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search?query=").respond(
+            json=hn_search_response(hit),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
             found = collector.search_by_url("https://example.com/article", engine, config.hackernews, config.settings, log)
 
         assert found == 1
@@ -352,56 +281,56 @@ class TestHackernewsSearchByUrl:
             assert len(items) == 1
             assert items[0].source_type == "hackernews"
 
-    def test_search_dedup(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_search_dedup(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        hit = _make_hit(object_id="42")
-        responses = {"search?query": _make_search_response(hit)}
+        hit = hn_hit(object_id="42")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search?query=").respond(
+            json=hn_search_response(hit),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
             found1 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings, log)
             found2 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings, log)
 
         assert found1 == 1
         assert found2 == 1  # search_by_url always returns hit count, dedup is in upsert
 
-    def test_search_no_results(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_search_no_results(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        responses = {"search?query": {"hits": []}}
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search?query=").respond(
+            json={"hits": []},
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
             found = collector.search_by_url("https://no-results.com", engine, config.hackernews, config.settings, log)
 
         assert found == 0
 
 
 class TestHackernewsSource:
-    def test_creates_source_row(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_creates_source_row(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        responses = {"search_by_date": _make_search_response()}
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -409,20 +338,20 @@ class TestHackernewsSource:
             assert rows[0].type == "hackernews"
             assert rows[0].name == "Hacker News"
 
-    def test_reuses_existing_source(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_reuses_existing_source(self, engine, mock_http, log):
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
         collector = HackernewsCollector()
 
-        responses = {"search_by_date": _make_search_response()}
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(),
+        )
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _mock_httpx_client(responses)
-            _collect(collector, engine, config.hackernews, config.settings, log)
-            _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

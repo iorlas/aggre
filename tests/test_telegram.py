@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
+import pytest
 import sqlalchemy as sa
 
 from aggre.collectors.telegram.collector import TelegramCollector
@@ -13,73 +13,30 @@ from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
 from aggre.config import AppConfig
 from aggre.db import SilverObservation, Source
 from aggre.settings import Settings
+from tests.factories import make_config, telegram_message, telegram_mock_client
+from tests.helpers import collect
 
-
-def _collect(collector, engine, config, settings, log, **kwargs):
-    """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
-    for ref in refs:
-        with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
-    return len(refs)
-
-
-def _make_config(channels: list[TelegramSource] | None = None) -> AppConfig:
-    return AppConfig(
-        telegram=TelegramConfig(
-            sources=channels or [TelegramSource(username="testchannel", name="Test Channel")],
-        ),
-        settings=Settings(
-            telegram_api_id=12345,
-            telegram_api_hash="abcdef",
-            telegram_session="valid_session",
-            telegram_rate_limit=0,  # no delay in tests
-        ),
-    )
-
-
-def _make_message(
-    msg_id: int = 1,
-    text: str | None = "Hello world",
-    date: datetime | None = None,
-    views: int = 100,
-    forwards: int = 5,
-    media: object | None = None,
-) -> MagicMock:
-    msg = MagicMock()
-    msg.id = msg_id
-    msg.text = text
-    msg.date = date or datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
-    msg.views = views
-    msg.forwards = forwards
-    msg.media = media
-    return msg
-
-
-def _mock_client(messages_by_username: dict[str, list]) -> AsyncMock:
-    client = AsyncMock()
-
-    async def get_messages(username, limit=100):
-        return messages_by_username.get(username, [])
-
-    client.get_messages = AsyncMock(side_effect=get_messages)
-    return client
+pytestmark = pytest.mark.integration
 
 
 class TestTelegramCollectorDiscussions:
-    def test_stores_messages(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_stores_messages(self, engine, log):
+        config = make_config(
+            telegram=TelegramConfig(sources=[TelegramSource(username="testchannel", name="Test Channel")]),
+            telegram_api_id=12345,
+            telegram_api_hash="abcdef",
+            telegram_session="valid_session",
+        )
         collector = TelegramCollector()
 
-        msg = _make_message(msg_id=42, text="First line\nSecond line", views=500, forwards=10)
+        msg = telegram_message(msg_id=42, text="First line\nSecond line", views=500, forwards=10)
 
         with (
             patch("aggre.collectors.telegram.collector.StringSession"),
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
-            mock_cls.return_value = _mock_client({"testchannel": [msg]})
-            count = _collect(collector, engine, config.telegram, config.settings, log)
+            mock_cls.return_value = telegram_mock_client({"testchannel": [msg]})
+            count = collect(collector, engine, config.telegram, config.settings, log)
 
         assert count == 1
 
@@ -97,44 +54,52 @@ class TestTelegramCollectorDiscussions:
             meta = json.loads(items[0].meta)
             assert meta["forwards"] == 10
 
-    def test_dedup_across_runs(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_dedup_across_runs(self, engine, log):
+        config = make_config(
+            telegram=TelegramConfig(sources=[TelegramSource(username="testchannel", name="Test Channel")]),
+            telegram_api_id=12345,
+            telegram_api_hash="abcdef",
+            telegram_session="valid_session",
+        )
         collector = TelegramCollector()
 
-        msg = _make_message(msg_id=1)
+        msg = telegram_message(msg_id=1)
 
         with (
             patch("aggre.collectors.telegram.collector.StringSession"),
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
-            mock_cls.return_value = _mock_client({"testchannel": [msg]})
-            count1 = _collect(collector, engine, config.telegram, config.settings, log)
-            count2 = _collect(collector, engine, config.telegram, config.settings, log)
+            mock_cls.return_value = telegram_mock_client({"testchannel": [msg]})
+            count1 = collect(collector, engine, config.telegram, config.settings, log)
+            count2 = collect(collector, engine, config.telegram, config.settings, log)
 
         assert count1 == 1
         assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
-    def test_multiple_channels(self, engine):
+    def test_multiple_channels(self, engine, log):
         channels = [
             TelegramSource(username="chan1", name="Channel 1"),
             TelegramSource(username="chan2", name="Channel 2"),
         ]
-        config = _make_config(channels)
-        log = MagicMock()
+        config = make_config(
+            telegram=TelegramConfig(sources=channels),
+            telegram_api_id=12345,
+            telegram_api_hash="abcdef",
+            telegram_session="valid_session",
+        )
         collector = TelegramCollector()
 
         messages = {
-            "chan1": [_make_message(msg_id=1, text="From chan1")],
-            "chan2": [_make_message(msg_id=2, text="From chan2")],
+            "chan1": [telegram_message(msg_id=1, text="From chan1")],
+            "chan2": [telegram_message(msg_id=2, text="From chan2")],
         }
 
         with (
             patch("aggre.collectors.telegram.collector.StringSession"),
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
-            mock_cls.return_value = _mock_client(messages)
-            count = _collect(collector, engine, config.telegram, config.settings, log)
+            mock_cls.return_value = telegram_mock_client(messages)
+            count = collect(collector, engine, config.telegram, config.settings, log)
 
         assert count == 2
 
@@ -144,20 +109,24 @@ class TestTelegramCollectorDiscussions:
             assert items[0].external_id == "chan1:1"
             assert items[1].external_id == "chan2:2"
 
-    def test_skips_empty_messages(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_skips_empty_messages(self, engine, log):
+        config = make_config(
+            telegram=TelegramConfig(sources=[TelegramSource(username="testchannel", name="Test Channel")]),
+            telegram_api_id=12345,
+            telegram_api_hash="abcdef",
+            telegram_session="valid_session",
+        )
         collector = TelegramCollector()
 
-        msg_empty = _make_message(msg_id=1, text=None)
-        msg_good = _make_message(msg_id=2, text="Has text")
+        msg_empty = telegram_message(msg_id=1, text=None)
+        msg_good = telegram_message(msg_id=2, text="Has text")
 
         with (
             patch("aggre.collectors.telegram.collector.StringSession"),
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
-            mock_cls.return_value = _mock_client({"testchannel": [msg_empty, msg_good]})
-            count = _collect(collector, engine, config.telegram, config.settings, log)
+            mock_cls.return_value = telegram_mock_client({"testchannel": [msg_empty, msg_good]})
+            count = collect(collector, engine, config.telegram, config.settings, log)
 
         assert count == 1
 
@@ -166,44 +135,46 @@ class TestTelegramCollectorDiscussions:
             assert len(items) == 1
             assert items[0].external_id == "testchannel:2"
 
-    def test_no_config_returns_zero(self, engine):
+    def test_no_config_returns_zero(self, engine, log):
         config = AppConfig(telegram=TelegramConfig(sources=[]), settings=Settings())
-        log = MagicMock()
         collector = TelegramCollector()
-        assert _collect(collector, engine, config.telegram, config.settings, log) == 0
+        assert collect(collector, engine, config.telegram, config.settings, log) == 0
 
-    def test_not_configured_returns_zero(self, engine):
+    def test_not_configured_returns_zero(self, engine, log):
         config = AppConfig(
             telegram=TelegramConfig(sources=[TelegramSource(username="test", name="Test")]),
             settings=Settings(telegram_api_id=0, telegram_session=""),
         )
-        log = MagicMock()
         collector = TelegramCollector()
-        assert _collect(collector, engine, config.telegram, config.settings, log) == 0
+        assert collect(collector, engine, config.telegram, config.settings, log) == 0
 
-    def test_updates_score_on_rerun(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_updates_score_on_rerun(self, engine, log):
+        config = make_config(
+            telegram=TelegramConfig(sources=[TelegramSource(username="testchannel", name="Test Channel")]),
+            telegram_api_id=12345,
+            telegram_api_hash="abcdef",
+            telegram_session="valid_session",
+        )
         collector = TelegramCollector()
 
-        msg_v1 = _make_message(msg_id=1, text="Post", views=100, forwards=5)
+        msg_v1 = telegram_message(msg_id=1, text="Post", views=100, forwards=5)
 
         with (
             patch("aggre.collectors.telegram.collector.StringSession"),
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
-            mock_cls.return_value = _mock_client({"testchannel": [msg_v1]})
-            _collect(collector, engine, config.telegram, config.settings, log)
+            mock_cls.return_value = telegram_mock_client({"testchannel": [msg_v1]})
+            collect(collector, engine, config.telegram, config.settings, log)
 
         # Second run with updated views
-        msg_v2 = _make_message(msg_id=1, text="Post", views=999, forwards=50)
+        msg_v2 = telegram_message(msg_id=1, text="Post", views=999, forwards=50)
 
         with (
             patch("aggre.collectors.telegram.collector.StringSession"),
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
-            mock_cls.return_value = _mock_client({"testchannel": [msg_v2]})
-            count = _collect(collector, engine, config.telegram, config.settings, log)
+            mock_cls.return_value = telegram_mock_client({"testchannel": [msg_v2]})
+            count = collect(collector, engine, config.telegram, config.settings, log)
 
         # collect_references returns all API items; dedup + score update is in upsert
         assert count == 1
@@ -218,17 +189,21 @@ class TestTelegramCollectorDiscussions:
 
 
 class TestTelegramSource:
-    def test_creates_source_row(self, engine):
-        config = _make_config()
-        log = MagicMock()
+    def test_creates_source_row(self, engine, log):
+        config = make_config(
+            telegram=TelegramConfig(sources=[TelegramSource(username="testchannel", name="Test Channel")]),
+            telegram_api_id=12345,
+            telegram_api_hash="abcdef",
+            telegram_session="valid_session",
+        )
         collector = TelegramCollector()
 
         with (
             patch("aggre.collectors.telegram.collector.StringSession"),
             patch("aggre.collectors.telegram.collector.TelegramClient") as mock_cls,
         ):
-            mock_cls.return_value = _mock_client({"testchannel": []})
-            _collect(collector, engine, config.telegram, config.settings, log)
+            mock_cls.return_value = telegram_mock_client({"testchannel": []})
+            collect(collector, engine, config.telegram, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()

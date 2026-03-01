@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
@@ -16,238 +16,28 @@ from aggre.collectors.reddit.collector import RedditCollector
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
-from aggre.config import AppConfig
 from aggre.dagster_defs.content.job import download_content, extract_html_text
 from aggre.db import SilverContent, SilverObservation
-from aggre.settings import Settings
+from tests.factories import (
+    hn_comment_child,
+    hn_hit,
+    hn_item_response,
+    hn_search_response,
+    lobsters_comment,
+    lobsters_story,
+    lobsters_story_detail,
+    make_config,
+    reddit_comment,
+    reddit_comment_listing,
+    reddit_listing,
+    reddit_post,
+    rss_entry,
+    rss_feed,
+    seed_content,
+)
+from tests.helpers import collect
 
-
-def _collect(collector, engine, config, settings, log, **kwargs):
-    """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
-    for ref in refs:
-        with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
-    return len(refs)
-
-
-# ---------------------------------------------------------------------------
-# Reddit helpers
-# ---------------------------------------------------------------------------
-
-
-def _reddit_post(post_id="abc123", title="Reddit Post", subreddit="python"):
-    return {
-        "kind": "t3",
-        "data": {
-            "name": f"t3_{post_id}",
-            "title": title,
-            "author": "redditor",
-            "selftext": "Self text body",
-            "permalink": f"/r/{subreddit}/comments/{post_id}/slug/",
-            "created_utc": 1700000000.0,
-            "score": 50,
-            "num_comments": 3,
-            "link_flair_text": None,
-            "subreddit": subreddit,
-        },
-    }
-
-
-def _reddit_listing(*posts):
-    return {"data": {"children": list(posts)}}
-
-
-def _reddit_comment(comment_id="rc1", body="Reddit comment!", author="commenter", parent_id="t3_abc123"):
-    return {
-        "kind": "t1",
-        "data": {
-            "name": f"t1_{comment_id}",
-            "author": author,
-            "body": body,
-            "score": 7,
-            "parent_id": parent_id,
-            "created_utc": 1700001000.0,
-            "replies": "",
-        },
-    }
-
-
-def _reddit_comment_listing(*comments):
-    post_part = {"data": {"children": [_reddit_post()]}}
-    comment_part = {"data": {"children": list(comments)}}
-    return [post_part, comment_part]
-
-
-def _reddit_fake_get(responses):
-    def fake_get(url):
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {}
-        for key, data in responses.items():
-            if key in url:
-                resp.json.return_value = data
-                return resp
-        resp.json.return_value = _reddit_listing()
-        return resp
-
-    return fake_get
-
-
-# ---------------------------------------------------------------------------
-# HackerNews helpers
-# ---------------------------------------------------------------------------
-
-
-def _hn_hit(object_id="12345", title="HN Story", url="https://example.com/hn-article"):
-    return {
-        "objectID": object_id,
-        "title": title,
-        "author": "hnuser",
-        "url": url,
-        "points": 80,
-        "num_comments": 12,
-        "created_at": "2024-01-15T12:00:00.000Z",
-    }
-
-
-def _hn_search_response(*hits):
-    return {"hits": list(hits)}
-
-
-def _hn_item_response(object_id="12345", children=None):
-    return {"id": int(object_id), "children": children or []}
-
-
-def _hn_comment_child(comment_id=100, text="HN comment!", author="hncommenter", children=None):
-    return {
-        "id": comment_id,
-        "author": author,
-        "text": text,
-        "points": 3,
-        "parent_id": 12345,
-        "created_at": "2024-01-15T13:00:00.000Z",
-        "children": children or [],
-    }
-
-
-def _hn_mock_client(responses):
-    client = MagicMock()
-
-    def fake_get(url):
-        resp = MagicMock()
-        resp.status_code = 200
-        for pattern, data in responses.items():
-            if pattern in url:
-                resp.json.return_value = data
-                return resp
-        resp.json.return_value = {"hits": []}
-        return resp
-
-    client.get.side_effect = fake_get
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    return client
-
-
-# ---------------------------------------------------------------------------
-# Lobsters helpers
-# ---------------------------------------------------------------------------
-
-
-def _lobsters_story(short_id="lob123", title="Lobsters Story", url="https://example.com/lob-article"):
-    return {
-        "short_id": short_id,
-        "title": title,
-        "url": url,
-        "score": 15,
-        "comment_count": 4,
-        "tags": ["programming"],
-        "submitter_user": "lobuser",
-        "created_at": "2024-01-15T12:00:00.000Z",
-        "comments_url": f"https://lobste.rs/s/{short_id}",
-    }
-
-
-def _lobsters_story_detail(short_id="lob123", comments=None):
-    story = _lobsters_story(short_id=short_id)
-    story["comments"] = comments or []
-    return story
-
-
-def _lobsters_comment(short_id="lc1", comment="Lobsters comment!", username="lobcommenter"):
-    return {
-        "short_id": short_id,
-        "comment": comment,
-        "commenting_user": {"username": username},
-        "score": 4,
-        "indent_level": 1,
-        "parent_comment": None,
-        "created_at": "2024-01-15T13:00:00.000Z",
-    }
-
-
-def _lobsters_mock_client(responses):
-    client = MagicMock()
-
-    def fake_get(url):
-        resp = MagicMock()
-        resp.status_code = 200
-        for pattern, data in responses.items():
-            if pattern in url:
-                resp.json.return_value = data
-                return resp
-        resp.json.return_value = []
-        return resp
-
-    client.get.side_effect = fake_get
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    return client
-
-
-# ---------------------------------------------------------------------------
-# RSS helpers
-# ---------------------------------------------------------------------------
-
-
-def _rss_entry(**kwargs):
-    defaults = {
-        "id": "rss-entry-1",
-        "title": "RSS Article",
-        "link": "https://example.com/rss-article",
-        "author": "blogger",
-        "summary": "RSS summary text",
-        "published": "2025-01-01T00:00:00Z",
-    }
-    defaults.update(kwargs)
-    data = {k: v for k, v in defaults.items() if v is not None}
-
-    class Entry(dict):
-        def __getattr__(self, name):
-            try:
-                return self[name]
-            except KeyError:
-                return None
-
-    return Entry(data)
-
-
-def _rss_feed(entries, feed_title="Test Feed"):
-    feed_meta = {"title": feed_title}
-
-    class FeedMeta:
-        def get(self, key, default=None):
-            return feed_meta.get(key, default)
-
-    class Feed:
-        def __init__(self, entries, feed):
-            self.entries = entries
-            self.feed = feed
-            self.bozo = False
-
-    return Feed(entries, FeedMeta())
-
+pytestmark = pytest.mark.acceptance
 
 # ===========================================================================
 # Part 1: Comments stored as raw JSON
@@ -257,37 +47,27 @@ def _rss_feed(entries, feed_title="Test Feed"):
 class TestCommentsAsJsonReddit:
     """Reddit: collect -> collect_comments -> verify comments_json on SilverObservation."""
 
-    def test_comments_stored_as_json(self, engine):
-        config = AppConfig(
-            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
-            settings=Settings(reddit_rate_limit=0.0),
-        )
-        log = MagicMock()
+    def test_comments_stored_as_json(self, engine, mock_http, log):
+        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
         collector = RedditCollector()
 
         # Step 1: collect posts
-        post = _reddit_post()
-        listing = _reddit_listing(post)
-        post_responses = {"hot.json": listing, "new.json": listing}
+        post = reddit_post()
+        listing = reddit_listing(post)
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
-            client.__enter__ = MagicMock(return_value=client)
-            client.__exit__ = MagicMock(return_value=False)
-            mock_cls.return_value = client
-            _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            collect(collector, engine, config.reddit, config.settings, log)
 
-        # Step 2: collect_comments
-        c1 = _reddit_comment(comment_id="rc1", body="First!")
-        c2 = _reddit_comment(comment_id="rc2", body="Second!", parent_id="t1_rc1")
-        comment_resp = _reddit_comment_listing(c1, c2)
-        comment_responses = {"comments/abc123.json": comment_resp}
+        # Step 2: collect_comments — reset mock_http for new routes
+        mock_http.reset()
+        c1 = reddit_comment(comment_id="rc1", body="First!")
+        c2 = reddit_comment(comment_id="rc2", body="Second!", parent_id="t1_rc1")
+        comment_resp = reddit_comment_listing(c1, c2)
+        mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_resp)
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
-            client.__enter__ = MagicMock(return_value=client)
-            client.__exit__ = MagicMock(return_value=False)
-            mock_cls.return_value = client
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         assert fetched == 1
@@ -312,36 +92,25 @@ class TestCommentsAsJsonReddit:
 class TestCommentsAsJsonHackernews:
     """HackerNews: collect -> collect_comments -> verify comments_json."""
 
-    def test_comments_stored_as_json(self, engine):
-        config = AppConfig(
-            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
-            settings=Settings(hn_rate_limit=0.0),
-        )
-        log = MagicMock()
+    def test_comments_stored_as_json(self, engine, mock_http, log):
+        config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]))
         collector = HackernewsCollector()
 
         # Step 1: collect
-        hit = _hn_hit()
-        responses = {"search_by_date": _hn_search_response(hit)}
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _hn_mock_client(responses)
-            _collect(collector, engine, config.hackernews, config.settings, log)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings, log)
 
-        # Step 2: collect_comments
-        c1 = _hn_comment_child(comment_id=100, text="HN first!")
-        c2 = _hn_comment_child(comment_id=101, text="HN second!")
-        item_resp = _hn_item_response(object_id="12345", children=[c1, c2])
-        comment_responses = {"items/12345": item_resp}
+        # Step 2: collect_comments — reset mock_http for new routes
+        mock_http.reset()
+        c1 = hn_comment_child(comment_id=100, text="HN first!")
+        c2 = hn_comment_child(comment_id=101, text="HN second!")
+        item_resp = hn_item_response(object_id="12345", children=[c1, c2])
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").respond(json=item_resp)
 
-        with (
-            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.hackernews.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _hn_mock_client(comment_responses)
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
             fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
         assert fetched == 1
@@ -366,36 +135,26 @@ class TestCommentsAsJsonHackernews:
 class TestCommentsAsJsonLobsters:
     """Lobsters: collect -> collect_comments -> verify comments_json."""
 
-    def test_comments_stored_as_json(self, engine):
-        config = AppConfig(
-            lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]),
-            settings=Settings(lobsters_rate_limit=0.0),
-        )
-        log = MagicMock()
+    def test_comments_stored_as_json(self, engine, mock_http, log):
+        config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
         collector = LobstersCollector()
 
         # Step 1: collect
-        story = _lobsters_story()
-        responses = {"hottest.json": [story], "newest.json": []}
+        story = lobsters_story()
+        mock_http.get(url__regex=r"hottest\.json").respond(json=[story])
+        mock_http.get(url__regex=r"newest\.json").respond(json=[])
 
-        with (
-            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.lobsters.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _lobsters_mock_client(responses)
-            _collect(collector, engine, config.lobsters, config.settings, log)
+        with patch("aggre.collectors.lobsters.collector.time.sleep"):
+            collect(collector, engine, config.lobsters, config.settings, log)
 
-        # Step 2: collect_comments
-        c1 = _lobsters_comment(short_id="lc1", comment="Lobsters first!")
-        c2 = _lobsters_comment(short_id="lc2", comment="Lobsters second!")
-        detail = _lobsters_story_detail(short_id="lob123", comments=[c1, c2])
-        comment_responses = {"s/lob123.json": detail}
+        # Step 2: collect_comments — reset mock_http for new routes
+        mock_http.reset()
+        c1 = lobsters_comment(short_id="lc1", comment="Lobsters first!")
+        c2 = lobsters_comment(short_id="lc2", comment="Lobsters second!")
+        detail = lobsters_story_detail(short_id="abc123", comments=[c1, c2])
+        mock_http.get(url__regex=r"s/abc123\.json").respond(json=detail)
 
-        with (
-            patch("aggre.collectors.lobsters.collector.create_http_client") as mock_cls,
-            patch("aggre.collectors.lobsters.collector.time.sleep"),
-        ):
-            mock_cls.return_value = _lobsters_mock_client(comment_responses)
+        with patch("aggre.collectors.lobsters.collector.time.sleep"):
             fetched = collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
 
         assert fetched == 1
@@ -425,25 +184,21 @@ class TestCommentsAsJsonLobsters:
 class TestFullPipelineFlow:
     """Simulate fetch pipeline: collect -> collect_comments -> fetch_content."""
 
-    def test_rss_pipeline_creates_full_chain(self, engine):
-        config = AppConfig(
-            rss=RssConfig(sources=[RssSource(name="Blog", url="https://blog.example.com/feed.xml")]),
-            settings=Settings(),
-        )
-        log = MagicMock()
+    def test_rss_pipeline_creates_full_chain(self, engine, mock_http, log):
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://blog.example.com/feed.xml")]))
 
         # Step 1: Collect RSS posts
-        entry = _rss_entry(
+        entry = rss_entry(
             id="rss-1",
             title="Great Article",
             link="https://blog.example.com/great-article",
             summary="A teaser summary",
         )
-        feed = _rss_feed([entry])
+        feed = rss_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             rss = RssCollector()
-            count = _collect(rss, engine, config.rss, config.settings, log)
+            count = collect(rss, engine, config.rss, config.settings, log)
 
         assert count == 1
 
@@ -464,18 +219,12 @@ class TestFullPipelineFlow:
         # Step 2: RSS has no comments, skip
 
         # Step 3: Download pending content
-        mock_resp = MagicMock()
-        mock_resp.text = "<html><body><p>Full article body here</p></body></html>"
-        mock_resp.status_code = 200
-        mock_resp.headers = {"content-type": "text/html"}
-        mock_resp.raise_for_status = MagicMock()
-        mock_client = MagicMock()
-        mock_client.get.return_value = mock_resp
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_http.get("https://blog.example.com/great-article").respond(
+            text="<html><body><p>Full article body here</p></body></html>",
+            headers={"content-type": "text/html"},
+        )
 
-        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
-            downloaded = download_content(engine, config, log)
+        downloaded = download_content(engine, config, log)
 
         assert downloaded == 1
 
@@ -510,39 +259,29 @@ class TestFullPipelineFlow:
             assert content.fetched_at is not None
             assert content.error is None
 
-    def test_reddit_pipeline_with_comments(self, engine):
+    def test_reddit_pipeline_with_comments(self, engine, mock_http, log):
         """Reddit collect -> collect_comments -> verify discussion with comments."""
-        config = AppConfig(
-            reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
-            settings=Settings(reddit_rate_limit=0.0),
-        )
-        log = MagicMock()
+        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
         collector = RedditCollector()
 
         # Step 1: collect
-        post = _reddit_post()
-        listing = _reddit_listing(post)
-        post_responses = {"hot.json": listing, "new.json": listing}
+        post = reddit_post()
+        listing = reddit_listing(post)
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(post_responses)))
-            client.__enter__ = MagicMock(return_value=client)
-            client.__exit__ = MagicMock(return_value=False)
-            mock_cls.return_value = client
-            count = _collect(collector, engine, config.reddit, config.settings, log)
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
+            count = collect(collector, engine, config.reddit, config.settings, log)
 
         assert count == 1
 
-        # Step 2: collect_comments
-        c1 = _reddit_comment(comment_id="c1", body="Top comment")
-        comment_resp = _reddit_comment_listing(c1)
-        comment_responses = {"comments/abc123.json": comment_resp}
+        # Step 2: collect_comments — reset mock_http for new routes
+        mock_http.reset()
+        c1 = reddit_comment(comment_id="c1", body="Top comment")
+        comment_resp = reddit_comment_listing(c1)
+        mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_resp)
 
-        with patch("aggre.collectors.reddit.collector.httpx.Client") as mock_cls, patch("aggre.collectors.reddit.collector.time.sleep"):
-            client = MagicMock(get=MagicMock(side_effect=_reddit_fake_get(comment_responses)))
-            client.__enter__ = MagicMock(return_value=client)
-            client.__exit__ = MagicMock(return_value=False)
-            mock_cls.return_value = client
+        with patch("aggre.collectors.reddit.collector.time.sleep"):
             fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
 
         assert fetched == 1
@@ -550,7 +289,7 @@ class TestFullPipelineFlow:
         # Verify full state
         with engine.connect() as conn:
             disc = conn.execute(sa.select(SilverObservation)).fetchone()
-            assert disc.title == "Reddit Post"
+            assert disc.title == "Test Post"
             assert disc.source_type == "reddit"
             assert disc.comments_json is not None
             assert disc.comment_count == 1
@@ -564,38 +303,22 @@ class TestFullPipelineFlow:
 class TestContentFetcherIntegration:
     """Content fetcher: unprocessed -> downloaded -> text populated / error set."""
 
-    def _seed(self, engine, url, domain=None, text=None, error=None, fetched_at=None):
-        with engine.begin() as conn:
-            stmt = pg_insert(SilverContent).values(
-                canonical_url=url,
-                domain=domain,
-                text=text,
-                error=error,
-                fetched_at=fetched_at,
-            )
-            stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
-            result = conn.execute(stmt)
-            return result.inserted_primary_key[0]
+    def test_download_then_extract_populates_fields(self, engine, mock_http, log):
+        config = make_config()
 
-    def test_download_then_extract_populates_fields(self, engine):
-        config = AppConfig(settings=Settings())
-        log = MagicMock()
+        seed_content(engine, "https://example.com/article-1", domain="example.com")
+        seed_content(engine, "https://example.com/article-2", domain="example.com")
 
-        self._seed(engine, "https://example.com/article-1", domain="example.com")
-        self._seed(engine, "https://example.com/article-2", domain="example.com")
+        mock_http.get("https://example.com/article-1").respond(
+            text="<html><body>Content</body></html>",
+            headers={"content-type": "text/html"},
+        )
+        mock_http.get("https://example.com/article-2").respond(
+            text="<html><body>Content</body></html>",
+            headers={"content-type": "text/html"},
+        )
 
-        mock_resp = MagicMock()
-        mock_resp.text = "<html><body>Content</body></html>"
-        mock_resp.status_code = 200
-        mock_resp.headers = {"content-type": "text/html"}
-        mock_resp.raise_for_status = MagicMock()
-        mock_client = MagicMock()
-        mock_client.get.return_value = mock_resp
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-
-        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
-            count = download_content(engine, config, log)
+        count = download_content(engine, config, log)
 
         assert count == 2
 
@@ -627,12 +350,11 @@ class TestContentFetcherIntegration:
                 assert row.fetched_at is not None
                 assert row.error is None
 
-    def test_youtube_urls_skipped(self, engine):
-        config = AppConfig(settings=Settings())
-        log = MagicMock()
+    def test_youtube_urls_skipped(self, engine, log):
+        config = make_config()
 
-        self._seed(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
-        self._seed(engine, "https://youtu.be/xyz", domain="youtu.be")
+        seed_content(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
+        seed_content(engine, "https://youtu.be/xyz", domain="youtu.be")
 
         count = download_content(engine, config, log)
         assert count == 2
@@ -643,19 +365,14 @@ class TestContentFetcherIntegration:
                 assert row.error is not None
                 assert "skipped" in row.error
 
-    def test_failed_download_stores_error(self, engine):
-        config = AppConfig(settings=Settings())
-        log = MagicMock()
+    def test_failed_download_stores_error(self, engine, mock_http, log):
+        config = make_config()
 
-        self._seed(engine, "https://broken.example.com/page", domain="broken.example.com")
+        seed_content(engine, "https://broken.example.com/page", domain="broken.example.com")
 
-        mock_client = MagicMock()
-        mock_client.get.side_effect = Exception("Connection timeout")
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_http.get("https://broken.example.com/page").mock(side_effect=Exception("Connection timeout"))
 
-        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
-            count = download_content(engine, config, log)
+        count = download_content(engine, config, log)
 
         assert count == 1
 
@@ -665,32 +382,21 @@ class TestContentFetcherIntegration:
             assert "Connection timeout" in row.error
             assert row.fetched_at is not None
 
-    def test_mixed_statuses(self, engine):
+    def test_mixed_statuses(self, engine, mock_http, log):
         """One normal, one YouTube (skip), one failing -- download step only."""
-        config = AppConfig(settings=Settings())
-        log = MagicMock()
+        config = make_config()
 
-        self._seed(engine, "https://example.com/good", domain="example.com")
-        self._seed(engine, "https://youtube.com/watch?v=vid1", domain="youtube.com")
-        self._seed(engine, "https://bad.example.com/broken", domain="bad.example.com")
+        seed_content(engine, "https://example.com/good", domain="example.com")
+        seed_content(engine, "https://youtube.com/watch?v=vid1", domain="youtube.com")
+        seed_content(engine, "https://bad.example.com/broken", domain="bad.example.com")
 
-        def side_effect_get(url):
-            if "bad.example.com" in url:
-                raise Exception("DNS failure")
-            resp = MagicMock()
-            resp.text = "<html><body>Good content</body></html>"
-            resp.status_code = 200
-            resp.headers = {"content-type": "text/html"}
-            resp.raise_for_status = MagicMock()
-            return resp
+        mock_http.get("https://example.com/good").respond(
+            text="<html><body>Good content</body></html>",
+            headers={"content-type": "text/html"},
+        )
+        mock_http.get("https://bad.example.com/broken").mock(side_effect=Exception("DNS failure"))
 
-        mock_client = MagicMock()
-        mock_client.get.side_effect = side_effect_get
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-
-        with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
-            count = download_content(engine, config, log)
+        count = download_content(engine, config, log)
 
         assert count == 3
 
@@ -732,11 +438,10 @@ class TestContentFetcherIntegration:
             assert rows[1].error is not None  # youtube still skipped
             assert rows[2].error is not None  # broken still failed
 
-    def test_already_processed_not_reprocessed(self, engine):
-        config = AppConfig(settings=Settings())
-        log = MagicMock()
+    def test_already_processed_not_reprocessed(self, engine, log):
+        config = make_config()
 
-        self._seed(engine, "https://example.com/done", domain="example.com", text="already done")
+        seed_content(engine, "https://example.com/done", domain="example.com", text="already done")
 
         count = download_content(engine, config, log)
         assert count == 0

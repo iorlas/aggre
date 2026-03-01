@@ -6,73 +6,53 @@ import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytest
 import sqlalchemy as sa
-import structlog
 
 from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
-from aggre.config import AppConfig
 from aggre.db import SilverContent, SilverObservation, Source
-from aggre.settings import Settings
+from tests.factories import make_config, youtube_entry
+from tests.helpers import collect
+
+pytestmark = pytest.mark.integration
 
 
-def _make_config(fetch_limit: int = 10, proxy_url: str = "") -> AppConfig:
-    return AppConfig(
+def _mock_ydl(entries: list[dict]) -> MagicMock:
+    """Build a MagicMock that behaves like a yt_dlp.YoutubeDL context manager."""
+    mock = MagicMock()
+    mock.extract_info = lambda url, download=False: {"entries": entries}
+    mock.__enter__ = lambda s: s
+    mock.__exit__ = MagicMock(return_value=False)
+    return mock
+
+
+def _default_config(**kwargs):
+    return make_config(
         youtube=YoutubeConfig(
             sources=[YoutubeSource(channel_id="UC_test123", name="Test Channel")],
-            fetch_limit=fetch_limit,
+            fetch_limit=kwargs.pop("fetch_limit", 10),
             init_fetch_limit=100,
         ),
-        settings=Settings(proxy_url=proxy_url),
+        **kwargs,
     )
 
 
-FAKE_ENTRIES = [
-    {
-        "id": "vid001",
-        "title": "First Video",
-        "url": "https://www.youtube.com/watch?v=vid001",
-        "upload_date": "20240115",
-        "duration": 600,
-        "view_count": 1000,
-    },
-    {
-        "id": "vid002",
-        "title": "Second Video",
-        "url": "https://www.youtube.com/watch?v=vid002",
-        "upload_date": "20240120",
-        "duration": 300,
-        "view_count": 500,
-    },
-]
-
-
-def _mock_extract_info(url, download=False):
-    return {"entries": FAKE_ENTRIES}
-
-
-def _collect(collector, engine, config, settings, log, **kwargs):
-    """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
-    for ref in refs:
-        with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
-    return len(refs)
+def _default_entries() -> list[dict]:
+    return [
+        youtube_entry(video_id="vid001", title="First Video", upload_date="20240115", duration=600, view_count=1000),
+        youtube_entry(video_id="vid002", title="Second Video", upload_date="20240120", duration=300, view_count=500),
+    ]
 
 
 class TestYoutubeCollector:
-    def test_collect_inserts_new_items(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_collect_inserts_new_items(self, engine, log):
+        config = _default_config()
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count = _collect(collector, engine, config.youtube, config.settings, log)
+            count = collect(collector, engine, config.youtube, config.settings, log)
 
         assert count == 2
 
@@ -101,18 +81,13 @@ class TestYoutubeCollector:
             sc_rows = conn.execute(sa.select(SilverContent).where(SilverContent.text.is_(None), SilverContent.error.is_(None))).fetchall()
             assert len(sc_rows) == 2
 
-    def test_collect_creates_source_row(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_collect_creates_source_row(self, engine, log):
+        config = _default_config()
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
@@ -122,38 +97,28 @@ class TestYoutubeCollector:
             src_config = json.loads(rows[0].config)
             assert src_config["channel_id"] == "UC_test123"
 
-    def test_collect_stores_raw_items(self, engine, tmp_path):
+    def test_collect_stores_raw_items(self, engine, log):
         """Bronze data is written to filesystem, not to DB."""
-        config = _make_config()
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+        config = _default_config()
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         # Verify discussions exist in silver
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(rows) == 2
 
-    def test_dedup_does_not_insert_duplicates(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_dedup_does_not_insert_duplicates(self, engine, log):
+        config = _default_config()
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count1 = _collect(collector, engine, config.youtube, config.settings, log)
-            count2 = _collect(collector, engine, config.youtube, config.settings, log)
+            count1 = collect(collector, engine, config.youtube, config.settings, log)
+            count2 = collect(collector, engine, config.youtube, config.settings, log)
 
         assert count1 == 2
         assert count2 == 2  # collect_references returns all API items; dedup is in upsert
@@ -162,28 +127,22 @@ class TestYoutubeCollector:
             rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert len(rows) == 2
 
-    def test_collect_reuses_existing_source(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_collect_reuses_existing_source(self, engine, log):
+        config = _default_config()
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(Source)).fetchall()
             assert len(rows) == 1
 
-    def test_collect_sets_fetch_limit(self, engine):
+    def test_collect_sets_fetch_limit(self, engine, log):
         """fetch_limit is used as playlistend when source has been fetched before."""
-        config = _make_config(fetch_limit=25)
-        log = structlog.get_logger()
+        config = _default_config(fetch_limit=25)
 
         # Pre-initialize the source so _get_fetch_limit returns fetch_limit (not init_fetch_limit)
         with engine.begin() as conn:
@@ -196,54 +155,39 @@ class TestYoutubeCollector:
                 )
             )
 
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         opts = mock_cls.call_args[0][0]
         assert opts["playlistend"] == 25
 
-    def test_collect_backfill_no_limit(self, engine):
-        config = _make_config(fetch_limit=25)
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_collect_backfill_no_limit(self, engine, log):
+        config = _default_config(fetch_limit=25)
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log, backfill=True)
+            collect(collector, engine, config.youtube, config.settings, log, backfill=True)
 
         opts = mock_cls.call_args[0][0]
         assert opts["playlistend"] is None
 
-    def test_collect_skips_entries_without_id(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
-
-        entries_with_bad = [{"title": "No ID"}, *FAKE_ENTRIES]
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = lambda url, download=False: {"entries": entries_with_bad}
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_collect_skips_entries_without_id(self, engine, log):
+        config = _default_config()
+        entries_with_bad = [{"title": "No ID"}, *_default_entries()]
+        mock_ydl = _mock_ydl(entries_with_bad)
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count = _collect(collector, engine, config.youtube, config.settings, log)
+            count = collect(collector, engine, config.youtube, config.settings, log)
 
         assert count == 2
 
-    def test_collect_handles_yt_dlp_error(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
+    def test_collect_handles_yt_dlp_error(self, engine, log):
+        config = _default_config()
 
         mock_ydl = MagicMock()
         mock_ydl.extract_info.side_effect = Exception("Network error")
@@ -252,47 +196,36 @@ class TestYoutubeCollector:
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            count = _collect(collector, engine, config.youtube, config.settings, log)
+            count = collect(collector, engine, config.youtube, config.settings, log)
 
         assert count == 0
 
-    def test_collect_passes_proxy_to_ytdlp(self, engine):
-        config = _make_config(proxy_url="socks5://user:pass@proxy:1080")
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_collect_passes_proxy_to_ytdlp(self, engine, log):
+        config = _default_config(proxy_url="socks5://user:pass@proxy:1080")
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         opts = mock_cls.call_args[0][0]
         assert opts["proxy"] == "socks5://user:pass@proxy:1080"
         assert opts["source_address"] == "0.0.0.0"
 
-    def test_collect_no_proxy_when_not_configured(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+    def test_collect_no_proxy_when_not_configured(self, engine, log):
+        config = _default_config()
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         opts = mock_cls.call_args[0][0]
         assert "proxy" not in opts
         assert "source_address" not in opts
 
-    def test_collect_url_fallback(self, engine):
-        config = _make_config()
-        log = structlog.get_logger()
+    def test_collect_url_fallback(self, engine, log):
+        config = _default_config()
 
         entry_no_url = [
             {
@@ -301,52 +234,41 @@ class TestYoutubeCollector:
                 "upload_date": "20240101",
             },
         ]
-
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = lambda url, download=False: {"entries": entry_no_url}
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl = _mock_ydl(entry_no_url)
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverObservation)).fetchone()
             assert row.url == "https://www.youtube.com/watch?v=vid_nourl"
 
-    def test_recollect_fills_published_at(self, engine):
+    def test_recollect_fills_published_at(self, engine, log):
         """Re-collecting videos that lacked published_at should fill it in."""
-        config = _make_config()
-        log = structlog.get_logger()
+        config = _default_config()
 
         # First collection: entries without upload_date (simulating old flat mode)
         entries_no_date = [
             {"id": "vid001", "title": "First Video", "duration": 600, "view_count": 1000},
             {"id": "vid002", "title": "Second Video", "duration": 300, "view_count": 500},
         ]
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = lambda url, download=False: {"entries": entries_no_date}
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl = _mock_ydl(entries_no_date)
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverObservation)).fetchall()
             assert all(r.published_at is None for r in rows)
 
         # Second collection: same videos now have upload_date
-        mock_ydl2 = MagicMock()
-        mock_ydl2.extract_info = _mock_extract_info  # has upload_date
-        mock_ydl2.__enter__ = lambda s: s
-        mock_ydl2.__exit__ = MagicMock(return_value=False)
+        mock_ydl2 = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl2):
             collector = YoutubeCollector()
-            _collect(collector, engine, config.youtube, config.settings, log)
+            collect(collector, engine, config.youtube, config.settings, log)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverObservation).order_by(SilverObservation.external_id)).fetchall()
@@ -354,18 +276,16 @@ class TestYoutubeCollector:
             assert rows[0].published_at == "2024-01-15"
             assert rows[1].published_at == "2024-01-20"
 
-    def test_collect_skips_fresh_channel(self, engine):
+    def test_collect_skips_fresh_channel(self, engine, log):
         """source_ttl_minutes > 0 should skip channels fetched recently."""
-        config = AppConfig(
+        config = make_config(
             youtube=YoutubeConfig(
                 sources=[
                     YoutubeSource(channel_id="UC_fresh", name="Fresh Channel"),
                     YoutubeSource(channel_id="UC_stale", name="Stale Channel"),
                 ],
             ),
-            settings=Settings(),
         )
-        log = structlog.get_logger()
 
         # Pre-seed sources: one fresh (5 min ago), one stale (2 hours ago)
         five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
@@ -388,23 +308,19 @@ class TestYoutubeCollector:
                 )
             )
 
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            count = _collect(collector, engine, config.youtube, config.settings, log, source_ttl_minutes=60)
+            count = collect(collector, engine, config.youtube, config.settings, log, source_ttl_minutes=60)
 
         # Only the stale channel should have triggered yt-dlp
         assert mock_cls.call_count == 1
         assert count == 2  # 2 entries from the stale channel
 
-    def test_collect_ttl_zero_fetches_all(self, engine):
+    def test_collect_ttl_zero_fetches_all(self, engine, log):
         """source_ttl_minutes=0 (default) should fetch all channels."""
-        config = _make_config()
-        log = structlog.get_logger()
+        config = _default_config()
 
         # Pre-seed a recently fetched source
         five_min_ago = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
@@ -418,14 +334,11 @@ class TestYoutubeCollector:
                 )
             )
 
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = _mock_extract_info
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl = _mock_ydl(_default_entries())
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
             collector = YoutubeCollector()
-            count = _collect(collector, engine, config.youtube, config.settings, log, source_ttl_minutes=0)
+            count = collect(collector, engine, config.youtube, config.settings, log, source_ttl_minutes=0)
 
         # Should still fetch even though source is fresh (TTL disabled)
         assert mock_cls.call_count == 1

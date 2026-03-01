@@ -1,0 +1,125 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Host:
+      - www.reddit.com
+      User-Agent:
+      - Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
+        Gecko) Chrome/131.0.0.0 Safari/537.36
+    method: GET
+    uri: https://www.reddit.com/r/python/hot.json?limit=1
+  response:
+    body:
+      string: !!binary |
+        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
+    headers:
+      Accept-Ranges:
+      - bytes
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '2205'
+      Date:
+      - Sun, 01 Mar 2026 01:17:20 GMT
+      NEL:
+      - '{"report_to": "w3-reporting-nel", "max_age": 14400, "include_subdomains":
+        false, "success_fraction": 1.0, "failure_fraction": 1.0}'
+      Report-To:
+      - '{"group": "w3-reporting-nel", "max_age": 14400, "include_subdomains": true,  "endpoints":
+        [{ "url": "https://w3-reporting-nel.reddit.com/reports" }]}, {"group": "w3-reporting",
+        "max_age": 14400, "include_subdomains": true, "endpoints": [{ "url": "https://w3-reporting.reddit.com/reports"
+        }]}, {"group": "w3-reporting-csp", "max_age": 14400, "include_subdomains":
+        true, "endpoints": [{ "url": "https://w3-reporting-csp.reddit.com/reports"
+        }]}'
+      Server:
+      - snooserv
+      Set-Cookie:
+      - loid=0000000029982ixptw.2.1772327839933.Z0FBQUFBQnBvNU9nUl9ZcEVSYkg5N2dFektBeFRCTy1HaGFCdU1hV2MyRjJUa1JBd1dncVNaeWV6dU5SM1RsZldNMVlCalU0YnpYY0tpRjZPQ0EzbjdiR1ZqSllhTTVUaF9VR3NySVZSSkt6eXdHUWktWmlNWXBOSTNPREx1NkhubXF0TnF1cXdhaWQ;
+        Domain=reddit.com; Max-Age=63071999; Path=/; expires=Tue, 29-Feb-2028 01:17:20
+        GMT; secure; SameSite=None; Secure
+      - session_tracker=qergbnpmemgqpmhikc.0.1772327839944.Z0FBQUFBQnBvNU9nWlFvQkIzeV9oQkx0ZGlnanFfZkFZLUtuMXZFc1VkNjl2V2szNGJpWkYzVUQ5N0V3aTdkYVV5RFVvYmRwc284a2lTRFlnMnl1NGFWSU1UUkZ4UFU3dEtPZ1U3ZE5LeDBBV01obVFkNTdiU0phd1VxaGFSRTZXenhONm14SC0zek4;
+        Domain=reddit.com; Max-Age=7199; Path=/; expires=Sun, 01-Mar-2026 03:17:20
+        GMT; secure; SameSite=None; Secure
+      - csv=2; Max-Age=63072000; Domain=.reddit.com; Path=/; Secure; SameSite=None
+      - edgebucket=FwQUEbiHT3j11Bj9Ab; Domain=reddit.com; Max-Age=63071999; Path=/;  secure
+      Strict-Transport-Security:
+      - max-age=31536000; includeSubdomains
+      Vary:
+      - accept-encoding
+      Via:
+      - 1.1 varnish
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - SAMEORIGIN
+      X-XSS-Protection:
+      - 1; mode=block
+      access-control-allow-origin:
+      - '*'
+      access-control-expose-headers:
+      - X-Moose
+      cache-control:
+      - private, s-maxage=0, max-age=0, must-revalidate, no-store
+      content-encoding:
+      - gzip
+      content-type:
+      - application/json; charset=UTF-8
+      expires:
+      - '-1'
+      x-ratelimit-remaining:
+      - '98.0'
+      x-ratelimit-reset:
+      - '160'
+      x-ratelimit-used:
+      - '2'
+      x-ua-compatible:
+      - IE=edge
+    status:
+      code: 200
+      message: OK
+version: 1

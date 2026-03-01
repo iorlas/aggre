@@ -25,12 +25,29 @@ def engine():
 
 
 @pytest.fixture(autouse=True)
-def clean_tables(engine):
-    """Truncate all tables before each test."""
+def clean_tables(request):
+    """Truncate all tables before each test.
+
+    Skipped for contract tests (they don't use a database).
+    """
+    if "contract" in {m.name for m in request.node.iter_markers()}:
+        yield
+        return
+    engine = request.getfixturevalue("engine")
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(sa.text(f"TRUNCATE TABLE {table.name} CASCADE"))
     yield
+
+
+@pytest.fixture(scope="module")
+def vcr_config():
+    """VCR.py configuration for contract tests.
+
+    Record mode is controlled by CLI: ``--record-mode=once`` to record,
+    default ``none`` to replay in CI.
+    """
+    return {}
 
 
 @pytest.fixture()

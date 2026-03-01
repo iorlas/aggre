@@ -213,6 +213,7 @@ class RedditCollector(BaseCollector):
                     _rate_limit_sleep(resp, 0)
                 except Exception:
                     logger.exception("reddit.comments_fetch_failed post_id=%s", ext_id)
+                    self._mark_comments_failed(engine, ext_id, f"fetch_error:{ext_id}")
                     continue
 
                 # Write raw API response to bronze before storing in silver
@@ -225,7 +226,7 @@ class RedditCollector(BaseCollector):
                     comments_json = json.dumps(comment_children)
                     comment_count = len(comment_children)
 
-                self._mark_comments_done(engine, discussion_id, comments_json, comment_count)
+                self._mark_comments_done(engine, discussion_id, ext_id, comments_json, comment_count)
                 fetched += 1
 
             logger.info("reddit.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))

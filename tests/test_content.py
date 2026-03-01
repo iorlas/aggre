@@ -10,6 +10,9 @@ import sqlalchemy as sa
 
 from aggre.dagster_defs.content.job import download_content, extract_html_text
 from aggre.db import SilverContent
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage, StageStatus
+from aggre.stages.tracking import upsert_done
 from tests.factories import make_config, seed_content
 
 pytestmark = pytest.mark.integration
@@ -25,11 +28,7 @@ class TestDownloadContent:
         seed_content(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
 
         count = download_content(engine, config)
-        assert count == 1
-
-        with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error == "skipped:youtube"
+        assert count == 0  # YouTube URLs excluded from download query (handled by transcription)
 
     def test_skips_pdf_urls(self, engine):
         config = make_config()
@@ -39,8 +38,16 @@ class TestDownloadContent:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error == "skipped:pdf"
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/paper.pdf",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.SKIPPED
+            assert tracking.error == "skipped:pdf"
 
     def test_downloads_and_stores_raw_html(self, engine, mock_http):
         config = make_config()
@@ -56,9 +63,17 @@ class TestDownloadContent:
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.fetched_at is not None
-            assert row.error is None
             assert row.text is None  # text set by extract phase
+
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/article",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.DONE
 
     def test_handles_download_error(self, engine, mock_http):
         config = make_config()
@@ -70,15 +85,22 @@ class TestDownloadContent:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error is not None
-            assert "Connection refused" in row.error
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/broken",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
+            assert "Connection refused" in tracking.error
 
     def test_respects_batch_limit(self, engine):
         config = make_config()
 
         for i in range(5):
-            seed_content(engine, f"https://youtube.com/watch?v=vid{i}", domain="youtube.com")
+            seed_content(engine, f"https://example.com/paper{i}.pdf", domain="example.com")
 
         count = download_content(engine, config, batch_limit=3)
         assert count == 3
@@ -104,10 +126,14 @@ class TestDownloadContent:
         assert count == 3
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).where(SilverContent.fetched_at.isnot(None), SilverContent.error.is_(None))
+            tracking_rows = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                    StageTracking.status == StageStatus.DONE,
+                )
             ).fetchall()
-            assert len(rows) == 3
+            assert len(tracking_rows) == 3
 
     def test_404_logs_warning_not_exception(self, engine, mock_http, caplog):
         config = make_config()
@@ -120,9 +146,16 @@ class TestDownloadContent:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error is not None
-            assert "404" in row.error
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/gone",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
+            assert "404" in tracking.error
 
         assert any("content_downloader.http_gone" in r.message for r in caplog.records)
         assert not any(r.levelno >= logging.ERROR for r in caplog.records)
@@ -140,8 +173,16 @@ class TestDownloadContent:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error == "skipped:non_text"
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://i.redd.it/image.png",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.SKIPPED
+            assert tracking.error == "skipped:non_text"
 
     def test_skips_video_content_type(self, engine, mock_http):
         config = make_config()
@@ -156,8 +197,16 @@ class TestDownloadContent:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error == "skipped:non_text"
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://v.redd.it/video123",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.SKIPPED
+            assert tracking.error == "skipped:non_text"
 
 
 class TestExtractHtmlText:
@@ -169,7 +218,8 @@ class TestExtractHtmlText:
         config = make_config()
 
         html = "<html><body><p>Article content here</p></body></html>"
-        seed_content(engine, "https://example.com/article", domain="example.com", fetched_at="2024-01-01T00:00:00Z")
+        seed_content(engine, "https://example.com/article", domain="example.com")
+        upsert_done(engine, "content", "https://example.com/article", Stage.DOWNLOAD)
 
         # Write HTML to bronze so extract can read it
         from aggre.utils.bronze import write_bronze_by_url
@@ -192,13 +242,22 @@ class TestExtractHtmlText:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.text == "Article content here"
             assert row.title == "Test Article"
-            assert row.fetched_at is not None
-            assert row.error is None
+
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/article",
+                    StageTracking.stage == Stage.EXTRACT,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.DONE
 
     def test_handles_extraction_error(self, engine):
         config = make_config()
 
-        seed_content(engine, "https://example.com/bad-html", domain="example.com", fetched_at="2024-01-01T00:00:00Z")
+        seed_content(engine, "https://example.com/bad-html", domain="example.com")
+        upsert_done(engine, "content", "https://example.com/bad-html", Stage.DOWNLOAD)
 
         from aggre.utils.bronze import write_bronze_by_url
 
@@ -210,14 +269,21 @@ class TestExtractHtmlText:
         assert count == 1
 
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error is not None
-            assert "Parse error" in row.error
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/bad-html",
+                    StageTracking.stage == Stage.EXTRACT,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
+            assert "Parse error" in tracking.error
 
     def test_ignores_undownloaded_content(self, engine):
         config = make_config()
 
-        # No fetched_at = not yet downloaded
+        # No download tracking = not yet downloaded
         seed_content(engine, "https://example.com/still-pending")
 
         count = extract_html_text(engine, config)
@@ -230,12 +296,8 @@ class TestExtractHtmlText:
 
         for i in range(5):
             url = f"https://example.com/article-{i}"
-            seed_content(
-                engine,
-                url,
-                domain="example.com",
-                fetched_at="2024-01-01T00:00:00Z",
-            )
+            seed_content(engine, url, domain="example.com")
+            upsert_done(engine, "content", url, Stage.DOWNLOAD)
             write_bronze_by_url("content", url, "response", f"<html>content {i}</html>", "html")
 
         with (

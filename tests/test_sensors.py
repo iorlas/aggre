@@ -15,6 +15,8 @@ from aggre.dagster_defs.enrichment.sensor import enrichment_sensor
 from aggre.dagster_defs.resources import DatabaseResource
 from aggre.dagster_defs.transcription.sensor import transcription_sensor
 from aggre.db import SilverContent, SilverObservation
+from aggre.stages.status import Stage
+from aggre.stages.tracking import upsert_done
 
 pytestmark = pytest.mark.integration
 
@@ -195,9 +197,9 @@ class TestEnrichmentSensor:
                     canonical_url="https://example.com",
                     domain="example.com",
                     text="Some text",
-                    enriched_at="2024-01-01",
                 )
             )
+        upsert_done(engine, "content", "https://example.com", Stage.ENRICH)
         ctx = _sensor_context()
         result = _run_sensor(enrichment_sensor, ctx, _database(engine))
         assert "No content" in _skip_message(result)

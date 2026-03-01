@@ -76,18 +76,67 @@ Researched Rust/Go rewrites of classic Unix tools. Sorted by impact.
 | **[hyperfine](https://github.com/sharkdp/hyperfine)** | CLI benchmarking with warmup, statistical analysis. |
 | **[jq](https://github.com/jqlang/jq)** | JSON CLI processor. Likely already installed. |
 
+## Terminal Emulators
+
+Researched GPU-accelerated and AI-native terminal emulators as potential iTerm2 replacements.
+
+### Comparison
+
+| Terminal | Engine | Rendering | Philosophy | Best for |
+|----------|--------|-----------|-----------|----------|
+| **iTerm2** | Obj-C | CPU | Feature-rich, mature | tmux -CC integration, triggers, Python API, macOS power users |
+| **Ghostty** | Zig | Metal (GPU) | Fast + Mac-native + minimal config | Speed + polish with zero fuss. "Fish of terminals" |
+| **WezTerm** | Rust | WebGPU/Metal | Programmable (Lua), built-in mux | Power users who script their terminal, remote work |
+| **Kitty** | C/Python | OpenGL | "Terminal as a platform" | Image-heavy TUIs, neovim users, own graphics protocol |
+| **Alacritty** | Rust | OpenGL | Minimal, performance-only | Purists — no tabs, no splits, pair with tmux |
+| **cmux** | Swift | libghostty | Agent-session management | Multiple Claude Code / AI agent sessions |
+| **Warp** | Rust | Metal | AI-native, block-based output | Natural language → shell commands, built-in AI agent |
+
+### Key findings
+
+**Performance:** GPU-accelerated terminals (Ghostty, WezTerm, Kitty) deliver sub-10ms latency and smoother scrolling vs iTerm2's CPU rendering. On M-series Macs, [the difference is noticeable but not dramatic](https://news.ycombinator.com/item?id=42518591). Memory: Ghostty ~129MB vs iTerm2 ~207MB for similar workloads.
+
+**iTerm2's unique strength:** tmux -CC mode renders tmux panes as native macOS tabs/windows. No other terminal does this. Critical for remote work.
+
+**Ghostty's appeal:** Built in Zig, uses Metal on macOS, feels like a native Apple app. Sensible defaults, minimal config. The community's "just switch and forget" recommendation. Created by HashiCorp co-founder Mitchell Hashimoto.
+
+**cmux's niche:** Designed specifically for multi-agent workflows. Vertical sidebar shows git branch, working directory, ports, notification text per tab. Blue ring indicator when Claude Code needs attention. Built on libghostty. [3,000+ GitHub stars](https://github.com/manaflow-ai/cmux). AGPL-3.0.
+
+### Should you migrate from iTerm2?
+
+**No strong reason for existing users on M-series Macs.** GPU rendering improvements are real but marginal on Apple Silicon. iTerm2's maturity, tmux -CC, and ecosystem are hard to replace.
+
+**Exception:** cmux solves the "which Claude Code tab needs me?" problem that no other terminal addresses. Worth running alongside iTerm2 specifically for Claude Code sessions.
+
+### AI-Native Terminals
+
+**Warp** is the main "AI terminal" — block-based output, built-in AI agent (Claude Sonnet, GPT-4o), natural language command suggestions. Has [official Claude Code integration](https://github.com/warpdotdev/claude-code-warp). However:
+
+- **Redundant with Claude Code.** Warp's AI features overlap with what Claude Code already does, but worse.
+- **Privacy concerns.** [Telemetry controversy](https://github.com/warpdotdev/Warp/issues/1346) — opt-out available but data collection is on by default. VC-funded, closed source.
+- **Block-based UI** is genuinely nice but cosmetic, not a workflow change.
+
+Other AI CLI tools (shell-gpt, aichat, aider) are all redundant if you use Claude Code as your primary coding agent.
+
+**Verdict:** AI terminals are solving a problem that's already solved by running Claude Code in any terminal. The AI belongs in the agent, not the terminal chrome.
+
 ## Decision: What We Installed
 
-**Shell:** fish 4.5.0 as interactive shell, zsh remains login shell.
+**Shell:** fish 4.5.0 as interactive shell, zsh remains macOS login shell (Claude Code compatibility).
 
 **Fish config:** Fisher + Tide v6. No framework (Oh My Fish is unmaintained).
 
-**Tools:** zoxide, fd, atuin (with `--disable-up-arrow`), btop, lazygit. jq was pre-existing. ripgrep, bat, eza skipped for now (can add later).
+**CLI tools:** zoxide, fd, atuin (with `--disable-up-arrow`), btop, lazygit. jq was pre-existing. ripgrep, bat, eza skipped for now (can add later).
+
+**Terminal:** cmux v0.61.0 installed alongside iTerm2. cmux for Claude Code multi-session work (sidebar, notifications), iTerm2 as fallback and for future remote/tmux work.
 
 **Config location:** `~/.config/fish/config.fish` — zoxide init + atuin init.
 
+**Skipped:** Warp (AI features redundant with Claude Code, privacy concerns), Ghostty standalone (cmux already uses libghostty), dotfile manager (not needed yet), direnv (manual .env workflow is sufficient for now).
+
 ## Sources
 
+### Shells & CLI tools
 - [Lobsters: Bash vs Fish vs Zsh vs Nushell](https://lobste.rs/s/qoccbl/bash_vs_fish_vs_zsh_vs_nushell)
 - [HN: Are alternative shells usable as daily drivers?](https://news.ycombinator.com/item?id=34722208)
 - [Why I Switched Back to Zsh from Nushell](https://ryanxcharles.com/blog/2025-05-26-nushell-to-zsh)
@@ -97,3 +146,17 @@ Researched Rust/Go rewrites of classic Unix tools. Sorted by impact.
 - [Better Shell History Search](https://tratt.net/laurie/blog/2025/better_shell_history_search.html)
 - [Rise of Terminal Tools](https://tduyng.com/blog/rise-of-terminal/)
 - [Building the Ultimate Developer Shell](https://corti.com/building-the-ultimate-developer-shell/)
+
+### Terminal emulators
+- [Choosing a Terminal on macOS (2025)](https://medium.com/@dynamicy/choosing-a-terminal-on-macos-2025-iterm2-vs-ghostty-vs-wezterm-vs-kitty-vs-alacritty-d6a5e42fd8b3)
+- [HN: Reasons to switch from iTerm2](https://news.ycombinator.com/item?id=42518591)
+- [cmux GitHub](https://github.com/manaflow-ai/cmux)
+- [HN: cmux — Ghostty-based terminal with vertical tabs](https://news.ycombinator.com/item?id=47079718)
+- [Parallel work with Claude Code in iTerm2](https://dev.to/kamilbuksakowski/parallel-work-with-claude-code-in-iterm2-a-workflow-inspired-by-boris-cherny-5940)
+- [Claude Code terminal tab title issues: #18326](https://github.com/anthropics/claude-code/issues/18326), [#20441](https://github.com/anthropics/claude-code/issues/20441), [#15802](https://github.com/anthropics/claude-code/issues/15802)
+
+### AI terminals
+- [Warp: Claude Code integration](https://github.com/warpdotdev/claude-code-warp)
+- [Warp telemetry concerns](https://github.com/warpdotdev/Warp/issues/1346)
+- [AI coding tools shifting to the terminal (TechCrunch)](https://techcrunch.com/2025/07/15/ai-coding-tools-are-shifting-to-a-surprising-place-the-terminal/)
+- [AI terminal coding tools that actually work (Augment)](https://www.augmentcode.com/guides/ai-terminal-coding-tools-that-actually-work-in-2025)

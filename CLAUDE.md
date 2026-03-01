@@ -15,6 +15,7 @@ Read the relevant docs first:
 - **Before changing deps:** `.planning/codebase/STACK.md` — tech stack, versions, configuration
 - **Before touching integrations:** `.planning/codebase/INTEGRATIONS.md` — external APIs, auth, rate limits
 - **Before touching data layers:** `docs/guidelines/medallion.md` — medallion architecture, bronze/silver patterns
+- **Before changing concurrency/pipeline:** `docs/guidelines/formal-verification.md` — TLA+ specs, spec-first workflow
 - **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
 
 > **Note:** `.planning/codebase/` files are AI-generated snapshots of current codebase state, not human-authored guidelines. `docs/guidelines/` contains the human-authored standards.
@@ -26,3 +27,4 @@ Read the relevant docs first:
 - Lint: `make lint` (runs ruff check, ruff format --check, ty check)
 - Dagster dev: `uv run dagster dev` (starts Dagster UI at http://localhost:3000)
 - Dagster validate: `uv run dagster definitions validate`
+- Verify TLA+ specs: `make verify` (requires Java)

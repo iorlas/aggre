@@ -110,7 +110,6 @@ class TestEnsureContent:
             assert row.canonical_url == "https://example.com/article"
             assert row.domain == "example.com"
             assert row.text is None  # needs processing
-            assert row.error is None
 
     def test_returns_existing(self, engine):
         with engine.begin() as conn:

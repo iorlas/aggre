@@ -16,19 +16,12 @@ from faster_whisper import WhisperModel
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverObservation, update_content
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage
+from aggre.stages.tracking import retry_filter, upsert_done, upsert_failed
 from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
 
 logger = logging.getLogger(__name__)
-
-
-def _mark_transcribed(engine: sa.engine.Engine, content_id: int, *, text: str, detected_language: str) -> None:
-    """Set transcript text and language on content."""
-    update_content(engine, content_id, text=text, detected_language=detected_language)
-
-
-def _mark_transcription_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
-    """Transcription failed — set error."""
-    update_content(engine, content_id, error=error)
 
 
 def create_whisper_model(config: AppConfig) -> WhisperModel:
@@ -47,7 +40,7 @@ def transcribe(
     *,
     model: WhisperModel | None = None,
 ) -> int:
-    # Query SilverContent needing transcription: text IS NULL, error IS NULL, YouTube domain
+    # Query SilverContent needing transcription: text IS NULL, YouTube domain, stage not done
     query = (
         sa.select(
             SilverContent.id,
@@ -56,10 +49,21 @@ def transcribe(
             SilverObservation.title,
         )
         .join(SilverObservation, SilverObservation.content_id == SilverContent.id)
+        .outerjoin(
+            StageTracking,
+            sa.and_(
+                StageTracking.source == "youtube",
+                StageTracking.external_id == SilverObservation.external_id,
+                StageTracking.stage == Stage.TRANSCRIBE,
+            ),
+        )
         .where(
             SilverContent.text.is_(None),
-            SilverContent.error.is_(None),
             SilverObservation.source_type == "youtube",
+            sa.or_(
+                StageTracking.id.is_(None),
+                retry_filter(StageTracking, Stage.TRANSCRIBE),
+            ),
         )
         .order_by(SilverContent.created_at.asc())
     )
@@ -82,7 +86,8 @@ def transcribe(
             cached = json.loads(read_bronze("youtube", external_id, "whisper", "json"))
             transcript = cached["transcript"] if isinstance(cached, dict) else ""
             language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
-            _mark_transcribed(engine, content_id, text=transcript, detected_language=language)
+            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
+            update_content(engine, content_id, text=transcript, detected_language=language)
             processed += 1
             continue
 
@@ -130,7 +135,7 @@ def transcribe(
             file_size = audio_dest.stat().st_size
             if file_size > 500 * 1024 * 1024:
                 logger.warning("audio_file_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
-                _mark_transcription_failed(engine, content_id, error="Audio file exceeds 500MB limit")
+                upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, "Audio file exceeds 500MB limit")
                 continue
 
             # Transcribe — create model on first use if not provided
@@ -148,14 +153,15 @@ def transcribe(
             write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
 
             # Store result on SilverContent
-            _mark_transcribed(engine, content_id, text=transcript, detected_language=info.language)
+            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
+            update_content(engine, content_id, text=transcript, detected_language=info.language)
 
             logger.info("transcription_complete external_id=%s", external_id)
             processed += 1
 
         except Exception as exc:
             logger.exception("transcription_failed external_id=%s", external_id)
-            _mark_transcription_failed(engine, content_id, error=str(exc))
+            upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, str(exc))
 
     return processed
 

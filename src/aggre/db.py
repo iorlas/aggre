@@ -30,11 +30,8 @@ class SilverContent(Base):
     domain: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     title: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    fetched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     created_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
     detected_language: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    enriched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SilverObservation(Base):
@@ -54,30 +51,25 @@ class SilverObservation(Base):
     fetched_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
     meta: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     comments_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     score: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     comment_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
 
 # SilverContent indexes
 sa.Index("idx_silver_content_domain", SilverContent.domain, postgresql_where=SilverContent.domain.isnot(None))
+sa.Index("idx_content_text_null", SilverContent.id, postgresql_where=SilverContent.text.is_(None))
 sa.Index(
-    "idx_content_needs_processing",
+    "idx_content_needs_enrich",
     SilverContent.id,
-    postgresql_where=sa.and_(SilverContent.text.is_(None), SilverContent.error.is_(None)),
+    postgresql_where=sa.and_(SilverContent.text.isnot(None), SilverContent.canonical_url.isnot(None)),
 )
-sa.Index("idx_silver_content_enriched_at", SilverContent.enriched_at, postgresql_where=SilverContent.enriched_at.is_(None))
 
 # SilverObservation indexes
 sa.Index("idx_silver_observations_source_type", SilverObservation.source_type)
 sa.Index("idx_silver_observations_published", SilverObservation.published_at)
 sa.Index("idx_silver_observations_source_id", SilverObservation.source_id)
 sa.Index("idx_silver_observations_external", SilverObservation.source_type, SilverObservation.external_id)
-sa.Index(
-    "idx_observations_needs_comments",
-    SilverObservation.id,
-    postgresql_where=sa.and_(SilverObservation.comments_json.is_(None), SilverObservation.error.is_(None)),
-)
+sa.Index("idx_observations_comments_null", SilverObservation.id, postgresql_where=SilverObservation.comments_json.is_(None))
 sa.Index("idx_silver_observations_url", SilverObservation.url, postgresql_where=SilverObservation.url.isnot(None))
 sa.Index("idx_silver_observations_content_id", SilverObservation.content_id, postgresql_where=SilverObservation.content_id.isnot(None))
 

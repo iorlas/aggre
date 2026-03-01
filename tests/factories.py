@@ -33,9 +33,6 @@ def seed_content(
     *,
     domain: str | None = None,
     text: str | None = None,
-    error: str | None = None,
-    fetched_at: str | None = None,
-    enriched_at: str | None = None,
 ) -> int:
     """Insert a SilverContent row. Returns the row id."""
     with engine.begin() as conn:
@@ -43,9 +40,6 @@ def seed_content(
             canonical_url=url,
             domain=domain,
             text=text,
-            error=error,
-            fetched_at=fetched_at,
-            enriched_at=enriched_at,
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
         result = conn.execute(stmt)
@@ -64,7 +58,6 @@ def seed_observation(
     content_text: str | None = None,
     published_at: str | None = None,
     comments_json: str | None = None,
-    error: str | None = None,
     score: int | None = None,
     comment_count: int | None = None,
     source_id: int | None = None,
@@ -81,7 +74,6 @@ def seed_observation(
             content_text=content_text,
             published_at=published_at,
             comments_json=comments_json,
-            error=error,
             score=score,
             comment_count=comment_count,
             source_id=source_id,

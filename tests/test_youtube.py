@@ -77,8 +77,8 @@ class TestYoutubeCollector:
             assert meta["duration"] == 600
             assert meta["view_count"] == 1000
 
-            # Content rows should be ready for transcription (text=NULL, error=NULL)
-            sc_rows = conn.execute(sa.select(SilverContent).where(SilverContent.text.is_(None), SilverContent.error.is_(None))).fetchall()
+            # Content rows should be ready for transcription (text=NULL)
+            sc_rows = conn.execute(sa.select(SilverContent).where(SilverContent.text.is_(None))).fetchall()
             assert len(sc_rows) == 2
 
     def test_collect_creates_source_row(self, engine):

@@ -162,13 +162,14 @@ class LobstersCollector(BaseCollector):
                     data = resp.json()
                 except Exception:
                     logger.exception("lobsters.comments_fetch_failed story_id=%s", short_id)
+                    self._mark_comments_failed(engine, short_id, f"fetch_error:{short_id}")
                     continue
 
                 # Write raw API response to bronze before storing in silver
                 write_bronze(self.source_type, short_id, "comments", json.dumps(data, ensure_ascii=False), "json")
 
                 comments = data.get("comments", [])
-                self._mark_comments_done(engine, discussion_id, json.dumps(comments), len(comments))
+                self._mark_comments_done(engine, discussion_id, short_id, json.dumps(comments), len(comments))
                 fetched += 1
 
             logger.info("lobsters.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))

@@ -1,17 +1,22 @@
-"""Invariant tests: guard the null-check state machine and collector content constraints.
+"""Invariant tests: guard the stage tracking state machine and collector content constraints.
 
-These tests protect the core architectural invariant: NULL checks on SilverContent
-drive the processing pipeline. If a collector accidentally writes to SilverContent.text,
-rows fall out of the download/extract/transcription pipeline.
+These tests protect the core architectural invariant: Silver columns hold entity data,
+stage_tracking controls processing state. If a collector accidentally writes to
+SilverContent.text, rows fall out of the download/extract/transcription pipeline.
 
-State machine:
-    text=NULL, error=NULL, fetched_at=NULL  -> needs download
-    text=NULL, error=NULL, fetched_at=SET   -> downloaded, needs extraction
-    text=SET                                -> completed (skipped by all pipelines)
-    error=SET                               -> failed (skipped by all pipelines)
+Stage tracking state machine (per stage):
+    No tracking row               -> needs processing (sensor discovers from Silver state)
+    status='done'                 -> completed
+    status='failed', retries < max -> retry eligible
+    status='failed', retries >= max -> exhausted (skipped)
+    status='skipped'              -> permanently skipped
+
+Silver-level discovery:
+    text=NULL                     -> needs download/transcription
+    text=SET                      -> needs enrichment (if no enrich tracking)
 
 For SilverObservation:
-    comments_json=NULL, error=NULL          -> needs comments (reddit, hackernews, lobsters)
+    comments_json=NULL            -> needs comments (if no comments tracking)
 """
 
 from __future__ import annotations
@@ -20,8 +25,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import sqlalchemy as sa
+import sqlalchemy.orm
 
 from aggre.db import SilverContent, SilverObservation
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage, StageStatus
+from aggre.stages.tracking import upsert_done, upsert_failed, upsert_skipped
 from tests.factories import (
     hf_paper,
     hn_hit,
@@ -41,178 +50,260 @@ from tests.helpers import collect
 pytestmark = pytest.mark.integration
 
 # ---------------------------------------------------------------------------
-# Null-check state machine queries
+# Stage tracking state machine queries
 # ---------------------------------------------------------------------------
 
 
-class TestNullCheckStateTransitions:
-    """Verify the null-check state machine queries find/exclude rows correctly."""
+def _download_query():
+    """Build the download sensor query (content needing download)."""
+    from aggre.dagster_defs.content.job import SKIP_DOMAINS
+
+    return (
+        sa.select(SilverContent.id, SilverContent.canonical_url)
+        .outerjoin(
+            StageTracking,
+            sa.and_(
+                StageTracking.source == "content",
+                StageTracking.external_id == SilverContent.canonical_url,
+                StageTracking.stage == Stage.DOWNLOAD,
+            ),
+        )
+        .where(
+            SilverContent.text.is_(None),
+            sa.or_(
+                SilverContent.domain.notin_(SKIP_DOMAINS),
+                SilverContent.domain.is_(None),
+            ),
+            sa.or_(
+                StageTracking.id.is_(None),
+                sa.and_(
+                    StageTracking.status == StageStatus.FAILED,
+                    StageTracking.retries < 3,
+                ),
+            ),
+            sa.not_(sa.func.coalesce(StageTracking.status == StageStatus.SKIPPED, False)),
+        )
+    )
+
+
+def _extract_query():
+    """Build the extract query (content with download done, needing extraction)."""
+    download_done_sq = (
+        sa.select(StageTracking.external_id)
+        .where(
+            StageTracking.source == "content",
+            StageTracking.stage == Stage.DOWNLOAD,
+            StageTracking.status == StageStatus.DONE,
+        )
+        .subquery()
+    )
+    st_extract = sa.orm.aliased(StageTracking)
+    return (
+        sa.select(SilverContent.id, SilverContent.canonical_url)
+        .where(
+            SilverContent.text.is_(None),
+            SilverContent.canonical_url.in_(sa.select(download_done_sq.c.external_id)),
+        )
+        .outerjoin(
+            st_extract,
+            sa.and_(
+                st_extract.source == "content",
+                st_extract.external_id == SilverContent.canonical_url,
+                st_extract.stage == Stage.EXTRACT,
+            ),
+        )
+        .where(
+            sa.or_(
+                st_extract.id.is_(None),
+                sa.and_(
+                    st_extract.status == StageStatus.FAILED,
+                    st_extract.retries < 2,
+                ),
+            ),
+        )
+    )
+
+
+def _transcription_query():
+    """Build the transcription sensor query."""
+    return (
+        sa.select(SilverContent.id)
+        .join(SilverObservation, SilverObservation.content_id == SilverContent.id)
+        .outerjoin(
+            StageTracking,
+            sa.and_(
+                StageTracking.source == "youtube",
+                StageTracking.external_id == SilverObservation.external_id,
+                StageTracking.stage == Stage.TRANSCRIBE,
+            ),
+        )
+        .where(
+            SilverContent.text.is_(None),
+            SilverObservation.source_type == "youtube",
+            sa.or_(
+                StageTracking.id.is_(None),
+                sa.and_(
+                    StageTracking.status == StageStatus.FAILED,
+                    StageTracking.retries < 2,
+                ),
+            ),
+        )
+    )
+
+
+def _enrichment_query():
+    """Build the enrichment sensor query."""
+    return (
+        sa.select(SilverContent.id)
+        .outerjoin(
+            StageTracking,
+            sa.and_(
+                StageTracking.source == "content",
+                StageTracking.external_id == SilverContent.canonical_url,
+                StageTracking.stage == Stage.ENRICH,
+            ),
+        )
+        .where(
+            SilverContent.text.isnot(None),
+            SilverContent.canonical_url.isnot(None),
+            sa.or_(
+                StageTracking.id.is_(None),
+                sa.and_(
+                    StageTracking.status == StageStatus.FAILED,
+                    StageTracking.retries < 3,
+                ),
+            ),
+        )
+    )
+
+
+def _comments_query():
+    """Build the comments sensor query."""
+    return (
+        sa.select(SilverObservation.id)
+        .outerjoin(
+            StageTracking,
+            sa.and_(
+                StageTracking.source == SilverObservation.source_type,
+                StageTracking.external_id == SilverObservation.external_id,
+                StageTracking.stage == Stage.COMMENTS,
+            ),
+        )
+        .where(
+            SilverObservation.source_type.in_(["reddit", "hackernews", "lobsters"]),
+            SilverObservation.comments_json.is_(None),
+            sa.or_(
+                StageTracking.id.is_(None),
+                sa.and_(
+                    StageTracking.status == StageStatus.FAILED,
+                    StageTracking.retries < 3,
+                ),
+            ),
+        )
+    )
+
+
+class TestStageTrackingStateTransitions:
+    """Verify the stage tracking state machine queries find/exclude rows correctly."""
 
     def test_pending_content_found_by_download_query(self, engine):
-        """text=NULL, error=NULL, fetched_at=NULL -> found by download query."""
+        """text=NULL, no tracking -> found by download query."""
         seed_content(engine, "https://example.com/pending", domain="example.com")
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
-                )
-            ).fetchall()
+            rows = conn.execute(_download_query()).fetchall()
             assert len(rows) == 1
 
     def test_pending_content_excluded_from_extract_query(self, engine):
-        """text=NULL, error=NULL, fetched_at=NULL -> NOT found by extract query."""
+        """text=NULL, no download tracking -> NOT found by extract query."""
         seed_content(engine, "https://example.com/pending", domain="example.com")
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.isnot(None),
-                )
-            ).fetchall()
+            rows = conn.execute(_extract_query()).fetchall()
             assert len(rows) == 0
 
-    def test_downloaded_content_found_by_extract_query(self, engine):
-        """text=NULL, error=NULL, fetched_at=SET -> found by extract query."""
-        seed_content(
-            engine,
-            "https://example.com/downloaded",
-            domain="example.com",
-            fetched_at="2024-01-01T00:00:00Z",
-        )
+    def test_download_done_found_by_extract_query(self, engine):
+        """text=NULL, download tracking done -> found by extract query."""
+        seed_content(engine, "https://example.com/downloaded", domain="example.com")
+        upsert_done(engine, "content", "https://example.com/downloaded", Stage.DOWNLOAD)
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.isnot(None),
-                )
-            ).fetchall()
+            rows = conn.execute(_extract_query()).fetchall()
             assert len(rows) == 1
 
-    def test_downloaded_content_excluded_from_download_query(self, engine):
-        """text=NULL, error=NULL, fetched_at=SET -> NOT found by download query."""
-        seed_content(
-            engine,
-            "https://example.com/downloaded",
-            domain="example.com",
-            fetched_at="2024-01-01T00:00:00Z",
-        )
+    def test_download_done_excluded_from_download_query(self, engine):
+        """text=NULL, download tracking done -> NOT found by download query."""
+        seed_content(engine, "https://example.com/downloaded", domain="example.com")
+        upsert_done(engine, "content", "https://example.com/downloaded", Stage.DOWNLOAD)
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
-                )
-            ).fetchall()
+            rows = conn.execute(_download_query()).fetchall()
             assert len(rows) == 0
 
-    def test_completed_content_excluded_from_all_queries(self, engine):
-        """text=SET -> excluded from download AND extract queries."""
-        seed_content(
-            engine,
-            "https://example.com/done",
-            domain="example.com",
-            text="some text",
-            fetched_at="2024-01-01T00:00:00Z",
-        )
+    def test_download_skipped_excluded_from_download_query(self, engine):
+        """Download tracking skipped -> NOT found by download query."""
+        seed_content(engine, "https://example.com/skipped", domain="example.com")
+        upsert_skipped(engine, "content", "https://example.com/skipped", Stage.DOWNLOAD, "pdf")
 
         with engine.connect() as conn:
-            download = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
-                )
-            ).fetchall()
-            extract = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.isnot(None),
-                )
-            ).fetchall()
-            assert len(download) == 0
-            assert len(extract) == 0
+            rows = conn.execute(_download_query()).fetchall()
+            assert len(rows) == 0
 
-    def test_failed_content_excluded_from_all_queries(self, engine):
-        """error=SET -> excluded from download AND extract queries."""
-        seed_content(
-            engine,
-            "https://example.com/failed",
-            domain="example.com",
-            error="some error",
-        )
+    def test_download_failed_retries_below_max_found_by_download_query(self, engine):
+        """Download failed, retries < max -> found by download query (retry)."""
+        seed_content(engine, "https://example.com/retry", domain="example.com")
+        upsert_failed(engine, "content", "https://example.com/retry", Stage.DOWNLOAD, "timeout")
 
         with engine.connect() as conn:
-            download = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
-                )
-            ).fetchall()
-            extract = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.isnot(None),
-                )
-            ).fetchall()
-            assert len(download) == 0
-            assert len(extract) == 0
+            rows = conn.execute(_download_query()).fetchall()
+            assert len(rows) == 1
 
-    def test_failed_with_text_excluded_from_all_queries(self, engine):
-        """text=SET AND error=SET -> excluded from all processing queries."""
-        seed_content(
-            engine,
-            "https://example.com/partial",
-            domain="example.com",
-            text="partial",
-            error="parse error",
-            fetched_at="2024-01-01T00:00:00Z",
-        )
+    def test_download_failed_retries_at_max_excluded_from_download_query(self, engine):
+        """Download failed, retries >= max -> NOT found by download query."""
+        seed_content(engine, "https://example.com/exhausted", domain="example.com")
+        # Exhaust retries (max is 3)
+        for _ in range(3):
+            upsert_failed(engine, "content", "https://example.com/exhausted", Stage.DOWNLOAD, "timeout")
 
         with engine.connect() as conn:
-            download = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
-                )
-            ).fetchall()
-            extract = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.isnot(None),
-                )
-            ).fetchall()
-            assert len(download) == 0
-            assert len(extract) == 0
+            rows = conn.execute(_download_query()).fetchall()
+            assert len(rows) == 0
 
-    def test_youtube_included_in_transcription_query(self, engine):
-        """YouTube content (text=NULL, error=NULL) with youtube observation -> found by transcription query."""
+    def test_completed_content_excluded_from_download_and_transcription(self, engine):
+        """text=SET -> NOT found by download or transcription queries."""
+        cid = seed_content(engine, "https://example.com/done", domain="example.com", text="done")
+        seed_observation(engine, source_type="youtube", external_id="done", content_id=cid)
+
+        with engine.connect() as conn:
+            download = conn.execute(_download_query()).fetchall()
+            transcription = conn.execute(_transcription_query()).fetchall()
+            assert len(download) == 0
+            assert len(transcription) == 0
+
+    def test_text_set_no_enrich_tracking_found_by_enrichment_query(self, engine):
+        """text=SET, no enrich tracking -> found by enrichment query."""
+        seed_content(engine, "https://example.com/to-enrich", domain="example.com", text="hello")
+
+        with engine.connect() as conn:
+            rows = conn.execute(_enrichment_query()).fetchall()
+            assert len(rows) == 1
+
+    def test_enrich_done_excluded_from_enrichment_query(self, engine):
+        """Enrich tracking done -> NOT found by enrichment query."""
+        seed_content(engine, "https://example.com/enriched", domain="example.com", text="hello")
+        upsert_done(engine, "content", "https://example.com/enriched", Stage.ENRICH)
+
+        with engine.connect() as conn:
+            rows = conn.execute(_enrichment_query()).fetchall()
+            assert len(rows) == 0
+
+    def test_youtube_content_found_by_transcription_query(self, engine):
+        """YouTube content (text=NULL, no tracking) -> found by transcription query."""
         cid = seed_content(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
         seed_observation(engine, source_type="youtube", external_id="abc", content_id=cid)
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent.id)
-                .join(SilverObservation, SilverObservation.content_id == SilverContent.id)
-                .where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverObservation.source_type == "youtube",
-                )
-            ).fetchall()
+            rows = conn.execute(_transcription_query()).fetchall()
             assert len(rows) == 1
 
     def test_non_youtube_excluded_from_transcription_query(self, engine):
@@ -221,15 +312,7 @@ class TestNullCheckStateTransitions:
         seed_observation(engine, source_type="hackernews", external_id="12345", content_id=cid)
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent.id)
-                .join(SilverObservation, SilverObservation.content_id == SilverContent.id)
-                .where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverObservation.source_type == "youtube",
-                )
-            ).fetchall()
+            rows = conn.execute(_transcription_query()).fetchall()
             assert len(rows) == 0
 
     def test_completed_youtube_excluded_from_transcription_query(self, engine):
@@ -243,29 +326,15 @@ class TestNullCheckStateTransitions:
         seed_observation(engine, source_type="youtube", external_id="done", content_id=cid)
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverContent.id)
-                .join(SilverObservation, SilverObservation.content_id == SilverContent.id)
-                .where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverObservation.source_type == "youtube",
-                )
-            ).fetchall()
+            rows = conn.execute(_transcription_query()).fetchall()
             assert len(rows) == 0
 
     def test_pending_comments_found_by_comments_query(self, engine):
-        """comments_json=NULL, error=NULL, source_type in list -> found."""
+        """comments_json=NULL, no tracking, source_type in list -> found."""
         seed_observation(engine, source_type="reddit", external_id="abc123")
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverObservation).where(
-                    SilverObservation.comments_json.is_(None),
-                    SilverObservation.error.is_(None),
-                    SilverObservation.source_type.in_(["reddit", "hackernews", "lobsters"]),
-                )
-            ).fetchall()
+            rows = conn.execute(_comments_query()).fetchall()
             assert len(rows) == 1
 
     def test_completed_comments_excluded_from_comments_query(self, engine):
@@ -278,104 +347,46 @@ class TestNullCheckStateTransitions:
         )
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverObservation).where(
-                    SilverObservation.comments_json.is_(None),
-                    SilverObservation.error.is_(None),
-                    SilverObservation.source_type.in_(["reddit", "hackernews", "lobsters"]),
-                )
-            ).fetchall()
+            rows = conn.execute(_comments_query()).fetchall()
             assert len(rows) == 0
 
-    def test_failed_comments_excluded_from_comments_query(self, engine):
-        """error=SET on observation -> excluded from comments query."""
-        seed_observation(
-            engine,
-            source_type="hackernews",
-            external_id="err789",
-            error="rate limited",
-        )
+    def test_comments_tracking_done_excluded_from_comments_query(self, engine):
+        """comments_json=NULL but tracking done -> excluded from comments query."""
+        seed_observation(engine, source_type="hackernews", external_id="tracked01")
+        upsert_done(engine, "hackernews", "tracked01", Stage.COMMENTS)
 
         with engine.connect() as conn:
-            rows = conn.execute(
-                sa.select(SilverObservation).where(
-                    SilverObservation.comments_json.is_(None),
-                    SilverObservation.error.is_(None),
-                    SilverObservation.source_type.in_(["reddit", "hackernews", "lobsters"]),
-                )
-            ).fetchall()
-            assert len(rows) == 0
-
-    def test_enrichment_finds_enriched_at_null(self, engine):
-        """enriched_at=NULL -> found by enrichment query."""
-        seed_content(engine, "https://example.com/to-enrich", domain="example.com")
-
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverContent).where(SilverContent.enriched_at.is_(None))).fetchall()
-            assert len(rows) == 1
-
-    def test_enrichment_excludes_already_enriched(self, engine):
-        """enriched_at=SET -> excluded from enrichment query."""
-        seed_content(
-            engine,
-            "https://example.com/enriched",
-            domain="example.com",
-            text="hello",
-            enriched_at="2024-06-01T00:00:00Z",
-        )
-
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverContent).where(SilverContent.enriched_at.is_(None))).fetchall()
+            rows = conn.execute(_comments_query()).fetchall()
             assert len(rows) == 0
 
     def test_mixed_states_correctly_routed(self, engine):
         """Multiple rows in different states are each picked up by the right query."""
-        # Pending download
+        # Pending download (text=NULL, no tracking)
         seed_content(engine, "https://example.com/pending", domain="example.com")
-        # Downloaded, awaiting extraction
-        seed_content(
-            engine,
-            "https://example.com/downloaded",
-            domain="example.com",
-            fetched_at="2024-01-01T00:00:00Z",
-        )
-        # Completed
-        seed_content(
-            engine,
-            "https://example.com/done",
-            domain="example.com",
-            text="done",
-            fetched_at="2024-01-01T00:00:00Z",
-        )
-        # Failed
-        seed_content(
-            engine,
-            "https://example.com/failed",
-            domain="example.com",
-            error="timeout",
-        )
+        # Downloaded, awaiting extraction (download tracking done, text=NULL)
+        seed_content(engine, "https://example.com/downloaded", domain="example.com")
+        upsert_done(engine, "content", "https://example.com/downloaded", Stage.DOWNLOAD)
+        # Completed (text=SET)
+        seed_content(engine, "https://example.com/done", domain="example.com", text="done")
+        # Download failed (tracking failed, retries=1)
+        seed_content(engine, "https://example.com/failed", domain="example.com")
+        upsert_failed(engine, "content", "https://example.com/failed", Stage.DOWNLOAD, "timeout")
 
         with engine.connect() as conn:
-            download = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
-                )
-            ).fetchall()
-            extract = conn.execute(
-                sa.select(SilverContent).where(
-                    SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.isnot(None),
-                )
-            ).fetchall()
+            download = conn.execute(_download_query()).fetchall()
+            extract = conn.execute(_extract_query()).fetchall()
 
-            assert len(download) == 1
-            assert download[0].canonical_url == "https://example.com/pending"
+            download_urls = {r.canonical_url for r in download}
+            extract_urls = {r.canonical_url for r in extract}
 
+            # Pending + failed (retry eligible) found by download query
+            assert "https://example.com/pending" in download_urls
+            assert "https://example.com/failed" in download_urls
+            assert len(download) == 2
+
+            # Only downloaded found by extract query
+            assert extract_urls == {"https://example.com/downloaded"}
             assert len(extract) == 1
-            assert extract[0].canonical_url == "https://example.com/downloaded"
 
 
 # ---------------------------------------------------------------------------
@@ -579,8 +590,6 @@ class TestCollectorContentConstraints:
             pending = conn.execute(
                 sa.select(SilverContent).where(
                     SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
                 )
             ).fetchall()
             assert len(pending) == 1, "External content must be pending download after collection"
@@ -601,8 +610,6 @@ class TestCollectorContentConstraints:
             pending = conn.execute(
                 sa.select(SilverContent).where(
                     SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
-                    SilverContent.fetched_at.is_(None),
                 )
             ).fetchall()
             assert len(pending) == 1, "RSS linked content must be pending download after collection"
@@ -630,7 +637,6 @@ class TestCollectorContentConstraints:
                 .join(SilverObservation, SilverObservation.content_id == SilverContent.id)
                 .where(
                     SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
                     SilverObservation.source_type == "youtube",
                 )
             ).fetchall()

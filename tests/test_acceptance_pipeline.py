@@ -18,6 +18,8 @@ from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.dagster_defs.content.job import download_content, extract_html_text
 from aggre.db import SilverContent, SilverObservation
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage, StageStatus
 from tests.factories import (
     hn_comment_child,
     hn_hit,
@@ -210,7 +212,6 @@ class TestFullPipelineFlow:
             content = conn.execute(sa.select(SilverContent).where(SilverContent.id == disc.content_id)).fetchone()
             assert content is not None
             assert content.text is None
-            assert content.error is None
             assert "blog.example.com" in content.canonical_url
 
         # Step 2: RSS has no comments, skip
@@ -227,9 +228,18 @@ class TestFullPipelineFlow:
 
         # Verify intermediate state: downloaded but not yet extracted
         content = get_contents(engine)[0]
-        assert content.fetched_at is not None
         assert content.text is None
-        assert content.error is None
+
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == content.canonical_url,
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.DONE
 
         # Step 4: Extract text from downloaded HTML
         with (
@@ -252,8 +262,6 @@ class TestFullPipelineFlow:
             content = conn.execute(sa.select(SilverContent).where(SilverContent.id == disc.content_id)).fetchone()
             assert content.text == "Full article body here"
             assert content.title == "Great Article - Full"
-            assert content.fetched_at is not None
-            assert content.error is None
 
     def test_reddit_pipeline_with_comments(self, engine, mock_http):
         """Reddit collect -> collect_comments -> verify discussion with comments."""
@@ -321,9 +329,16 @@ class TestContentFetcherIntegration:
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
             for row in rows:
-                assert row.fetched_at is not None
                 assert row.text is None
-                assert row.error is None
+
+            tracking_rows = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                    StageTracking.status == StageStatus.DONE,
+                )
+            ).fetchall()
+            assert len(tracking_rows) == 2
 
         with (
             patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="Extracted text"),
@@ -342,8 +357,6 @@ class TestContentFetcherIntegration:
             for row in rows:
                 assert row.text == "Extracted text"
                 assert row.title == "Article Title"
-                assert row.fetched_at is not None
-                assert row.error is None
 
     def test_youtube_urls_skipped(self, engine):
         config = make_config()
@@ -352,12 +365,7 @@ class TestContentFetcherIntegration:
         seed_content(engine, "https://youtu.be/xyz", domain="youtu.be")
 
         count = download_content(engine, config)
-        assert count == 2
-
-        rows = get_contents(engine)
-        for row in rows:
-            assert row.error is not None
-            assert "skipped" in row.error
+        assert count == 0  # YouTube URLs excluded from download query (handled by transcription)
 
     def test_failed_download_stores_error(self, engine, mock_http):
         config = make_config()
@@ -370,13 +378,20 @@ class TestContentFetcherIntegration:
 
         assert count == 1
 
-        row = get_contents(engine)[0]
-        assert row.error is not None
-        assert "Connection timeout" in row.error
-        assert row.fetched_at is not None
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://broken.example.com/page",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
+            assert "Connection timeout" in tracking.error
 
     def test_mixed_statuses(self, engine, mock_http):
-        """One normal, one YouTube (skip), one failing -- download step only."""
+        """One normal, one YouTube (excluded), one failing -- download step only."""
         config = make_config()
 
         seed_content(engine, "https://example.com/good", domain="example.com")
@@ -391,23 +406,46 @@ class TestContentFetcherIntegration:
 
         count = download_content(engine, config)
 
-        assert count == 3
+        # YouTube excluded from download query (handled by transcription), so only 2 processed
+        assert count == 2
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
 
-            # good article — downloaded (fetched_at set, text/error still NULL)
-            assert rows[0].fetched_at is not None
+            # good article — downloaded (text still NULL)
             assert rows[0].text is None
-            assert rows[0].error is None
 
-            # youtube skipped
-            assert rows[1].error is not None
-            assert "skipped" in rows[1].error
+            # Check tracking for each
+            good_tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/good",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert good_tracking is not None
+            assert good_tracking.status == StageStatus.DONE
 
-            # broken site
-            assert rows[2].error is not None
-            assert "DNS failure" in rows[2].error
+            # YouTube URL has no download tracking (excluded from download pipeline)
+            yt_tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://youtube.com/watch?v=vid1",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert yt_tracking is None
+
+            broken_tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://bad.example.com/broken",
+                    StageTracking.stage == Stage.DOWNLOAD,
+                )
+            ).fetchone()
+            assert broken_tracking is not None
+            assert broken_tracking.status == StageStatus.FAILED
+            assert "DNS failure" in broken_tracking.error
 
         # Now extract the downloaded one
         with (
@@ -427,9 +465,6 @@ class TestContentFetcherIntegration:
 
             assert rows[0].text == "Good body"
             assert rows[0].title == "Good Title"
-
-            assert rows[1].error is not None  # youtube still skipped
-            assert rows[2].error is not None  # broken still failed
 
     def test_already_processed_not_reprocessed(self, engine):
         config = make_config()

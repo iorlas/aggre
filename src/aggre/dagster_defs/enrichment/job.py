@@ -15,8 +15,10 @@ from aggre.collectors.base import SearchableCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.config import AppConfig, load_config
-from aggre.db import SilverContent, update_content
-from aggre.utils.db import now_iso
+from aggre.db import SilverContent
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage
+from aggre.stages.tracking import retry_filter, upsert_done, upsert_failed
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +51,21 @@ def enrich_content_discussions(
     with engine.connect() as conn:
         rows = conn.execute(
             sa.select(SilverContent.id, SilverContent.canonical_url, SilverContent.domain)
+            .outerjoin(
+                StageTracking,
+                sa.and_(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == SilverContent.canonical_url,
+                    StageTracking.stage == Stage.ENRICH,
+                ),
+            )
             .where(
+                SilverContent.text.isnot(None),
                 SilverContent.canonical_url.isnot(None),
-                SilverContent.enriched_at.is_(None),
+                sa.or_(
+                    StageTracking.id.is_(None),
+                    retry_filter(StageTracking, Stage.ENRICH),
+                ),
             )
             .order_by(SilverContent.created_at.asc())
             .limit(batch_limit)
@@ -91,7 +105,9 @@ def enrich_content_discussions(
                 failed = True
 
         if not failed:
-            update_content(engine, row.id, enriched_at=now_iso())
+            upsert_done(engine, "content", content_url, Stage.ENRICH)
+        else:
+            upsert_failed(engine, "content", content_url, Stage.ENRICH, "partial failure")
 
     logger.info("enrich.complete totals=%s", totals)
     return totals

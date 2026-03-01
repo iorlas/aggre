@@ -10,6 +10,8 @@ import sqlalchemy as sa
 
 from aggre.dagster_defs.transcription.job import transcribe
 from aggre.db import SilverContent
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage, StageStatus
 from tests.factories import make_config, seed_content, seed_observation
 
 pytestmark = pytest.mark.integration
@@ -83,7 +85,17 @@ class TestTranscribe:
         row = _get_content(engine, content_id)
         assert row.text == "This is the transcript"
         assert row.detected_language == "en"
-        assert row.error is None
+
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "youtube",
+                    StageTracking.external_id == "vid001",
+                    StageTracking.stage == Stage.TRANSCRIBE,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.DONE
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.read_bronze")
@@ -103,7 +115,17 @@ class TestTranscribe:
         row = _get_content(engine, content_id)
         assert row.text == "Cached transcript"
         assert row.detected_language == "fr"
-        assert row.error is None
+
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "youtube",
+                    StageTracking.external_id == "cached01",
+                    StageTracking.stage == Stage.TRANSCRIBE,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.DONE
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
@@ -124,17 +146,27 @@ class TestTranscribe:
 
         row = _get_content(engine, content_id)
         assert row.text == "Transcribed from cache"
-        assert row.error is None
         # WhisperModel.transcribe should have been called
         mock_model.transcribe.assert_called_once()
+
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "youtube",
+                    StageTracking.external_id == "audio01",
+                    StageTracking.stage == Stage.TRANSCRIBE,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.DONE
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
     def test_handles_download_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
-        """yt-dlp fails -> error column set on SilverContent."""
-        content_id = _seed_youtube(engine, external_id="fail01")
+        """yt-dlp fails -> tracking set to failed."""
+        _seed_youtube(engine, external_id="fail01")
         config = make_config()
 
         # Audio file does not exist on disk
@@ -150,18 +182,25 @@ class TestTranscribe:
         result = transcribe(engine, config)
         assert result == 0
 
-        row = _get_content(engine, content_id)
-        assert row.text is None
-        assert row.error is not None
-        assert "Video unavailable" in row.error
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "youtube",
+                    StageTracking.external_id == "fail01",
+                    StageTracking.stage == Stage.TRANSCRIBE,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
+            assert "Video unavailable" in tracking.error
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
     def test_handles_transcription_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
-        """WhisperModel fails -> error column set on SilverContent."""
-        content_id = _seed_youtube(engine, external_id="terr01")
+        """WhisperModel fails -> tracking set to failed."""
+        _seed_youtube(engine, external_id="terr01")
         config = make_config()
 
         # Set up audio file
@@ -181,18 +220,25 @@ class TestTranscribe:
         result = transcribe(engine, config, model=mock_model)
         assert result == 0
 
-        row = _get_content(engine, content_id)
-        assert row.text is None
-        assert row.error is not None
-        assert "CUDA out of memory" in row.error
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "youtube",
+                    StageTracking.external_id == "terr01",
+                    StageTracking.stage == Stage.TRANSCRIBE,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
+            assert "CUDA out of memory" in tracking.error
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
     def test_skips_large_audio_file(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
-        """Audio >500MB -> error 'exceeds 500MB' set."""
-        content_id = _seed_youtube(engine, external_id="big01")
+        """Audio >500MB -> tracking set to failed."""
+        _seed_youtube(engine, external_id="big01")
         config = make_config()
 
         # Create a file and fake its size via stat
@@ -211,10 +257,17 @@ class TestTranscribe:
 
         assert result == 0
 
-        row = _get_content(engine, content_id)
-        assert row.text is None
-        assert row.error is not None
-        assert "500MB" in row.error
+        with engine.connect() as conn:
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "youtube",
+                    StageTracking.external_id == "big01",
+                    StageTracking.stage == Stage.TRANSCRIBE,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
+            assert "500MB" in tracking.error
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
@@ -248,7 +301,6 @@ class TestTranscribe:
             pending = conn.execute(
                 sa.select(SilverContent).where(
                     SilverContent.text.is_(None),
-                    SilverContent.error.is_(None),
                 )
             ).fetchall()
             assert len(pending) == 1

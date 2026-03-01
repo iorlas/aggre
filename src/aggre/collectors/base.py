@@ -14,6 +14,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.db import SilverContent, SilverObservation, Source
 from aggre.settings import Settings
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage
+from aggre.stages.tracking import retry_filter, upsert_done, upsert_failed
 from aggre.urls import normalize_url
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
 from aggre.utils.db import now_iso
@@ -111,10 +114,21 @@ class BaseCollector:
         with engine.connect() as conn:
             return conn.execute(
                 sa.select(SilverObservation.id, SilverObservation.external_id, SilverObservation.meta)
+                .outerjoin(
+                    StageTracking,
+                    sa.and_(
+                        StageTracking.source == self.source_type,
+                        StageTracking.external_id == SilverObservation.external_id,
+                        StageTracking.stage == Stage.COMMENTS,
+                    ),
+                )
                 .where(
                     SilverObservation.source_type == self.source_type,
                     SilverObservation.comments_json.is_(None),
-                    SilverObservation.error.is_(None),
+                    sa.or_(
+                        StageTracking.id.is_(None),
+                        retry_filter(StageTracking, Stage.COMMENTS),
+                    ),
                 )
                 .limit(batch_limit)
             ).fetchall()
@@ -123,10 +137,11 @@ class BaseCollector:
         self,
         engine: sa.engine.Engine,
         observation_id: int,
+        external_id: str,
         comments_json: str | None,
         comment_count: int,
     ) -> None:
-        """Store fetched comments on an observation."""
+        """Store fetched comments on an observation and record tracking."""
         with engine.begin() as conn:
             conn.execute(
                 sa.update(SilverObservation)
@@ -136,6 +151,16 @@ class BaseCollector:
                     comment_count=comment_count,
                 )
             )
+        upsert_done(engine, self.source_type, external_id, Stage.COMMENTS)
+
+    def _mark_comments_failed(
+        self,
+        engine: sa.engine.Engine,
+        external_id: str,
+        error: str,
+    ) -> None:
+        """Record comments fetch failure in tracking."""
+        upsert_failed(engine, self.source_type, external_id, Stage.COMMENTS, error)
 
     @staticmethod
     def _upsert_observation(
@@ -195,7 +220,6 @@ class BaseCollector:
             canonical_url=canonical,
             domain=domain,
             text=text,
-            fetched_at=now_iso(),
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
         result = conn.execute(stmt)

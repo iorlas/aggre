@@ -60,6 +60,7 @@ class TestAlembicMigration:
         assert "silver_content" in table_names
         assert "silver_observations" in table_names
         assert "sources" in table_names
+        assert "stage_tracking" in table_names
 
         # Tables that should NOT exist (removed)
         assert "bronze_discussions" not in table_names
@@ -73,14 +74,19 @@ class TestAlembicMigration:
         assert "idx_silver_observations_published" in sd_indexes
         assert "idx_silver_observations_source_id" in sd_indexes
         assert "idx_silver_observations_external" in sd_indexes
-        assert "idx_observations_needs_comments" in sd_indexes
+        assert "idx_observations_comments_null" in sd_indexes
         assert "idx_silver_observations_url" in sd_indexes
         assert "idx_silver_observations_content_id" in sd_indexes
 
         # Verify indexes on silver_content
         sc_indexes = {idx["name"] for idx in inspector.get_indexes("silver_content")}
         assert "idx_silver_content_domain" in sc_indexes
-        assert "idx_content_needs_processing" in sc_indexes
+        assert "idx_content_text_null" in sc_indexes
+        assert "idx_content_needs_enrich" in sc_indexes
+
+        # Verify indexes on stage_tracking
+        st_indexes = {idx["name"] for idx in inspector.get_indexes("stage_tracking")}
+        assert "idx_stage_actionable" in st_indexes
 
         engine.dispose()
 

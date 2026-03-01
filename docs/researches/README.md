@@ -28,6 +28,8 @@ Research into using formal methods to catch concurrency/integration bugs that AI
 | **Apalache** | Great for inductive invariants (4s vs TLC's 3h), but development slowing after Informal Systems divestiture | Volunteer-maintained since late 2024 |
 | **Z3** | Backend engine only. Never used directly for system verification | N/A |
 
+5. **[formal-verification-tool-comparison.md](formal-verification-tool-comparison.md)** — Head-to-head PoC comparison of TLA+, Quint, and FizzBee modeling the Aggre pipeline. Feature matrix, performance numbers, agent authoring efficiency, error message quality. TLA+ won on all axes that matter for LLM-authored specs.
+
 ### PoC Outcome
 
 All three tools modeled the Aggre pipeline and found the enrichment bug. TLA+ is the recommended tool — full liveness, fastest checker, best LLM authoring efficiency. The comparison exposed that FizzBee's "easy syntax" advantage doesn't help LLMs (2.2x more tool calls than TLA+), and Quint's broken liveness checking is a dealbreaker. Specs and results live in `.planning/verification/`.
@@ -40,7 +42,7 @@ Research into replacing zsh/bash workflow with modern alternatives. Motivated by
 
 ### Documents
 
-1. **[modern-shell-and-cli-tools.md](modern-shell-and-cli-tools.md)** — Shell comparison (bash/zsh/fish/nushell), community opinions from HN/Lobsters, Claude Code compatibility analysis, and tiered catalog of modern CLI replacements (atuin, zoxide, ripgrep, fd, bat, eza, lazygit, etc.).
+1. **[modern-shell-and-cli-tools.md](modern-shell-and-cli-tools.md)** — Shell comparison (bash/zsh/fish/nushell), community opinions from HN/Lobsters, Claude Code compatibility analysis, tiered catalog of modern CLI replacements (atuin, zoxide, ripgrep, fd, bat, eza, lazygit, etc.), terminal emulator comparison (iTerm2/Ghostty/WezTerm/Kitty/Alacritty/cmux/Warp), and AI terminal analysis.
 
 ### Key Findings Summary
 
@@ -48,4 +50,6 @@ Research into replacing zsh/bash workflow with modern alternatives. Motivated by
 
 **Biggest CLI wins:** atuin (shell history with fuzzy search, directory/exit code filtering) and zoxide (frecency-based `cd` — `z aggre` from anywhere). Both solve daily pain points immediately.
 
-**Installed:** fish 4.5.0, zoxide, fd, atuin, btop, lazygit, Fisher, Tide v6.
+**Terminal verdict:** iTerm2 is fine on M-series Macs — no strong reason to migrate. cmux (Ghostty-based, AGPL) solves the multi-Claude-Code-session problem with a sidebar showing git branch, working dir, and notification indicators per tab. Warp's AI features are redundant with Claude Code.
+
+**Installed:** fish 4.5.0, zoxide, fd, atuin, btop, lazygit, Fisher, Tide v6, cmux v0.61.0.

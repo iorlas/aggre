@@ -105,3 +105,9 @@ tickets.jsonl
 .langgraph_api
 data/
 .hypothesis/
+
+# TLA+ auto-generated and runtime artifacts
+.planning/verification/lib/
+.planning/verification/ConcurrentJobs.cfg
+.planning/verification/states/
+.planning/verification/*.old

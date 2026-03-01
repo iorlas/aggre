@@ -10,7 +10,9 @@ import sqlalchemy as sa
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
 from aggre.dagster_defs.enrichment.job import enrich_content_discussions
-from aggre.db import SilverContent
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage, StageStatus
+from aggre.stages.tracking import upsert_done
 from tests.factories import make_config, seed_content
 
 pytestmark = pytest.mark.integration
@@ -23,7 +25,7 @@ class TestEnrichment:
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
-        seed_content(engine, "https://example.com/article", domain="example.com")
+        seed_content(engine, "https://example.com/article", domain="example.com", text="article text")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 2
@@ -44,10 +46,17 @@ class TestEnrichment:
         mock_hn.search_by_url.assert_called_once_with("https://example.com/article", engine, config.hackernews, config.settings)
         mock_lob.search_by_url.assert_called_once_with("https://example.com/article", engine, config.lobsters, config.settings)
 
-        # Check enriched_at was set on SilverContent
+        # Check enrichment tracking was set
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent).where(SilverContent.canonical_url == "https://example.com/article")).fetchone()
-            assert row.enriched_at is not None
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/article",
+                    StageTracking.stage == Stage.ENRICH,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.DONE
 
     def test_skips_already_enriched(self, engine):
         config = make_config(
@@ -55,7 +64,8 @@ class TestEnrichment:
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
-        seed_content(engine, "https://example.com/old", domain="example.com", enriched_at="2024-01-01T00:00:00Z")
+        seed_content(engine, "https://example.com/old", domain="example.com")
+        upsert_done(engine, "content", "https://example.com/old", Stage.ENRICH)
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 0
@@ -81,9 +91,9 @@ class TestEnrichment:
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
-        # Create 5 content rows
+        # Create 5 content rows with text (enrichment requires text IS NOT NULL)
         for i in range(5):
-            seed_content(engine, f"https://example.com/{i}", domain="example.com")
+            seed_content(engine, f"https://example.com/{i}", domain="example.com", text=f"article {i}")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 0
@@ -110,7 +120,7 @@ class TestEnrichment:
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
-        seed_content(engine, "https://example.com/fail", domain="example.com")
+        seed_content(engine, "https://example.com/fail", domain="example.com", text="fail article text")
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.side_effect = Exception("HN API error")
@@ -129,10 +139,17 @@ class TestEnrichment:
         # HN failed but lobsters succeeded
         assert results == {"hackernews": 0, "lobsters": 1, "processed": 1}
 
-        # Content should NOT be marked as enriched (will be retried next batch)
+        # Content should be marked as failed (will be retried next batch)
         with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent).where(SilverContent.canonical_url == "https://example.com/fail")).fetchone()
-            assert row.enriched_at is None
+            tracking = conn.execute(
+                sa.select(StageTracking).where(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == "https://example.com/fail",
+                    StageTracking.stage == Stage.ENRICH,
+                )
+            ).fetchone()
+            assert tracking is not None
+            assert tracking.status == StageStatus.FAILED
 
     def test_no_pending_returns_zeros(self, engine):
         config = make_config(

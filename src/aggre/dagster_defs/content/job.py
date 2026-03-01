@@ -11,13 +11,16 @@ import logging
 import dagster as dg
 import httpx
 import sqlalchemy as sa
+import sqlalchemy.orm
 import trafilatura
 from dagster import OpExecutionContext
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, update_content
+from aggre.stages.model import StageTracking
+from aggre.stages.status import Stage, StageStatus
+from aggre.stages.tracking import retry_filter, upsert_done, upsert_failed, upsert_skipped
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
-from aggre.utils.db import now_iso
 from aggre.utils.http import create_http_client
 
 logger = logging.getLogger(__name__)
@@ -41,24 +44,6 @@ def _is_text_content_type(content_type: str) -> bool:
     return mime in TEXT_CONTENT_TYPES
 
 
-# -- State transitions (null-check pattern) ------------------------------------
-
-
-def _mark_downloaded(engine: sa.engine.Engine, content_id: int) -> None:
-    """HTML saved to bronze — set fetched_at as intermediate marker."""
-    update_content(engine, content_id, fetched_at=now_iso())
-
-
-def _mark_skipped(engine: sa.engine.Engine, content_id: int, *, reason: str) -> None:
-    """Content skipped (YouTube, PDF, non-text) — set error."""
-    update_content(engine, content_id, error=f"skipped:{reason}", fetched_at=now_iso())
-
-
-def _mark_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
-    """Download failed — set error."""
-    update_content(engine, content_id, error=error, fetched_at=now_iso())
-
-
 def _download_one(
     client: httpx.Client,
     engine: sa.engine.Engine,
@@ -69,16 +54,16 @@ def _download_one(
     """Download a single URL and store HTML in bronze. Returns 1 on success, 0 on skip."""
     # Pre-request skips: YouTube (saves bandwidth), PDFs
     if domain and domain in SKIP_DOMAINS:
-        _mark_skipped(engine, content_id, reason="youtube")
+        upsert_skipped(engine, "content", url, Stage.DOWNLOAD, "youtube")
         return 1
 
     if any(url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
-        _mark_skipped(engine, content_id, reason="pdf")
+        upsert_skipped(engine, "content", url, Stage.DOWNLOAD, "pdf")
         return 1
 
     # Bronze read-through cache: skip HTTP fetch if already downloaded
     if bronze_exists_by_url("content", url, "response", "html"):
-        _mark_downloaded(engine, content_id)
+        upsert_done(engine, "content", url, Stage.DOWNLOAD)
         logger.info("content_downloader.bronze_hit url=%s", url)
         return 1
 
@@ -88,7 +73,7 @@ def _download_one(
         # 404/410 — permanently gone, no traceback needed
         if resp.status_code in (404, 410):
             logger.warning("content_downloader.http_gone url=%s status=%d", url, resp.status_code)
-            _mark_failed(engine, content_id, error=f"HTTP {resp.status_code}")
+            upsert_failed(engine, "content", url, Stage.DOWNLOAD, f"HTTP {resp.status_code}")
             return 1
 
         resp.raise_for_status()
@@ -97,22 +82,22 @@ def _download_one(
         content_type = resp.headers.get("content-type", "")
         if content_type and not _is_text_content_type(content_type):
             logger.info("content_downloader.skipped_non_text url=%s content_type=%s", url, content_type)
-            _mark_skipped(engine, content_id, reason="non_text")
+            upsert_skipped(engine, "content", url, Stage.DOWNLOAD, "non_text")
             return 1
 
         write_bronze_by_url("content", url, "response", resp.text, "html")
-        _mark_downloaded(engine, content_id)
+        upsert_done(engine, "content", url, Stage.DOWNLOAD)
         logger.info("content_downloader.downloaded url=%s", url)
         return 1
 
     except httpx.HTTPStatusError as exc:
         logger.warning("content_downloader.download_failed url=%s status=%d", url, exc.response.status_code)
-        _mark_failed(engine, content_id, error=str(exc))
+        upsert_failed(engine, "content", url, Stage.DOWNLOAD, str(exc))
         return 1
 
     except Exception as exc:
         logger.exception("content_downloader.download_failed url=%s", url)
-        _mark_failed(engine, content_id, error=str(exc))
+        upsert_failed(engine, "content", url, Stage.DOWNLOAD, str(exc))
         return 1
 
 
@@ -126,10 +111,25 @@ def download_content(
     with engine.connect() as conn:
         rows = conn.execute(
             sa.select(SilverContent.id, SilverContent.canonical_url, SilverContent.domain)
+            .outerjoin(
+                StageTracking,
+                sa.and_(
+                    StageTracking.source == "content",
+                    StageTracking.external_id == SilverContent.canonical_url,
+                    StageTracking.stage == Stage.DOWNLOAD,
+                ),
+            )
             .where(
                 SilverContent.text.is_(None),
-                SilverContent.error.is_(None),
-                SilverContent.fetched_at.is_(None),
+                sa.or_(
+                    SilverContent.domain.notin_(SKIP_DOMAINS),
+                    SilverContent.domain.is_(None),
+                ),
+                sa.or_(
+                    StageTracking.id.is_(None),
+                    retry_filter(StageTracking, Stage.DOWNLOAD),
+                ),
+                sa.not_(sa.func.coalesce(StageTracking.status == StageStatus.SKIPPED, False)),
             )
             .order_by(SilverContent.created_at.asc())
             .limit(batch_limit)
@@ -160,16 +160,6 @@ def download_content(
 # -- Extraction ----------------------------------------------------------------
 
 
-def _mark_extracted(engine: sa.engine.Engine, content_id: int, *, text: str | None, title: str | None) -> None:
-    """Set extracted text and title on content."""
-    update_content(engine, content_id, text=text, title=title, fetched_at=now_iso())
-
-
-def _mark_extract_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> None:
-    """Extraction failed — set error."""
-    update_content(engine, content_id, error=error, fetched_at=now_iso())
-
-
 def extract_html_text(
     engine: sa.engine.Engine,
     config: AppConfig,
@@ -177,12 +167,39 @@ def extract_html_text(
 ) -> int:
     """Extract text from downloaded HTML using trafilatura (single-threaded, CPU-bound)."""
     with engine.connect() as conn:
+        # Subquery: content URLs with download done
+        download_done_sq = (
+            sa.select(StageTracking.external_id)
+            .where(
+                StageTracking.source == "content",
+                StageTracking.stage == Stage.DOWNLOAD,
+                StageTracking.status == StageStatus.DONE,
+            )
+            .subquery()
+        )
+
+        # Alias for extract tracking join
+        st_extract = sa.orm.aliased(StageTracking)
+
         rows = conn.execute(
             sa.select(SilverContent.id, SilverContent.canonical_url)
             .where(
                 SilverContent.text.is_(None),
-                SilverContent.error.is_(None),
-                SilverContent.fetched_at.isnot(None),
+                SilverContent.canonical_url.in_(sa.select(download_done_sq.c.external_id)),
+            )
+            .outerjoin(
+                st_extract,
+                sa.and_(
+                    st_extract.source == "content",
+                    st_extract.external_id == SilverContent.canonical_url,
+                    st_extract.stage == Stage.EXTRACT,
+                ),
+            )
+            .where(
+                sa.or_(
+                    st_extract.id.is_(None),
+                    retry_filter(st_extract, Stage.EXTRACT),
+                ),
             )
             .order_by(SilverContent.created_at.asc())
             .limit(batch_limit)
@@ -215,13 +232,14 @@ def extract_html_text(
             if metadata:
                 extracted_title = metadata.title
 
-            _mark_extracted(engine, content_id, text=result, title=extracted_title)
+            upsert_done(engine, "content", url, Stage.EXTRACT)
+            update_content(engine, content_id, text=result, title=extracted_title)
             processed += 1
             logger.info("content_extractor.extracted url=%s", url)
 
         except Exception as exc:
             logger.exception("content_extractor.extract_failed url=%s", url)
-            _mark_extract_failed(engine, content_id, error=str(exc))
+            upsert_failed(engine, "content", url, Stage.EXTRACT, str(exc))
             processed += 1
 
     logger.info("content_extractor.extract_complete processed=%d", processed)

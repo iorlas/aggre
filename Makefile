@@ -19,3 +19,6 @@ lint:
 
 validate:
 	uv run dagster definitions validate
+
+verify:
+	bash .planning/verification/run.sh all

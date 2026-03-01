@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
-from aggre.db import SilverContent, SilverObservation, Source
+from aggre.db import SilverContent, SilverObservation
 from tests.factories import (
     hn_comment_child,
     hn_hit,
@@ -18,7 +18,7 @@ from tests.factories import (
     hn_search_response,
     make_config,
 )
-from tests.helpers import collect
+from tests.helpers import collect, get_observations, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -41,20 +41,19 @@ class TestHackernewsCollectorDiscussions:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].title == "Test Story"
-            assert items[0].author == "pg"
-            assert items[0].source_type == "hackernews"
-            assert items[0].url == "https://example.com/article"
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].title == "Test Story"
+        assert items[0].author == "pg"
+        assert items[0].source_type == "hackernews"
+        assert items[0].url == "https://example.com/article"
 
-            assert items[0].score == 100
-            assert items[0].comment_count == 25
-            assert items[0].comments_json is None  # pending: no comments fetched yet
+        assert items[0].score == 100
+        assert items[0].comment_count == 25
+        assert items[0].comments_json is None  # pending: no comments fetched yet
 
-            meta = json.loads(items[0].meta)
-            assert "hn_url" in meta
+        meta = json.loads(items[0].meta)
+        assert "hn_url" in meta
 
     def test_dedup_same_story(self, engine, mock_http, log):
         config = make_config(
@@ -75,8 +74,7 @@ class TestHackernewsCollectorDiscussions:
         assert count1 == 1
         assert count2 == 1  # collect_references returns refs regardless; dedup is in upsert
 
-        with engine.connect() as conn:
-            assert conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar() == 1
+        assert len(get_observations(engine)) == 1
 
     def test_multiple_stories(self, engine, mock_http, log):
         config = make_config(
@@ -158,19 +156,18 @@ class TestHackernewsCollectorComments:
 
         assert fetched == 1
 
-        with engine.connect() as conn:
-            # Verify comments stored as JSON on SilverObservation
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].comments_json is not None
-            comments_data = json.loads(items[0].comments_json)
-            assert len(comments_data) == 1
-            assert comments_data[0]["author"] == "commenter"
-            assert comments_data[0]["text"] == "Nice!"
-            assert items[0].comment_count == 1
+        # Verify comments stored as JSON on SilverObservation
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].comments_json is not None
+        comments_data = json.loads(items[0].comments_json)
+        assert len(comments_data) == 1
+        assert comments_data[0]["author"] == "commenter"
+        assert comments_data[0]["text"] == "Nice!"
+        assert items[0].comment_count == 1
 
-            # Comments have been fetched
-            assert items[0].comments_json is not None
+        # Comments have been fetched
+        assert items[0].comments_json is not None
 
     def test_nested_comments(self, engine, mock_http, log):
         config = make_config(
@@ -196,16 +193,15 @@ class TestHackernewsCollectorComments:
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert items[0].comments_json is not None
-            comments_data = json.loads(items[0].comments_json)
-            # Top-level has 1 child (parent comment)
-            assert len(comments_data) == 1
-            assert comments_data[0]["text"] == "Top level"
-            # Nested reply is inside children
-            assert len(comments_data[0]["children"]) == 1
-            assert comments_data[0]["children"][0]["text"] == "I agree"
+        items = get_observations(engine)
+        assert items[0].comments_json is not None
+        comments_data = json.loads(items[0].comments_json)
+        # Top-level has 1 child (parent comment)
+        assert len(comments_data) == 1
+        assert comments_data[0]["text"] == "Top level"
+        # Nested reply is inside children
+        assert len(comments_data[0]["children"]) == 1
+        assert comments_data[0]["children"][0]["text"] == "I agree"
 
     def test_no_pending_returns_zero(self, engine, log):
         config = make_config(
@@ -250,12 +246,11 @@ class TestHackernewsCollectorComments:
 
         assert fetched == 2
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            done = [i for i in items if i.comments_json is not None]
-            pending = [i for i in items if i.comments_json is None]
-            assert len(done) == 2
-            assert len(pending) == 1
+        items = get_observations(engine)
+        done = [i for i in items if i.comments_json is not None]
+        pending = [i for i in items if i.comments_json is None]
+        assert len(done) == 2
+        assert len(pending) == 1
 
 
 class TestHackernewsSearchByUrl:
@@ -276,10 +271,9 @@ class TestHackernewsSearchByUrl:
 
         assert found == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].source_type == "hackernews"
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].source_type == "hackernews"
 
     def test_search_dedup(self, engine, mock_http, log):
         config = make_config(
@@ -332,11 +326,10 @@ class TestHackernewsSource:
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             collect(collector, engine, config.hackernews, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].type == "hackernews"
-            assert rows[0].name == "Hacker News"
+        rows = get_sources(engine)
+        assert len(rows) == 1
+        assert rows[0].type == "hackernews"
+        assert rows[0].name == "Hacker News"
 
     def test_reuses_existing_source(self, engine, mock_http, log):
         config = make_config(
@@ -353,6 +346,4 @@ class TestHackernewsSource:
             collect(collector, engine, config.hackernews, config.settings, log)
             collect(collector, engine, config.hackernews, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
+        assert len(get_sources(engine)) == 1

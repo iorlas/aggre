@@ -13,7 +13,7 @@ from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
 from aggre.db import SilverContent, SilverObservation, Source
 from tests.factories import make_config, youtube_entry
-from tests.helpers import collect
+from tests.helpers import collect, get_observations, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -89,13 +89,12 @@ class TestYoutubeCollector:
             collector = YoutubeCollector()
             collect(collector, engine, config.youtube, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].type == "youtube"
-            assert rows[0].name == "Test Channel"
-            src_config = json.loads(rows[0].config)
-            assert src_config["channel_id"] == "UC_test123"
+        rows = get_sources(engine)
+        assert len(rows) == 1
+        assert rows[0].type == "youtube"
+        assert rows[0].name == "Test Channel"
+        src_config = json.loads(rows[0].config)
+        assert src_config["channel_id"] == "UC_test123"
 
     def test_collect_stores_raw_items(self, engine, log):
         """Bronze data is written to filesystem, not to DB."""
@@ -107,9 +106,7 @@ class TestYoutubeCollector:
             collect(collector, engine, config.youtube, config.settings, log)
 
         # Verify discussions exist in silver
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(rows) == 2
+        assert len(get_observations(engine)) == 2
 
     def test_dedup_does_not_insert_duplicates(self, engine, log):
         config = _default_config()
@@ -123,9 +120,7 @@ class TestYoutubeCollector:
         assert count1 == 2
         assert count2 == 2  # collect_references returns all API items; dedup is in upsert
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(rows) == 2
+        assert len(get_observations(engine)) == 2
 
     def test_collect_reuses_existing_source(self, engine, log):
         config = _default_config()
@@ -136,9 +131,7 @@ class TestYoutubeCollector:
             collect(collector, engine, config.youtube, config.settings, log)
             collect(collector, engine, config.youtube, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
+        assert len(get_sources(engine)) == 1
 
     def test_collect_sets_fetch_limit(self, engine, log):
         """fetch_limit is used as playlistend when source has been fetched before."""
@@ -240,9 +233,8 @@ class TestYoutubeCollector:
             collector = YoutubeCollector()
             collect(collector, engine, config.youtube, config.settings, log)
 
-        with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverObservation)).fetchone()
-            assert row.url == "https://www.youtube.com/watch?v=vid_nourl"
+        rows = get_observations(engine)
+        assert rows[0].url == "https://www.youtube.com/watch?v=vid_nourl"
 
     def test_recollect_fills_published_at(self, engine, log):
         """Re-collecting videos that lacked published_at should fill it in."""
@@ -259,9 +251,8 @@ class TestYoutubeCollector:
             collector = YoutubeCollector()
             collect(collector, engine, config.youtube, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert all(r.published_at is None for r in rows)
+        rows = get_observations(engine)
+        assert all(r.published_at is None for r in rows)
 
         # Second collection: same videos now have upload_date
         mock_ydl2 = _mock_ydl(_default_entries())

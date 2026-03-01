@@ -5,13 +5,11 @@ from __future__ import annotations
 import json
 
 import pytest
-import sqlalchemy as sa
 
 from aggre.collectors.huggingface.collector import HuggingfaceCollector
 from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource
-from aggre.db import SilverObservation, Source
 from tests.factories import hf_paper, make_config
-from tests.helpers import collect
+from tests.helpers import collect, get_observations, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -27,21 +25,20 @@ class TestHuggingfaceCollectorDiscussions:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].title == "Test Paper"
-            assert items[0].content_text == "A summary of the paper."
-            assert items[0].author == "Alice, Bob"
-            assert items[0].source_type == "huggingface"
-            assert items[0].url == "https://huggingface.co/papers/2401.12345"
-            assert items[0].published_at == "2024-01-15T00:00:00.000Z"
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].title == "Test Paper"
+        assert items[0].content_text == "A summary of the paper."
+        assert items[0].author == "Alice, Bob"
+        assert items[0].source_type == "huggingface"
+        assert items[0].url == "https://huggingface.co/papers/2401.12345"
+        assert items[0].published_at == "2024-01-15T00:00:00.000Z"
 
-            assert items[0].score == 42
-            assert items[0].comment_count == 5
+        assert items[0].score == 42
+        assert items[0].comment_count == 5
 
-            meta = json.loads(items[0].meta)
-            assert meta["github_repo"] == "https://github.com/example/repo"
+        meta = json.loads(items[0].meta)
+        assert meta["github_repo"] == "https://github.com/example/repo"
 
     def test_dedup_across_runs(self, engine, mock_http, log):
         mock_http.get(HF_API).respond(json=[hf_paper()])
@@ -95,9 +92,8 @@ class TestHuggingfaceCollectorDiscussions:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert items[0].author is None
+        items = get_observations(engine)
+        assert items[0].author is None
 
 
 class TestHuggingfaceSource:
@@ -107,11 +103,10 @@ class TestHuggingfaceSource:
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
         collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].type == "huggingface"
-            assert rows[0].name == "HuggingFace Papers"
+        rows = get_sources(engine)
+        assert len(rows) == 1
+        assert rows[0].type == "huggingface"
+        assert rows[0].name == "HuggingFace Papers"
 
     def test_reuses_existing_source(self, engine, mock_http, log):
         mock_http.get(HF_API).respond(json=[])
@@ -120,6 +115,4 @@ class TestHuggingfaceSource:
         collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
         collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
+        assert len(get_sources(engine)) == 1

@@ -6,12 +6,10 @@ import json
 from unittest.mock import patch
 
 import pytest
-import sqlalchemy as sa
 
 from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
 from aggre.config import AppConfig
-from aggre.db import SilverObservation, Source
 from aggre.settings import Settings
 from tests.factories import (
     lobsters_comment,
@@ -19,7 +17,7 @@ from tests.factories import (
     lobsters_story_detail,
     make_config,
 )
-from tests.helpers import collect
+from tests.helpers import collect, get_observations, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -36,21 +34,20 @@ class TestLobstersCollectorDiscussions:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].title == "Test Story"
-            assert items[0].author == "testuser"
-            assert items[0].source_type == "lobsters"
-            assert items[0].url == "https://example.com/article"
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].title == "Test Story"
+        assert items[0].author == "testuser"
+        assert items[0].source_type == "lobsters"
+        assert items[0].url == "https://example.com/article"
 
-            assert items[0].score == 10
-            assert items[0].comment_count == 3
-            assert items[0].comments_json is None  # pending: no comments fetched yet
+        assert items[0].score == 10
+        assert items[0].comment_count == 3
+        assert items[0].comments_json is None  # pending: no comments fetched yet
 
-            meta = json.loads(items[0].meta)
-            assert "tags" in meta
-            assert "lobsters_url" in meta
+        meta = json.loads(items[0].meta)
+        assert "tags" in meta
+        assert "lobsters_url" in meta
 
     def test_dedup_across_runs(self, engine, mock_http, log):
         story = lobsters_story()
@@ -125,19 +122,18 @@ class TestLobstersCollectorComments:
 
         assert fetched == 1
 
-        with engine.connect() as conn:
-            # Verify comments stored as JSON on SilverObservation
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].comments_json is not None
-            comments_data = json.loads(items[0].comments_json)
-            assert len(comments_data) == 1
-            assert comments_data[0]["commenting_user"]["username"] == "commenter"
-            assert comments_data[0]["comment"] == "Nice!"
-            assert items[0].comment_count == 1
+        # Verify comments stored as JSON on SilverObservation
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].comments_json is not None
+        comments_data = json.loads(items[0].comments_json)
+        assert len(comments_data) == 1
+        assert comments_data[0]["commenting_user"]["username"] == "commenter"
+        assert comments_data[0]["comment"] == "Nice!"
+        assert items[0].comment_count == 1
 
-            # Comments have been fetched
-            assert items[0].comments_json is not None
+        # Comments have been fetched
+        assert items[0].comments_json is not None
 
     def test_indent_levels(self, engine, mock_http, log):
         story = lobsters_story()
@@ -160,16 +156,15 @@ class TestLobstersCollectorComments:
             collector = LobstersCollector()
             collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert items[0].comments_json is not None
-            comments_data = json.loads(items[0].comments_json)
-            assert len(comments_data) == 2
-            assert comments_data[0]["comment"] == "Parent"
-            assert comments_data[0]["indent_level"] == 1
-            assert comments_data[1]["comment"] == "Child"
-            assert comments_data[1]["indent_level"] == 2
-            assert comments_data[1]["parent_comment"] == "c1"
+        items = get_observations(engine)
+        assert items[0].comments_json is not None
+        comments_data = json.loads(items[0].comments_json)
+        assert len(comments_data) == 2
+        assert comments_data[0]["comment"] == "Parent"
+        assert comments_data[0]["indent_level"] == 1
+        assert comments_data[1]["comment"] == "Child"
+        assert comments_data[1]["indent_level"] == 2
+        assert comments_data[1]["parent_comment"] == "c1"
 
     def test_no_pending_returns_zero(self, engine, log):
         config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
@@ -203,12 +198,11 @@ class TestLobstersCollectorComments:
 
         assert fetched == 2
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            done = [i for i in items if i.comments_json is not None]
-            pending = [i for i in items if i.comments_json is None]
-            assert len(done) == 2
-            assert len(pending) == 1
+        items = get_observations(engine)
+        done = [i for i in items if i.comments_json is not None]
+        pending = [i for i in items if i.comments_json is None]
+        assert len(done) == 2
+        assert len(pending) == 1
 
 
 class TestLobstersSearchByUrl:
@@ -223,10 +217,9 @@ class TestLobstersSearchByUrl:
 
         assert found == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].source_type == "lobsters"
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].source_type == "lobsters"
 
     def test_search_filters_by_exact_url(self, engine, mock_http, log):
         story_match = lobsters_story(short_id="match", url="https://example.com/target")
@@ -299,11 +292,10 @@ class TestLobstersSource:
             config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
             collect(LobstersCollector(), engine, config.lobsters, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].type == "lobsters"
-            assert rows[0].name == "Lobsters"
+        rows = get_sources(engine)
+        assert len(rows) == 1
+        assert rows[0].type == "lobsters"
+        assert rows[0].name == "Lobsters"
 
     def test_reuses_existing_source(self, engine, mock_http, log):
         mock_http.get(url__regex=r"hottest\.json").respond(json=[])
@@ -314,6 +306,4 @@ class TestLobstersSource:
             collect(LobstersCollector(), engine, config.lobsters, config.settings, log)
             collect(LobstersCollector(), engine, config.lobsters, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
+        assert len(get_sources(engine)) == 1

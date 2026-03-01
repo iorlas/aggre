@@ -11,10 +11,10 @@ import sqlalchemy as sa
 from aggre.collectors.telegram.collector import TelegramCollector
 from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
 from aggre.config import AppConfig
-from aggre.db import SilverObservation, Source
+from aggre.db import SilverObservation
 from aggre.settings import Settings
 from tests.factories import make_config, telegram_message, telegram_mock_client
-from tests.helpers import collect
+from tests.helpers import collect, get_observations, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -40,19 +40,18 @@ class TestTelegramCollectorDiscussions:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].title == "First line"
-            assert items[0].content_text == "First line\nSecond line"
-            assert items[0].url == "https://t.me/testchannel/42"
-            assert items[0].author == "Test Channel"
-            assert items[0].source_type == "telegram"
-            assert items[0].score == 500
-            assert items[0].comment_count == 0
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].title == "First line"
+        assert items[0].content_text == "First line\nSecond line"
+        assert items[0].url == "https://t.me/testchannel/42"
+        assert items[0].author == "Test Channel"
+        assert items[0].source_type == "telegram"
+        assert items[0].score == 500
+        assert items[0].comment_count == 0
 
-            meta = json.loads(items[0].meta)
-            assert meta["forwards"] == 10
+        meta = json.loads(items[0].meta)
+        assert meta["forwards"] == 10
 
     def test_dedup_across_runs(self, engine, log):
         config = make_config(
@@ -130,10 +129,9 @@ class TestTelegramCollectorDiscussions:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].external_id == "testchannel:2"
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].external_id == "testchannel:2"
 
     def test_no_config_returns_zero(self, engine, log):
         config = AppConfig(telegram=TelegramConfig(sources=[]), settings=Settings())
@@ -179,13 +177,12 @@ class TestTelegramCollectorDiscussions:
         # collect_references returns all API items; dedup + score update is in upsert
         assert count == 1
 
-        with engine.connect() as conn:
-            items = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(items) == 1
-            assert items[0].score == 999
+        items = get_observations(engine)
+        assert len(items) == 1
+        assert items[0].score == 999
 
-            meta = json.loads(items[0].meta)
-            assert meta["forwards"] == 50
+        meta = json.loads(items[0].meta)
+        assert meta["forwards"] == 50
 
 
 class TestTelegramSource:
@@ -205,8 +202,7 @@ class TestTelegramSource:
             mock_cls.return_value = telegram_mock_client({"testchannel": []})
             collect(collector, engine, config.telegram, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].type == "telegram"
-            assert rows[0].name == "Test Channel"
+        rows = get_sources(engine)
+        assert len(rows) == 1
+        assert rows[0].type == "telegram"
+        assert rows[0].name == "Test Channel"

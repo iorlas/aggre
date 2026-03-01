@@ -35,7 +35,7 @@ from tests.factories import (
     rss_feed,
     seed_content,
 )
-from tests.helpers import collect
+from tests.helpers import collect, get_contents, get_observations
 
 pytestmark = pytest.mark.acceptance
 
@@ -73,14 +73,13 @@ class TestCommentsAsJsonReddit:
         assert fetched == 1
 
         # Step 3: verify
-        with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverObservation)).fetchone()
-            assert disc.comments_json is not None
-            comments = json.loads(disc.comments_json)
-            assert len(comments) == 2
-            assert comments[0]["data"]["body"] == "First!"
-            assert comments[1]["data"]["body"] == "Second!"
-            assert disc.comment_count == 2
+        disc = get_observations(engine)[0]
+        assert disc.comments_json is not None
+        comments = json.loads(disc.comments_json)
+        assert len(comments) == 2
+        assert comments[0]["data"]["body"] == "First!"
+        assert comments[1]["data"]["body"] == "Second!"
+        assert disc.comment_count == 2
 
     def test_no_bronze_or_silver_comments_tables(self, engine):
         inspector = sa.inspect(engine)
@@ -116,14 +115,13 @@ class TestCommentsAsJsonHackernews:
         assert fetched == 1
 
         # Step 3: verify
-        with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverObservation)).fetchone()
-            assert disc.comments_json is not None
-            comments = json.loads(disc.comments_json)
-            assert len(comments) == 2
-            assert comments[0]["text"] == "HN first!"
-            assert comments[1]["text"] == "HN second!"
-            assert disc.comment_count == 2
+        disc = get_observations(engine)[0]
+        assert disc.comments_json is not None
+        comments = json.loads(disc.comments_json)
+        assert len(comments) == 2
+        assert comments[0]["text"] == "HN first!"
+        assert comments[1]["text"] == "HN second!"
+        assert disc.comment_count == 2
 
     def test_no_bronze_or_silver_comments_tables(self, engine):
         inspector = sa.inspect(engine)
@@ -160,14 +158,13 @@ class TestCommentsAsJsonLobsters:
         assert fetched == 1
 
         # Step 3: verify
-        with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverObservation)).fetchone()
-            assert disc.comments_json is not None
-            comments = json.loads(disc.comments_json)
-            assert len(comments) == 2
-            assert comments[0]["comment"] == "Lobsters first!"
-            assert comments[1]["comment"] == "Lobsters second!"
-            assert disc.comment_count == 2
+        disc = get_observations(engine)[0]
+        assert disc.comments_json is not None
+        comments = json.loads(disc.comments_json)
+        assert len(comments) == 2
+        assert comments[0]["comment"] == "Lobsters first!"
+        assert comments[1]["comment"] == "Lobsters second!"
+        assert disc.comment_count == 2
 
     def test_no_bronze_or_silver_comments_tables(self, engine):
         inspector = sa.inspect(engine)
@@ -229,11 +226,10 @@ class TestFullPipelineFlow:
         assert downloaded == 1
 
         # Verify intermediate state: downloaded but not yet extracted
-        with engine.connect() as conn:
-            content = conn.execute(sa.select(SilverContent)).fetchone()
-            assert content.fetched_at is not None
-            assert content.text is None
-            assert content.error is None
+        content = get_contents(engine)[0]
+        assert content.fetched_at is not None
+        assert content.text is None
+        assert content.error is None
 
         # Step 4: Extract text from downloaded HTML
         with (
@@ -287,12 +283,11 @@ class TestFullPipelineFlow:
         assert fetched == 1
 
         # Verify full state
-        with engine.connect() as conn:
-            disc = conn.execute(sa.select(SilverObservation)).fetchone()
-            assert disc.title == "Test Post"
-            assert disc.source_type == "reddit"
-            assert disc.comments_json is not None
-            assert disc.comment_count == 1
+        disc = get_observations(engine)[0]
+        assert disc.title == "Test Post"
+        assert disc.source_type == "reddit"
+        assert disc.comments_json is not None
+        assert disc.comment_count == 1
 
 
 # ===========================================================================
@@ -359,11 +354,10 @@ class TestContentFetcherIntegration:
         count = download_content(engine, config, log)
         assert count == 2
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(SilverContent)).fetchall()
-            for row in rows:
-                assert row.error is not None
-                assert "skipped" in row.error
+        rows = get_contents(engine)
+        for row in rows:
+            assert row.error is not None
+            assert "skipped" in row.error
 
     def test_failed_download_stores_error(self, engine, mock_http, log):
         config = make_config()
@@ -376,11 +370,10 @@ class TestContentFetcherIntegration:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent)).fetchone()
-            assert row.error is not None
-            assert "Connection timeout" in row.error
-            assert row.fetched_at is not None
+        row = get_contents(engine)[0]
+        assert row.error is not None
+        assert "Connection timeout" in row.error
+        assert row.fetched_at is not None
 
     def test_mixed_statuses(self, engine, mock_http, log):
         """One normal, one YouTube (skip), one failing -- download step only."""

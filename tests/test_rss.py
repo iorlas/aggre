@@ -11,7 +11,7 @@ from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.db import SilverObservation, Source
 from tests.factories import make_config, rss_entry, rss_feed
-from tests.helpers import collect
+from tests.helpers import collect, get_observations, get_sources
 
 pytestmark = pytest.mark.integration
 
@@ -37,17 +37,16 @@ class TestRssCollector:
         assert count == 1
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
 
-        with engine.connect() as conn:
-            # Check silver_observations
-            rows = conn.execute(sa.select(SilverObservation)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].title == "First Post"
-            assert rows[0].author == "Bob"
-            assert rows[0].url == "https://example.com/post-1"
-            assert rows[0].content_text == "Content here"
-            assert rows[0].published_at == "2025-06-01T12:00:00Z"
-            assert rows[0].source_type == "rss"
-            assert rows[0].external_id == "post-1"
+        # Check silver_observations
+        rows = get_observations(engine)
+        assert len(rows) == 1
+        assert rows[0].title == "First Post"
+        assert rows[0].author == "Bob"
+        assert rows[0].url == "https://example.com/post-1"
+        assert rows[0].content_text == "Content here"
+        assert rows[0].published_at == "2025-06-01T12:00:00Z"
+        assert rows[0].source_type == "rss"
+        assert rows[0].external_id == "post-1"
 
     def test_duplicate_items_skipped(self, engine, log):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
@@ -63,9 +62,7 @@ class TestRssCollector:
         assert count1 == 1
         assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
-        with engine.connect() as conn:
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar()
-            assert content_count == 1
+        assert len(get_observations(engine)) == 1
 
     def test_source_row_created(self, engine, log):
         config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
@@ -76,11 +73,10 @@ class TestRssCollector:
             collector = RssCollector()
             collect(collector, engine, config.rss, config.settings, log)
 
-        with engine.connect() as conn:
-            rows = conn.execute(sa.select(Source)).fetchall()
-            assert len(rows) == 1
-            assert rows[0].type == "rss"
-            assert rows[0].name == "My Feed"
+        rows = get_sources(engine)
+        assert len(rows) == 1
+        assert rows[0].type == "rss"
+        assert rows[0].name == "My Feed"
 
     def test_source_row_reused_on_second_run(self, engine, log):
         config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
@@ -92,9 +88,7 @@ class TestRssCollector:
             collect(collector, engine, config.rss, config.settings, log)
             collect(collector, engine, config.rss, config.settings, log)
 
-        with engine.connect() as conn:
-            count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
-            assert count == 1
+        assert len(get_sources(engine)) == 1
 
     def test_last_fetched_at_updated(self, engine, log):
         config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
@@ -125,9 +119,7 @@ class TestRssCollector:
 
         assert count == 3
 
-        with engine.connect() as conn:
-            content_count = conn.execute(sa.select(sa.func.count()).select_from(SilverObservation)).scalar()
-            assert content_count == 3
+        assert len(get_observations(engine)) == 3
 
     def test_entry_uses_link_as_fallback_id(self, engine, log):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
@@ -169,6 +161,4 @@ class TestRssCollector:
 
         assert count == 2
 
-        with engine.connect() as conn:
-            source_count = conn.execute(sa.select(sa.func.count()).select_from(Source)).scalar()
-            assert source_count == 2
+        assert len(get_sources(engine)) == 2

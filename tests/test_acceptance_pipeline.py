@@ -18,8 +18,8 @@ from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.dagster_defs.content.job import download_content, extract_html_text
 from aggre.db import SilverContent, SilverObservation
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage, StageStatus
+from aggre.tracking.model import StageTracking
+from aggre.tracking.status import Stage, StageStatus
 from tests.factories import (
     hn_comment_child,
     hn_hit,
@@ -37,7 +37,7 @@ from tests.factories import (
     rss_feed,
     seed_content,
 )
-from tests.helpers import collect, get_contents, get_observations
+from tests.helpers import assert_no_tracking, assert_tracking, collect, get_contents, get_observations
 
 pytestmark = pytest.mark.acceptance
 
@@ -230,16 +230,7 @@ class TestFullPipelineFlow:
         content = get_contents(engine)[0]
         assert content.text is None
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == content.canonical_url,
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.DONE
+        assert_tracking(engine, "content", content.canonical_url, Stage.DOWNLOAD, StageStatus.DONE)
 
         # Step 4: Extract text from downloaded HTML
         with (
@@ -378,17 +369,14 @@ class TestContentFetcherIntegration:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://broken.example.com/page",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
-            assert "Connection timeout" in tracking.error
+        assert_tracking(
+            engine,
+            "content",
+            "https://broken.example.com/page",
+            Stage.DOWNLOAD,
+            StageStatus.FAILED,
+            error_contains="Connection timeout",
+        )
 
     def test_mixed_statuses(self, engine, mock_http):
         """One normal, one YouTube (excluded), one failing -- download step only."""
@@ -415,37 +403,20 @@ class TestContentFetcherIntegration:
             # good article — downloaded (text still NULL)
             assert rows[0].text is None
 
-            # Check tracking for each
-            good_tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/good",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert good_tracking is not None
-            assert good_tracking.status == StageStatus.DONE
+        # Check tracking for each
+        assert_tracking(engine, "content", "https://example.com/good", Stage.DOWNLOAD, StageStatus.DONE)
 
-            # YouTube URL has no download tracking (excluded from download pipeline)
-            yt_tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://youtube.com/watch?v=vid1",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert yt_tracking is None
+        # YouTube URL has no download tracking (excluded from download pipeline)
+        assert_no_tracking(engine, "content", "https://youtube.com/watch?v=vid1", Stage.DOWNLOAD)
 
-            broken_tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://bad.example.com/broken",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert broken_tracking is not None
-            assert broken_tracking.status == StageStatus.FAILED
-            assert "DNS failure" in broken_tracking.error
+        assert_tracking(
+            engine,
+            "content",
+            "https://bad.example.com/broken",
+            Stage.DOWNLOAD,
+            StageStatus.FAILED,
+            error_contains="DNS failure",
+        )
 
         # Now extract the downloaded one
         with (

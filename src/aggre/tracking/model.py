@@ -25,5 +25,5 @@ class StageTracking(Base):
 sa.Index(
     "idx_stage_actionable",
     StageTracking.stage,
-    postgresql_where=StageTracking.status.in_(["pending", "failed"]),
+    postgresql_where=StageTracking.status == "failed",
 )

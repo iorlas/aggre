@@ -8,7 +8,7 @@ import pytest
 import respx
 import sqlalchemy as sa
 
-import aggre.stages.model  # noqa: F401 -- register StageTracking with Base.metadata
+import aggre.tracking.model  # noqa: F401 -- register StageTracking with Base.metadata
 from aggre.db import Base
 from aggre.utils.db import get_engine
 

@@ -15,8 +15,8 @@ from aggre.dagster_defs.enrichment.sensor import enrichment_sensor
 from aggre.dagster_defs.resources import DatabaseResource
 from aggre.dagster_defs.transcription.sensor import transcription_sensor
 from aggre.db import SilverContent, SilverObservation
-from aggre.stages.status import Stage
-from aggre.stages.tracking import upsert_done
+from aggre.tracking.ops import upsert_done
+from aggre.tracking.status import Stage
 
 pytestmark = pytest.mark.integration
 

@@ -28,9 +28,9 @@ import sqlalchemy as sa
 import sqlalchemy.orm
 
 from aggre.db import SilverContent, SilverObservation
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage, StageStatus
-from aggre.stages.tracking import upsert_done, upsert_failed, upsert_skipped
+from aggre.tracking.model import StageTracking
+from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
+from aggre.tracking.status import Stage, StageStatus
 from tests.factories import (
     hf_paper,
     hn_hit,
@@ -48,6 +48,20 @@ from tests.factories import (
 from tests.helpers import collect
 
 pytestmark = pytest.mark.integration
+
+
+def _backdate_last_ran(engine: sa.engine.Engine, external_id: str, stage: Stage) -> None:
+    """Set last_ran_at far enough in the past to pass the cooldown check."""
+    with engine.begin() as conn:
+        conn.execute(
+            sa.update(StageTracking)
+            .where(
+                StageTracking.external_id == external_id,
+                StageTracking.stage == stage,
+            )
+            .values(last_ran_at="2000-01-01T00:00:00+00:00")
+        )
+
 
 # ---------------------------------------------------------------------------
 # Stage tracking state machine queries
@@ -76,10 +90,7 @@ def _download_query():
             ),
             sa.or_(
                 StageTracking.id.is_(None),
-                sa.and_(
-                    StageTracking.status == StageStatus.FAILED,
-                    StageTracking.retries < 3,
-                ),
+                retry_filter(StageTracking, Stage.DOWNLOAD),
             ),
             sa.not_(sa.func.coalesce(StageTracking.status == StageStatus.SKIPPED, False)),
         )
@@ -115,10 +126,7 @@ def _extract_query():
         .where(
             sa.or_(
                 st_extract.id.is_(None),
-                sa.and_(
-                    st_extract.status == StageStatus.FAILED,
-                    st_extract.retries < 2,
-                ),
+                retry_filter(st_extract, Stage.EXTRACT),
             ),
         )
     )
@@ -142,10 +150,7 @@ def _transcription_query():
             SilverObservation.source_type == "youtube",
             sa.or_(
                 StageTracking.id.is_(None),
-                sa.and_(
-                    StageTracking.status == StageStatus.FAILED,
-                    StageTracking.retries < 2,
-                ),
+                retry_filter(StageTracking, Stage.TRANSCRIBE),
             ),
         )
     )
@@ -168,10 +173,7 @@ def _enrichment_query():
             SilverContent.canonical_url.isnot(None),
             sa.or_(
                 StageTracking.id.is_(None),
-                sa.and_(
-                    StageTracking.status == StageStatus.FAILED,
-                    StageTracking.retries < 3,
-                ),
+                retry_filter(StageTracking, Stage.ENRICH),
             ),
         )
     )
@@ -194,10 +196,7 @@ def _comments_query():
             SilverObservation.comments_json.is_(None),
             sa.or_(
                 StageTracking.id.is_(None),
-                sa.and_(
-                    StageTracking.status == StageStatus.FAILED,
-                    StageTracking.retries < 3,
-                ),
+                retry_filter(StageTracking, Stage.COMMENTS),
             ),
         )
     )
@@ -250,9 +249,10 @@ class TestStageTrackingStateTransitions:
             assert len(rows) == 0
 
     def test_download_failed_retries_below_max_found_by_download_query(self, engine):
-        """Download failed, retries < max -> found by download query (retry)."""
+        """Download failed, retries < max, past cooldown -> found by download query (retry)."""
         seed_content(engine, "https://example.com/retry", domain="example.com")
         upsert_failed(engine, "content", "https://example.com/retry", Stage.DOWNLOAD, "timeout")
+        _backdate_last_ran(engine, "https://example.com/retry", Stage.DOWNLOAD)
 
         with engine.connect() as conn:
             rows = conn.execute(_download_query()).fetchall()
@@ -368,9 +368,10 @@ class TestStageTrackingStateTransitions:
         upsert_done(engine, "content", "https://example.com/downloaded", Stage.DOWNLOAD)
         # Completed (text=SET)
         seed_content(engine, "https://example.com/done", domain="example.com", text="done")
-        # Download failed (tracking failed, retries=1)
+        # Download failed (tracking failed, retries=1, past cooldown)
         seed_content(engine, "https://example.com/failed", domain="example.com")
         upsert_failed(engine, "content", "https://example.com/failed", Stage.DOWNLOAD, "timeout")
+        _backdate_last_ran(engine, "https://example.com/failed", Stage.DOWNLOAD)
 
         with engine.connect() as conn:
             download = conn.execute(_download_query()).fetchall()

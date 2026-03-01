@@ -5,15 +5,14 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-import sqlalchemy as sa
 
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
 from aggre.dagster_defs.enrichment.job import enrich_content_discussions
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage, StageStatus
-from aggre.stages.tracking import upsert_done
+from aggre.tracking.ops import upsert_done
+from aggre.tracking.status import Stage, StageStatus
 from tests.factories import make_config, seed_content
+from tests.helpers import assert_tracking
 
 pytestmark = pytest.mark.integration
 
@@ -47,16 +46,7 @@ class TestEnrichment:
         mock_lob.search_by_url.assert_called_once_with("https://example.com/article", engine, config.lobsters, config.settings)
 
         # Check enrichment tracking was set
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/article",
-                    StageTracking.stage == Stage.ENRICH,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.DONE
+        assert_tracking(engine, "content", "https://example.com/article", Stage.ENRICH, StageStatus.DONE)
 
     def test_skips_already_enriched(self, engine):
         config = make_config(
@@ -140,16 +130,7 @@ class TestEnrichment:
         assert results == {"hackernews": 0, "lobsters": 1, "processed": 1}
 
         # Content should be marked as failed (will be retried next batch)
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/fail",
-                    StageTracking.stage == Stage.ENRICH,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
+        assert_tracking(engine, "content", "https://example.com/fail", Stage.ENRICH, StageStatus.FAILED)
 
     def test_no_pending_returns_zeros(self, engine):
         config = make_config(

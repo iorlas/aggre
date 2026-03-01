@@ -4,7 +4,6 @@ from enum import StrEnum
 
 
 class StageStatus(StrEnum):
-    PENDING = "pending"
     DONE = "done"
     FAILED = "failed"
     SKIPPED = "skipped"

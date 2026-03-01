@@ -10,9 +10,9 @@ import sqlalchemy as sa
 
 from aggre.dagster_defs.transcription.job import transcribe
 from aggre.db import SilverContent
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage, StageStatus
+from aggre.tracking.status import Stage, StageStatus
 from tests.factories import make_config, seed_content, seed_observation
+from tests.helpers import assert_tracking
 
 pytestmark = pytest.mark.integration
 
@@ -86,16 +86,7 @@ class TestTranscribe:
         assert row.text == "This is the transcript"
         assert row.detected_language == "en"
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "youtube",
-                    StageTracking.external_id == "vid001",
-                    StageTracking.stage == Stage.TRANSCRIBE,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.DONE
+        assert_tracking(engine, "youtube", "vid001", Stage.TRANSCRIBE, StageStatus.DONE)
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.read_bronze")
@@ -116,16 +107,7 @@ class TestTranscribe:
         assert row.text == "Cached transcript"
         assert row.detected_language == "fr"
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "youtube",
-                    StageTracking.external_id == "cached01",
-                    StageTracking.stage == Stage.TRANSCRIBE,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.DONE
+        assert_tracking(engine, "youtube", "cached01", Stage.TRANSCRIBE, StageStatus.DONE)
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
@@ -149,16 +131,7 @@ class TestTranscribe:
         # WhisperModel.transcribe should have been called
         mock_model.transcribe.assert_called_once()
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "youtube",
-                    StageTracking.external_id == "audio01",
-                    StageTracking.stage == Stage.TRANSCRIBE,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.DONE
+        assert_tracking(engine, "youtube", "audio01", Stage.TRANSCRIBE, StageStatus.DONE)
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
@@ -182,17 +155,7 @@ class TestTranscribe:
         result = transcribe(engine, config)
         assert result == 0
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "youtube",
-                    StageTracking.external_id == "fail01",
-                    StageTracking.stage == Stage.TRANSCRIBE,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
-            assert "Video unavailable" in tracking.error
+        assert_tracking(engine, "youtube", "fail01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="Video unavailable")
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
@@ -220,17 +183,7 @@ class TestTranscribe:
         result = transcribe(engine, config, model=mock_model)
         assert result == 0
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "youtube",
-                    StageTracking.external_id == "terr01",
-                    StageTracking.stage == Stage.TRANSCRIBE,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
-            assert "CUDA out of memory" in tracking.error
+        assert_tracking(engine, "youtube", "terr01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="CUDA out of memory")
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
@@ -257,17 +210,7 @@ class TestTranscribe:
 
         assert result == 0
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "youtube",
-                    StageTracking.external_id == "big01",
-                    StageTracking.stage == Stage.TRANSCRIBE,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
-            assert "500MB" in tracking.error
+        assert_tracking(engine, "youtube", "big01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="500MB")
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")

@@ -112,6 +112,7 @@ class TestAlembicMigration:
         assert "silver_content" not in table_names
         assert "bronze_discussions" not in table_names
         assert "sources" not in table_names
+        assert "stage_tracking" not in table_names
 
         engine.dispose()
 

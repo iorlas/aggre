@@ -5,9 +5,9 @@ import sqlalchemy as sa
 from aggre.dagster_defs.comments.job import comments_job
 from aggre.dagster_defs.sensors import make_processing_sensor
 from aggre.db import SilverObservation
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage
-from aggre.stages.tracking import retry_filter
+from aggre.tracking.model import StageTracking
+from aggre.tracking.ops import retry_filter
+from aggre.tracking.status import Stage
 
 # Only these source types have comment fetching
 _COMMENT_SOURCE_TYPES = ("reddit", "hackernews", "lobsters")

@@ -5,9 +5,9 @@ import sqlalchemy as sa
 from aggre.dagster_defs.sensors import make_processing_sensor
 from aggre.dagster_defs.transcription.job import transcribe_job
 from aggre.db import SilverContent, SilverObservation
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage
-from aggre.stages.tracking import retry_filter
+from aggre.tracking.model import StageTracking
+from aggre.tracking.ops import retry_filter
+from aggre.tracking.status import Stage
 
 transcription_sensor = make_processing_sensor(
     name="transcription_sensor",

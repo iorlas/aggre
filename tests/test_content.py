@@ -10,10 +10,11 @@ import sqlalchemy as sa
 
 from aggre.dagster_defs.content.job import download_content, extract_html_text
 from aggre.db import SilverContent
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage, StageStatus
-from aggre.stages.tracking import upsert_done
+from aggre.tracking.model import StageTracking
+from aggre.tracking.ops import upsert_done
+from aggre.tracking.status import Stage, StageStatus
 from tests.factories import make_config, seed_content
+from tests.helpers import assert_tracking
 
 pytestmark = pytest.mark.integration
 
@@ -37,17 +38,7 @@ class TestDownloadContent:
         count = download_content(engine, config)
         assert count == 1
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/paper.pdf",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.SKIPPED
-            assert tracking.error == "skipped:pdf"
+        assert_tracking(engine, "content", "https://example.com/paper.pdf", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="pdf")
 
     def test_downloads_and_stores_raw_html(self, engine, mock_http):
         config = make_config()
@@ -65,15 +56,7 @@ class TestDownloadContent:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.text is None  # text set by extract phase
 
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/article",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.DONE
+        assert_tracking(engine, "content", "https://example.com/article", Stage.DOWNLOAD, StageStatus.DONE)
 
     def test_handles_download_error(self, engine, mock_http):
         config = make_config()
@@ -84,17 +67,14 @@ class TestDownloadContent:
         count = download_content(engine, config)
         assert count == 1
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/broken",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
-            assert "Connection refused" in tracking.error
+        assert_tracking(
+            engine,
+            "content",
+            "https://example.com/broken",
+            Stage.DOWNLOAD,
+            StageStatus.FAILED,
+            error_contains="Connection refused",
+        )
 
     def test_respects_batch_limit(self, engine):
         config = make_config()
@@ -145,17 +125,7 @@ class TestDownloadContent:
             count = download_content(engine, config)
         assert count == 1
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/gone",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
-            assert "404" in tracking.error
+        assert_tracking(engine, "content", "https://example.com/gone", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="404")
 
         assert any("content_downloader.http_gone" in r.message for r in caplog.records)
         assert not any(r.levelno >= logging.ERROR for r in caplog.records)
@@ -172,17 +142,7 @@ class TestDownloadContent:
         count = download_content(engine, config)
         assert count == 1
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://i.redd.it/image.png",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.SKIPPED
-            assert tracking.error == "skipped:non_text"
+        assert_tracking(engine, "content", "https://i.redd.it/image.png", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="non_text")
 
     def test_skips_video_content_type(self, engine, mock_http):
         config = make_config()
@@ -196,17 +156,7 @@ class TestDownloadContent:
         count = download_content(engine, config)
         assert count == 1
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://v.redd.it/video123",
-                    StageTracking.stage == Stage.DOWNLOAD,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.SKIPPED
-            assert tracking.error == "skipped:non_text"
+        assert_tracking(engine, "content", "https://v.redd.it/video123", Stage.DOWNLOAD, StageStatus.SKIPPED, error_contains="non_text")
 
 
 class TestExtractHtmlText:
@@ -243,15 +193,7 @@ class TestExtractHtmlText:
             assert row.text == "Article content here"
             assert row.title == "Test Article"
 
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/article",
-                    StageTracking.stage == Stage.EXTRACT,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.DONE
+        assert_tracking(engine, "content", "https://example.com/article", Stage.EXTRACT, StageStatus.DONE)
 
     def test_handles_extraction_error(self, engine):
         config = make_config()
@@ -268,17 +210,7 @@ class TestExtractHtmlText:
 
         assert count == 1
 
-        with engine.connect() as conn:
-            tracking = conn.execute(
-                sa.select(StageTracking).where(
-                    StageTracking.source == "content",
-                    StageTracking.external_id == "https://example.com/bad-html",
-                    StageTracking.stage == Stage.EXTRACT,
-                )
-            ).fetchone()
-            assert tracking is not None
-            assert tracking.status == StageStatus.FAILED
-            assert "Parse error" in tracking.error
+        assert_tracking(engine, "content", "https://example.com/bad-html", Stage.EXTRACT, StageStatus.FAILED, error_contains="Parse error")
 
     def test_ignores_undownloaded_content(self, engine):
         config = make_config()

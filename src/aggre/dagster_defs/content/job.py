@@ -17,9 +17,9 @@ from dagster import OpExecutionContext
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, update_content
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage, StageStatus
-from aggre.stages.tracking import retry_filter, upsert_done, upsert_failed, upsert_skipped
+from aggre.tracking.model import StageTracking
+from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
+from aggre.tracking.status import Stage, StageStatus
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.utils.http import create_http_client
 
@@ -52,11 +52,6 @@ def _download_one(
     domain: str | None,
 ) -> int:
     """Download a single URL and store HTML in bronze. Returns 1 on success, 0 on skip."""
-    # Pre-request skips: YouTube (saves bandwidth), PDFs
-    if domain and domain in SKIP_DOMAINS:
-        upsert_skipped(engine, "content", url, Stage.DOWNLOAD, "youtube")
-        return 1
-
     if any(url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
         upsert_skipped(engine, "content", url, Stage.DOWNLOAD, "pdf")
         return 1

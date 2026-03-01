@@ -43,11 +43,18 @@ pytest tests/ --recording-mode=once   # pytest-recording for VCR
 ```
 tests/
 ├── conftest.py                        # Shared fixtures (session-scoped engine, autouse clean_tables)
+├── factories.py                       # Centralized test data factories (DB seeders, API response builders, config)
+├── helpers.py                         # Shared test helpers (collect, DB query/assertion utilities)
+├── tracking/                          # Stage tracking module tests
+│   ├── test_ops.py                    # Unit tests for upsert_done/failed/skipped, retry_filter
+│   └── test_invariants.py             # Invariant tests: state machine queries, collector constraints
 ├── test_urls.py                       # URL normalization tests (unit)
-├── test_content.py                    # Content fetcher tests (unit)
+├── test_content.py                    # Content download/extraction pipeline tests
 ├── test_hackernews.py                 # Hacker News collector tests (unit + integration)
 ├── test_reddit.py                     # Reddit collector tests
 ├── test_enrichment.py                 # Enrichment module tests
+├── test_transcription.py              # YouTube transcription pipeline tests
+├── test_sensors.py                    # Dagster sensor tests
 ├── test_acceptance_pipeline.py        # Full pipeline acceptance tests
 ├── test_acceptance_cli.py             # CLI acceptance tests
 └── test_acceptance_content_linking.py # Content linking acceptance tests
@@ -204,9 +211,19 @@ class TestNormalizeUrl:
    (From `tests/test_content.py`)
 
 **Location:**
-- Helper functions defined in test modules themselves (NOT in fixtures)
-- Prefixed with `_` to indicate test-local scope: `_make_config()`, `_seed_content()`, `_mock_httpx_client()`
-- Shared fixtures (engine, clean_tables) in `tests/conftest.py`
+- **`tests/factories.py`** — centralized test data factories (replaces per-file `_make_*` helpers):
+  - DB seeders: `seed_content()`, `seed_observation()`, `seed_source()`
+  - API response builders: `hn_hit()`, `hn_search_response()`, `reddit_post()`, `reddit_listing()`, `lobsters_story()`, `rss_entry()`, `rss_feed()`, `youtube_entry()`, `hf_paper()`, `telegram_message()`
+  - Config: `make_config()` — builds `AppConfig` with sensible defaults for any collector
+- **`tests/helpers.py`** — shared test utilities:
+  - `collect(collector, engine, config, settings)` — run collector end-to-end (collect_references + process_reference)
+  - `get_observations(engine, **filters)` — query SilverObservation rows with optional column filters
+  - `get_contents(engine, **filters)` — query SilverContent rows with optional column filters
+  - `get_sources(engine, **filters)` — query Source rows with optional column filters
+  - `assert_tracking(engine, source, external_id, stage, expected_status)` — assert a StageTracking row exists with expected status
+  - `assert_no_tracking(engine, source, external_id, stage)` — assert no StageTracking row exists
+- Module-local helpers prefixed with `_` for test-specific setup (e.g., `_insert_failed()` in tracking tests)
+- Shared fixtures (engine, clean_tables, mock_http) in `tests/conftest.py`
 
 ## Coverage
 

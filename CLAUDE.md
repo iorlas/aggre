@@ -2,14 +2,14 @@
 
 Aggre collects discussions from multiple sources (Hacker News, Reddit, Lobsters, RSS, YouTube, HuggingFace, Telegram), fetches linked content, and discovers cross-source discussions.
 
-## Before Writing Code
+## Before Making Code Decisions
 
 Read the relevant docs first:
 
 - **Always read:** `docs/guidelines/semantic-model.md` — entity definitions, ubiquitous language, status lifecycles
-- **Before writing Python code:** `docs/guidelines/python.md` — module design, typing, tooling, imports
-- **Before writing code:** `.planning/codebase/CONVENTIONS.md` — code style, naming, imports, error handling
-- **Before writing tests:** `.planning/codebase/TESTING.md` — fixtures, mocking patterns, factories
+- **Before changing Python code:** `docs/guidelines/python.md` — module design, typing, tooling, imports
+- **Before changing code:** `.planning/codebase/CONVENTIONS.md` — code style, naming, imports, error handling
+- **Before changing tests:** `.planning/codebase/TESTING.md` — fixtures, mocking patterns, factories
 - **Before adding features:** `.planning/codebase/ARCHITECTURE.md` — layers, data flow, entry points
 - **Before adding files:** `.planning/codebase/STRUCTURE.md` — directory layout, where to put new code
 - **Before changing deps:** `.planning/codebase/STACK.md` — tech stack, versions, configuration

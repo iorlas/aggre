@@ -5,9 +5,9 @@ import sqlalchemy as sa
 from aggre.dagster_defs.enrichment.job import enrich_job
 from aggre.dagster_defs.sensors import make_processing_sensor
 from aggre.db import SilverContent
-from aggre.stages.model import StageTracking
-from aggre.stages.status import Stage
-from aggre.stages.tracking import retry_filter
+from aggre.tracking.model import StageTracking
+from aggre.tracking.ops import retry_filter
+from aggre.tracking.status import Stage
 
 enrichment_sensor = make_processing_sensor(
     name="enrichment_sensor",

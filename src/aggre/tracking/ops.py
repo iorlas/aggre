@@ -3,8 +3,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.stages.model import StageTracking
-from aggre.stages.status import COOLDOWN_SECONDS, MAX_RETRIES, Stage, StageStatus
+from aggre.tracking.model import StageTracking
+from aggre.tracking.status import COOLDOWN_SECONDS, MAX_RETRIES, Stage, StageStatus
 from aggre.utils.db import now_iso
 
 
@@ -66,7 +66,7 @@ def upsert_skipped(engine: sa.engine.Engine, source: str, external_id: str, stag
         external_id=external_id,
         stage=stage,
         status=StageStatus.SKIPPED,
-        error=f"skipped:{reason}",
+        error=reason,
         last_ran_at=ts,
         completed_at=ts,
     )
@@ -74,7 +74,7 @@ def upsert_skipped(engine: sa.engine.Engine, source: str, external_id: str, stag
         index_elements=["source", "external_id", "stage"],
         set_={
             "status": StageStatus.SKIPPED,
-            "error": f"skipped:{reason}",
+            "error": reason,
             "last_ran_at": ts,
             "completed_at": ts,
         },
@@ -95,15 +95,3 @@ def retry_filter(tracking_cls: type, stage: Stage) -> sa.ColumnElement[bool]:
         sa.cast(tracking_cls.last_ran_at, sa.DateTime(timezone=True))
         < (sa.func.now() - sa.literal_column(f"INTERVAL '{seconds} seconds'")),
     )
-
-
-def reset(engine: sa.engine.Engine, source: str, external_id: str, stage: Stage) -> None:
-    """Delete tracking row so sensor rediscovers from Silver state."""
-    with engine.begin() as conn:
-        conn.execute(
-            sa.delete(StageTracking).where(
-                StageTracking.source == source,
-                StageTracking.external_id == external_id,
-                StageTracking.stage == stage,
-            )
-        )

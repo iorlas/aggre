@@ -34,6 +34,8 @@ Why: single caller (the framework), integration tests more valuable than unit te
 
 Pattern: each dagster_defs sub-package (e.g., `content/job.py`) contains both the business logic functions and the Dagster ops that call them. Functions are importable for testing without Dagster.
 
+When the framework provides a standard for a concern (logging, config injection), use the framework's approach. Framework conventions override general Python patterns in this project.
+
 ### Dependency Layers
 
 Imports form a DAG with three layers:
@@ -43,7 +45,7 @@ Layer 3 (composition root): cli.py, config.py
   ↓ imports from
 Layer 2 (business modules): collectors/*, dagster_defs/content/, dagster_defs/transcription/, dagster_defs/enrichment/
   ↓ imports from
-Layer 1 (infrastructure): db.py, urls.py, utils/http.py, utils/logging.py, settings.py
+Layer 1 (infrastructure): db.py, urls.py, utils/http.py, settings.py
 ```
 
 Layer 1 modules never import from layer 2 or 3. Layer 2 never imports from layer 3.
@@ -249,7 +251,7 @@ Why: re-exports hide the actual location, create coupling, and break when module
 
 Catch per-item errors, log, continue to next item. Never let one failed item abort the batch.
 
-Always log with `log.exception()` (captures stack trace).
+Always log with `logger.exception()` (captures stack trace).
 
 Why: batch operations process hundreds of items. One bad URL shouldn't stop the pipeline.
 
@@ -259,7 +261,7 @@ Every `except` block must log. No silent swallows.
 
 Use dot-notation events: `{module}.{event}` (e.g., `hackernews.fetch_failed`).
 
-All context as keyword arguments. Never f-strings in log messages.
+Use `%s` format strings for context: `logger.info("hackernews.fetched count=%s", count)`. Never f-strings in log messages.
 
 ### Retry at Wrapper Level
 
@@ -299,11 +301,13 @@ Why: context managers guarantee cleanup on exceptions. Manual `try/finally` is e
 
 Pass all dependencies as parameters. No global state, no module-level singletons.
 
-Standard signature for DB operations: `(engine: sa.engine.Engine, ..., log: BoundLogger)`.
+Exception: logging. Use module-level `logging.getLogger(__name__)`. Dagster captures these automatically via `managed_python_loggers`. Do not pass loggers as function parameters.
 
-Standard signature for collectors: `(engine, config, settings, log)`.
+Standard signature for DB operations: `(engine: sa.engine.Engine, ...)`.
 
-Why: explicit dependencies are testable (pass mocks) and traceable (grep for callers).
+Standard signature for collectors: `(engine, config, settings)`.
+
+Why: explicit dependencies are testable (pass mocks) and traceable (grep for callers). Logging is the exception because the framework handles log routing — module-level loggers are standard Python and Dagster integrates with them automatically.
 
 ### Size Limits
 

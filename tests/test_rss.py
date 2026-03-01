@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
 
 
 class TestRssCollector:
-    def test_new_items_stored(self, engine, log):
+    def test_new_items_stored(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
 
         entry = rss_entry(
@@ -32,7 +32,7 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed) as mock_parse:
             collector = RssCollector()
-            count = collect(collector, engine, config.rss, config.settings, log)
+            count = collect(collector, engine, config.rss, config.settings)
 
         assert count == 1
         mock_parse.assert_called_once_with("https://example.com/feed.xml")
@@ -48,7 +48,7 @@ class TestRssCollector:
         assert rows[0].source_type == "rss"
         assert rows[0].external_id == "post-1"
 
-    def test_duplicate_items_skipped(self, engine, log):
+    def test_duplicate_items_skipped(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
 
         entry = rss_entry(id="post-1", title="First Post")
@@ -56,54 +56,54 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count1 = collect(collector, engine, config.rss, config.settings, log)
-            count2 = collect(collector, engine, config.rss, config.settings, log)
+            count1 = collect(collector, engine, config.rss, config.settings)
+            count2 = collect(collector, engine, config.rss, config.settings)
 
         assert count1 == 1
         assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
         assert len(get_observations(engine)) == 1
 
-    def test_source_row_created(self, engine, log):
+    def test_source_row_created(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
 
         feed = rss_feed([])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collect(collector, engine, config.rss, config.settings, log)
+            collect(collector, engine, config.rss, config.settings)
 
         rows = get_sources(engine)
         assert len(rows) == 1
         assert rows[0].type == "rss"
         assert rows[0].name == "My Feed"
 
-    def test_source_row_reused_on_second_run(self, engine, log):
+    def test_source_row_reused_on_second_run(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
 
         feed = rss_feed([])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collect(collector, engine, config.rss, config.settings, log)
-            collect(collector, engine, config.rss, config.settings, log)
+            collect(collector, engine, config.rss, config.settings)
+            collect(collector, engine, config.rss, config.settings)
 
         assert len(get_sources(engine)) == 1
 
-    def test_last_fetched_at_updated(self, engine, log):
+    def test_last_fetched_at_updated(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="My Feed", url="https://example.com/rss")]))
 
         feed = rss_feed([rss_entry()])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            collect(collector, engine, config.rss, config.settings, log)
+            collect(collector, engine, config.rss, config.settings)
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(Source.last_fetched_at)).fetchone()
             assert row[0] is not None
 
-    def test_multiple_entries(self, engine, log):
+    def test_multiple_entries(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
 
         entries = [
@@ -115,13 +115,13 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = collect(collector, engine, config.rss, config.settings, log)
+            count = collect(collector, engine, config.rss, config.settings)
 
         assert count == 3
 
         assert len(get_observations(engine)) == 3
 
-    def test_entry_uses_link_as_fallback_id(self, engine, log):
+    def test_entry_uses_link_as_fallback_id(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
 
         entry = rss_entry(id=None, link="https://example.com/post-42")
@@ -129,7 +129,7 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             collector = RssCollector()
-            count = collect(collector, engine, config.rss, config.settings, log)
+            count = collect(collector, engine, config.rss, config.settings)
 
         assert count == 1
 
@@ -137,7 +137,7 @@ class TestRssCollector:
             row = conn.execute(sa.select(SilverObservation.external_id)).fetchone()
             assert row[0] == "https://example.com/post-42"
 
-    def test_multiple_feeds(self, engine, log):
+    def test_multiple_feeds(self, engine):
         config = make_config(
             rss=RssConfig(
                 sources=[
@@ -157,7 +157,7 @@ class TestRssCollector:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", side_effect=mock_parse):
             collector = RssCollector()
-            count = collect(collector, engine, config.rss, config.settings, log)
+            count = collect(collector, engine, config.rss, config.settings)
 
         assert count == 2
 

@@ -6,21 +6,21 @@ cannot resolve deferred (stringified) annotations.
 """
 
 import json
+import logging
 from pathlib import Path
 
 import dagster as dg
 import sqlalchemy as sa
-import structlog
 from dagster import OpExecutionContext
 
 from aggre.collectors import COLLECTORS
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT
-from aggre.utils.logging import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def reprocess_from_bronze(
     engine: sa.engine.Engine,
-    log: structlog.stdlib.BoundLogger,
     bronze_root: Path = DEFAULT_BRONZE_ROOT,
 ) -> int:
     """Scan bronze ref.json files and rebuild silver via process_reference.
@@ -52,14 +52,14 @@ def reprocess_from_bronze(
             try:
                 raw_data = json.loads(ref_file.read_text())
                 with engine.begin() as conn:
-                    collector.process_reference(raw_data, conn, source_id, log)
+                    collector.process_reference(raw_data, conn, source_id)
                 reprocessed += 1
             except Exception:
                 ext_id = ref_file.parent.name
-                log.exception("reprocess.ref_error", source=source_type, external_id=ext_id)
+                logger.exception("reprocess.ref_error source=%s external_id=%s", source_type, ext_id)
 
         total += reprocessed
-        log.info("reprocess.source_complete", source=source_type, reprocessed=reprocessed)
+        logger.info("reprocess.source_complete source=%s reprocessed=%d", source_type, reprocessed)
 
     return total
 
@@ -69,10 +69,9 @@ def reprocess_bronze_op(context: OpExecutionContext) -> int:
     """Rebuild silver from bronze ref.json files."""
     from aggre.config import load_config
 
-    cfg = load_config()
+    load_config()
     engine = context.resources.database.get_engine()
-    log = setup_logging(cfg.settings.log_dir, "reprocess")
-    count = reprocess_from_bronze(engine, log)
+    count = reprocess_from_bronze(engine)
     context.log.info(f"Reprocessed {count} references from bronze")
     return count
 

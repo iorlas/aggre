@@ -391,7 +391,7 @@ class TestCollectorContentConstraints:
     there is no external URL to download.
     """
 
-    def test_hackernews_external_does_not_set_text(self, engine, mock_http, log):
+    def test_hackernews_external_does_not_set_text(self, engine, mock_http):
         """HN collector with external URL: SilverContent.text must remain NULL."""
         from aggre.collectors.hackernews.collector import HackernewsCollector
         from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
@@ -402,14 +402,14 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource()]))
-            collect(HackernewsCollector(), engine, config.hackernews, config.settings, log)
+            collect(HackernewsCollector(), engine, config.hackernews, config.settings)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent)).fetchall()
             assert len(rows) == 1
             assert rows[0].text is None, "HN collector must not set SilverContent.text for external URLs"
 
-    def test_hackernews_self_post_sets_text(self, engine, mock_http, log):
+    def test_hackernews_self_post_sets_text(self, engine, mock_http):
         """Ask HN self-post: allowed to set SilverContent.text via _ensure_self_post_content."""
         from aggre.collectors.hackernews.collector import HackernewsCollector
         from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
@@ -423,13 +423,13 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource()]))
-            collect(HackernewsCollector(), engine, config.hackernews, config.settings, log)
+            collect(HackernewsCollector(), engine, config.hackernews, config.settings)
 
         with engine.connect() as conn:
             sc = conn.execute(sa.select(SilverContent)).fetchone()
             assert sc is not None and sc.text == "Self-post content"
 
-    def test_reddit_link_post_does_not_set_text(self, engine, mock_http, log):
+    def test_reddit_link_post_does_not_set_text(self, engine, mock_http):
         """Reddit link post: SilverContent.text must remain NULL on the linked content."""
         from aggre.collectors.reddit.collector import RedditCollector
         from aggre.collectors.reddit.config import RedditConfig, RedditSource
@@ -445,7 +445,7 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
             config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
-            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+            collect(RedditCollector(), engine, config.reddit, config.settings)
 
         with engine.connect() as conn:
             rows = conn.execute(
@@ -456,7 +456,7 @@ class TestCollectorContentConstraints:
             assert len(rows) == 1
             assert rows[0].text is None, "Reddit collector must not set SilverContent.text for link posts"
 
-    def test_reddit_self_post_sets_text(self, engine, mock_http, log):
+    def test_reddit_self_post_sets_text(self, engine, mock_http):
         """Reddit self-post: allowed to set SilverContent.text via _ensure_self_post_content."""
         from aggre.collectors.reddit.collector import RedditCollector
         from aggre.collectors.reddit.config import RedditConfig, RedditSource
@@ -472,13 +472,13 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
             config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
-            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+            collect(RedditCollector(), engine, config.reddit, config.settings)
 
         with engine.connect() as conn:
             sc = conn.execute(sa.select(SilverContent)).fetchone()
             assert sc is not None and sc.text == "My self-post body"
 
-    def test_lobsters_link_post_does_not_set_text(self, engine, mock_http, log):
+    def test_lobsters_link_post_does_not_set_text(self, engine, mock_http):
         """Lobsters link post: SilverContent.text must remain NULL."""
         from aggre.collectors.lobsters.collector import LobstersCollector
         from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
@@ -492,7 +492,7 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
             config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collect(LobstersCollector(), engine, config.lobsters, config.settings, log)
+            collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         with engine.connect() as conn:
             rows = conn.execute(
@@ -503,7 +503,7 @@ class TestCollectorContentConstraints:
             assert len(rows) == 1
             assert rows[0].text is None, "Lobsters collector must not set SilverContent.text for link posts"
 
-    def test_rss_does_not_set_text(self, engine, log):
+    def test_rss_does_not_set_text(self, engine):
         """RSS collector: SilverContent.text must remain NULL (summary goes to observation.content_text)."""
         from aggre.collectors.rss.collector import RssCollector
         from aggre.collectors.rss.config import RssConfig, RssSource
@@ -518,14 +518,14 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
-            collect(RssCollector(), engine, config.rss, config.settings, log)
+            collect(RssCollector(), engine, config.rss, config.settings)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent)).fetchall()
             assert len(rows) == 1
             assert rows[0].text is None, "RSS collector must not set SilverContent.text"
 
-    def test_youtube_does_not_set_text(self, engine, log):
+    def test_youtube_does_not_set_text(self, engine):
         """YouTube collector: SilverContent.text must remain NULL (transcription pipeline handles it)."""
         from aggre.collectors.youtube.collector import YoutubeCollector
         from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
@@ -540,14 +540,14 @@ class TestCollectorContentConstraints:
             config = make_config(
                 youtube=YoutubeConfig(sources=[YoutubeSource(channel_id="UC_test", name="Test Channel")]),
             )
-            collect(YoutubeCollector(), engine, config.youtube, config.settings, log)
+            collect(YoutubeCollector(), engine, config.youtube, config.settings)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent)).fetchall()
             assert len(rows) == 1
             assert rows[0].text is None, "YouTube collector must not set SilverContent.text"
 
-    def test_huggingface_does_not_set_text(self, engine, mock_http, log):
+    def test_huggingface_does_not_set_text(self, engine, mock_http):
         """HuggingFace collector: SilverContent.text must remain NULL (summary goes to observation.content_text)."""
         from aggre.collectors.huggingface.collector import HuggingfaceCollector
         from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource
@@ -555,14 +555,14 @@ class TestCollectorContentConstraints:
         mock_http.get("https://huggingface.co/api/daily_papers").respond(json=[hf_paper()])
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HF Papers")]))
-        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent)).fetchall()
             assert len(rows) == 1
             assert rows[0].text is None, "HuggingFace collector must not set SilverContent.text"
 
-    def test_hackernews_external_content_stays_in_download_pipeline(self, engine, mock_http, log):
+    def test_hackernews_external_content_stays_in_download_pipeline(self, engine, mock_http):
         """After HN collector runs, external content must appear in the download query."""
         from aggre.collectors.hackernews.collector import HackernewsCollector
         from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
@@ -573,7 +573,7 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
             config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource()]))
-            collect(HackernewsCollector(), engine, config.hackernews, config.settings, log)
+            collect(HackernewsCollector(), engine, config.hackernews, config.settings)
 
         with engine.connect() as conn:
             pending = conn.execute(
@@ -585,7 +585,7 @@ class TestCollectorContentConstraints:
             ).fetchall()
             assert len(pending) == 1, "External content must be pending download after collection"
 
-    def test_rss_content_stays_in_download_pipeline(self, engine, log):
+    def test_rss_content_stays_in_download_pipeline(self, engine):
         """After RSS collector runs, linked content must appear in the download query."""
         from aggre.collectors.rss.collector import RssCollector
         from aggre.collectors.rss.config import RssConfig, RssSource
@@ -595,7 +595,7 @@ class TestCollectorContentConstraints:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             config = make_config(rss=RssConfig(sources=[RssSource(name="Feed", url="https://example.com/feed.xml")]))
-            collect(RssCollector(), engine, config.rss, config.settings, log)
+            collect(RssCollector(), engine, config.rss, config.settings)
 
         with engine.connect() as conn:
             pending = conn.execute(
@@ -607,7 +607,7 @@ class TestCollectorContentConstraints:
             ).fetchall()
             assert len(pending) == 1, "RSS linked content must be pending download after collection"
 
-    def test_youtube_content_stays_in_transcription_pipeline(self, engine, log):
+    def test_youtube_content_stays_in_transcription_pipeline(self, engine):
         """After YouTube collector runs, content must be eligible for transcription."""
         from aggre.collectors.youtube.collector import YoutubeCollector
         from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
@@ -622,7 +622,7 @@ class TestCollectorContentConstraints:
             config = make_config(
                 youtube=YoutubeConfig(sources=[YoutubeSource(channel_id="UC_test", name="Test Channel")]),
             )
-            collect(YoutubeCollector(), engine, config.youtube, config.settings, log)
+            collect(YoutubeCollector(), engine, config.youtube, config.settings)
 
         with engine.connect() as conn:
             rows = conn.execute(

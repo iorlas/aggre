@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import sqlalchemy as sa
-import structlog
 import yt_dlp
 
 from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.youtube.config import YoutubeConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
+
+logger = logging.getLogger(__name__)
 
 # Columns to update on re-insert (titles always fresh)
 _UPSERT_COLS = ("title", "url", "meta", "published_at")
@@ -27,7 +29,6 @@ class YoutubeCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: YoutubeConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
         backfill: bool = False,
         source_ttl_minutes: int = 0,
     ) -> list[ContentReference]:
@@ -35,16 +36,16 @@ class YoutubeCollector(BaseCollector):
         refs: list[ContentReference] = []
 
         for yt_source in config.sources:
-            log.info(
-                "youtube.collecting",
-                name=yt_source.name,
-                channel_id=yt_source.channel_id,
+            logger.info(
+                "youtube.collecting name=%s channel_id=%s",
+                yt_source.name,
+                yt_source.channel_id,
             )
 
             source_id = self._ensure_source(engine, yt_source.name, {"channel_id": yt_source.channel_id})
 
             if self._is_source_recent(engine, source_id, source_ttl_minutes):
-                log.info("youtube.source_skipped", name=yt_source.name, reason="recent")
+                logger.info("youtube.source_skipped name=%s reason=recent", yt_source.name)
                 continue
 
             fetch_limit = None if backfill else self._get_fetch_limit(engine, source_id, config.init_fetch_limit, config.fetch_limit)
@@ -61,13 +62,13 @@ class YoutubeCollector(BaseCollector):
                 ydl_opts["source_address"] = "0.0.0.0"
 
             try:
-                log.info("youtube.fetching", name=yt_source.name, limit=ydl_opts.get("playlistend"))
+                logger.info("youtube.fetching name=%s limit=%s", yt_source.name, ydl_opts.get("playlistend"))
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     entries = info.get("entries", []) if info else []
-                log.info("youtube.fetched", name=yt_source.name, entries=len(entries))
+                logger.info("youtube.fetched name=%s entries=%d", yt_source.name, len(entries))
             except Exception:
-                log.exception("youtube.fetch_error", channel=yt_source.name)
+                logger.exception("youtube.fetch_error channel=%s", yt_source.name)
                 continue
 
             total_entries = len(entries)
@@ -79,14 +80,14 @@ class YoutubeCollector(BaseCollector):
 
                 external_id = entry.get("id")
                 if not external_id:
-                    log.warning("skipping_entry_no_id", channel=yt_source.name)
+                    logger.warning("skipping_entry_no_id channel=%s", yt_source.name)
                     continue
 
-                log.debug(
-                    "youtube.processing_entry",
-                    name=yt_source.name,
-                    video_id=external_id,
-                    progress=f"{idx}/{total_entries}",
+                logger.debug(
+                    "youtube.processing_entry name=%s video_id=%s progress=%s",
+                    yt_source.name,
+                    external_id,
+                    f"{idx}/{total_entries}",
                 )
 
                 # Attach channel metadata so process_reference can use it
@@ -104,7 +105,7 @@ class YoutubeCollector(BaseCollector):
                 )
 
             self._update_last_fetched(engine, source_id)
-            log.info("youtube.references_collected", name=yt_source.name, count=len(refs) - refs_before)
+            logger.info("youtube.references_collected name=%s count=%d", yt_source.name, len(refs) - refs_before)
 
         return refs
 
@@ -113,7 +114,6 @@ class YoutubeCollector(BaseCollector):
         ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        log: structlog.stdlib.BoundLogger,
     ) -> None:
         """Normalize one YouTube entry into silver rows."""
         external_id = ref_data.get("id")

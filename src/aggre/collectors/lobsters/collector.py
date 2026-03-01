@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from urllib.parse import urlparse
 
 import sqlalchemy as sa
-import structlog
 
 from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.lobsters.config import LobstersConfig
@@ -15,6 +15,8 @@ from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+
+logger = logging.getLogger(__name__)
 
 LOBSTERS_BASE = "https://lobste.rs"
 
@@ -35,7 +37,6 @@ class LobstersCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: LobstersConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> list[ContentReference]:
         if not config.sources:
             return []
@@ -45,7 +46,7 @@ class LobstersCollector(BaseCollector):
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for lob_source in config.sources:
-                log.info("lobsters.collecting", name=lob_source.name)
+                logger.info("lobsters.collecting name=%s", lob_source.name)
                 source_id = self._ensure_source(engine, lob_source.name)
 
                 urls: list[str] = []
@@ -64,7 +65,7 @@ class LobstersCollector(BaseCollector):
                         resp.raise_for_status()
                         stories = resp.json()
                     except Exception:
-                        log.exception("lobsters.fetch_failed", url=url)
+                        logger.exception("lobsters.fetch_failed url=%s", url)
                         continue
 
                     for story in stories:
@@ -76,7 +77,7 @@ class LobstersCollector(BaseCollector):
                     self._write_bronze(short_id, story)
                     refs.append(ContentReference(external_id=short_id, raw_data=story, source_id=source_id))
 
-                log.info("lobsters.references_collected", count=len(stories_by_id))
+                logger.info("lobsters.references_collected count=%d", len(stories_by_id))
                 self._update_last_fetched(engine, source_id)
 
         return refs
@@ -86,7 +87,6 @@ class LobstersCollector(BaseCollector):
         ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        log: structlog.stdlib.BoundLogger,
     ) -> None:
         story = ref_data
         short_id = story.get("short_id", "")
@@ -133,7 +133,6 @@ class LobstersCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: LobstersConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
         if batch_limit <= 0:
@@ -142,10 +141,10 @@ class LobstersCollector(BaseCollector):
         rows = self._query_pending_comments(engine, batch_limit)
 
         if not rows:
-            log.info("lobsters.no_pending_comments")
+            logger.info("lobsters.no_pending_comments")
             return 0
 
-        log.info("lobsters.fetching_comments", pending=len(rows))
+        logger.info("lobsters.fetching_comments pending=%d", len(rows))
         rate_limit = settings.lobsters_rate_limit
         fetched = 0
 
@@ -162,7 +161,7 @@ class LobstersCollector(BaseCollector):
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception:
-                    log.exception("lobsters.comments_fetch_failed", story_id=short_id)
+                    logger.exception("lobsters.comments_fetch_failed story_id=%s", short_id)
                     continue
 
                 # Write raw API response to bronze before storing in silver
@@ -172,7 +171,7 @@ class LobstersCollector(BaseCollector):
                 self._mark_comments_done(engine, discussion_id, json.dumps(comments), len(comments))
                 fetched += 1
 
-            log.info("lobsters.comments_fetched", fetched=fetched, total_pending=len(rows))
+            logger.info("lobsters.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 
         return fetched
 
@@ -182,7 +181,6 @@ class LobstersCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: LobstersConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> int:
         parsed = urlparse(url)
         domain = parsed.netloc
@@ -201,7 +199,7 @@ class LobstersCollector(BaseCollector):
                     if resp.status_code in (404, 429):
                         self._domain_cache[domain] = []
                         if resp.status_code == 429:
-                            log.warning("lobsters.rate_limited", domain=domain)
+                            logger.warning("lobsters.rate_limited domain=%s", domain)
                         return 0
                     resp.raise_for_status()
                     self._domain_cache[domain] = resp.json()
@@ -227,7 +225,7 @@ class LobstersCollector(BaseCollector):
                     continue
 
                 self._write_bronze(short_id, story)
-                self.process_reference(story, conn, source_id, log)
+                self.process_reference(story, conn, source_id)
                 new_count += 1
 
         return new_count

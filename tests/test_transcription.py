@@ -51,17 +51,17 @@ def _make_mock_model(transcript_text: str = "This is the transcript", language: 
 
 
 class TestTranscribe:
-    def test_no_pending_returns_zero(self, engine, log):
+    def test_no_pending_returns_zero(self, engine):
         """No YouTube content needing transcription."""
         config = make_config()
-        result = transcribe(engine, config, log)
+        result = transcribe(engine, config)
         assert result == 0
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_transcribes_and_stores_text(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, log, tmp_path):
+    def test_transcribes_and_stores_text(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
         """Downloads audio, transcribes, stores text + detected_language on SilverContent."""
         content_id = _seed_youtube(engine, external_id="vid001")
         config = make_config()
@@ -77,7 +77,7 @@ class TestTranscribe:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = transcribe(engine, config, log, model=mock_model)
+        result = transcribe(engine, config, model=mock_model)
         assert result == 1
 
         row = _get_content(engine, content_id)
@@ -88,7 +88,7 @@ class TestTranscribe:
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.read_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists")
-    def test_uses_cached_whisper_json(self, mock_exists, mock_read, mock_write, engine, log, tmp_path):
+    def test_uses_cached_whisper_json(self, mock_exists, mock_read, mock_write, engine, tmp_path):
         """When whisper.json exists in bronze, skip download + transcription."""
         content_id = _seed_youtube(engine, external_id="cached01")
         config = make_config()
@@ -97,7 +97,7 @@ class TestTranscribe:
         mock_exists.return_value = True
         mock_read.return_value = cached_data
 
-        result = transcribe(engine, config, log)
+        result = transcribe(engine, config)
         assert result == 1
 
         row = _get_content(engine, content_id)
@@ -108,7 +108,7 @@ class TestTranscribe:
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
-    def test_uses_cached_audio(self, mock_exists, mock_path, mock_write, engine, log, tmp_path):
+    def test_uses_cached_audio(self, mock_exists, mock_path, mock_write, engine, tmp_path):
         """When audio file exists in bronze, skip download but still transcribe."""
         content_id = _seed_youtube(engine, external_id="audio01")
         config = make_config()
@@ -119,7 +119,7 @@ class TestTranscribe:
         audio_file.write_bytes(b"fake cached audio")
         mock_path.return_value = audio_file
 
-        result = transcribe(engine, config, log, model=mock_model)
+        result = transcribe(engine, config, model=mock_model)
         assert result == 1
 
         row = _get_content(engine, content_id)
@@ -132,7 +132,7 @@ class TestTranscribe:
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_handles_download_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, log, tmp_path):
+    def test_handles_download_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
         """yt-dlp fails -> error column set on SilverContent."""
         content_id = _seed_youtube(engine, external_id="fail01")
         config = make_config()
@@ -147,7 +147,7 @@ class TestTranscribe:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = transcribe(engine, config, log)
+        result = transcribe(engine, config)
         assert result == 0
 
         row = _get_content(engine, content_id)
@@ -159,7 +159,7 @@ class TestTranscribe:
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_handles_transcription_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, log, tmp_path):
+    def test_handles_transcription_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
         """WhisperModel fails -> error column set on SilverContent."""
         content_id = _seed_youtube(engine, external_id="terr01")
         config = make_config()
@@ -178,7 +178,7 @@ class TestTranscribe:
         mock_model = MagicMock()
         mock_model.transcribe.side_effect = RuntimeError("CUDA out of memory")
 
-        result = transcribe(engine, config, log, model=mock_model)
+        result = transcribe(engine, config, model=mock_model)
         assert result == 0
 
         row = _get_content(engine, content_id)
@@ -190,7 +190,7 @@ class TestTranscribe:
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_skips_large_audio_file(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, log, tmp_path):
+    def test_skips_large_audio_file(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
         """Audio >500MB -> error 'exceeds 500MB' set."""
         content_id = _seed_youtube(engine, external_id="big01")
         config = make_config()
@@ -207,7 +207,7 @@ class TestTranscribe:
 
         # Patch Path.stat to report > 500MB
         with patch.object(type(audio_file), "stat", return_value=MagicMock(st_size=600 * 1024 * 1024)):
-            result = transcribe(engine, config, log)
+            result = transcribe(engine, config)
 
         assert result == 0
 
@@ -220,7 +220,7 @@ class TestTranscribe:
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_respects_batch_limit(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, log, tmp_path):
+    def test_respects_batch_limit(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
         """batch_limit=1 with 2 pending -> only 1 processed."""
         _seed_youtube(engine, external_id="batch01", title="Video 1")
         _seed_youtube(engine, external_id="batch02", title="Video 2")
@@ -237,7 +237,7 @@ class TestTranscribe:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = transcribe(engine, config, log, batch_limit=1, model=mock_model)
+        result = transcribe(engine, config, batch_limit=1, model=mock_model)
         assert result == 1
 
         # Verify only one row was transcribed
@@ -257,7 +257,7 @@ class TestTranscribe:
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_writes_whisper_output_to_bronze(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, log, tmp_path):
+    def test_writes_whisper_output_to_bronze(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
         """Verify whisper.json is written to bronze after transcription."""
         _seed_youtube(engine, external_id="bronze01")
         config = make_config()
@@ -273,7 +273,7 @@ class TestTranscribe:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        transcribe(engine, config, log, model=mock_model)
+        transcribe(engine, config, model=mock_model)
 
         # Verify write_bronze was called with correct args
         mock_write.assert_called_once()

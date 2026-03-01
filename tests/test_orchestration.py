@@ -49,14 +49,10 @@ def _mock_context(engine: object) -> MagicMock:
 
 class TestCollectAllSources:
     @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.setup_logging")
     @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_calls_all_configured_collectors(
-        self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock
-    ) -> None:
+    def test_calls_all_configured_collectors(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """All collectors in COLLECTORS dict are instantiated and called."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         mock_hn_cls = MagicMock()
         mock_hn_instance = mock_hn_cls.return_value
@@ -85,12 +81,10 @@ class TestCollectAllSources:
         mock_reddit_instance.process_reference.assert_called_once()
 
     @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.setup_logging")
     @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_isolates_errors_per_source(self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_isolates_errors_per_source(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """One collector throwing does not stop others from running."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         # First collector raises during collect_references
         mock_failing_cls = MagicMock()
@@ -116,12 +110,10 @@ class TestCollectAllSources:
         mock_ok_instance.process_reference.assert_called_once()
 
     @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.setup_logging")
     @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_isolates_errors_per_reference(self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_isolates_errors_per_reference(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """One ref failing process_reference does not stop other refs."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         mock_cls = MagicMock()
         mock_instance = mock_cls.return_value
@@ -145,12 +137,10 @@ class TestCollectAllSources:
         assert mock_instance.process_reference.call_count == 3
 
     @patch("aggre.dagster_defs.collection.job.COLLECTORS")
-    @patch("aggre.dagster_defs.collection.job.setup_logging")
     @patch("aggre.dagster_defs.collection.job.load_config")
-    def test_returns_total_count(self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_returns_total_count(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """Return value is the sum of all successfully processed references."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         mock_a_cls = MagicMock()
         mock_a_cls.return_value.collect_references.return_value = [
@@ -185,12 +175,10 @@ class TestCollectAllSources:
 
 class TestFetchComments:
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.setup_logging")
     @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_iterates_comment_sources(self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_iterates_comment_sources(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """Calls collect_comments on reddit, hackernews, and lobsters."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         mock_reddit_cls = MagicMock()
         mock_reddit_cls.return_value.collect_comments.return_value = 3
@@ -216,12 +204,10 @@ class TestFetchComments:
         mock_lobsters_cls.return_value.collect_comments.assert_called_once()
 
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.setup_logging")
     @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_isolates_errors_per_source(self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_isolates_errors_per_source(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """One source throwing does not stop others from running."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         mock_reddit_cls = MagicMock()
         mock_reddit_cls.return_value.collect_comments.side_effect = RuntimeError("reddit down")
@@ -247,12 +233,10 @@ class TestFetchComments:
         mock_lobsters_cls.return_value.collect_comments.assert_called_once()
 
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.setup_logging")
     @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_returns_total_count(self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_returns_total_count(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """Return value is the sum of all collected comment counts."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         mock_reddit_cls = MagicMock()
         mock_reddit_cls.return_value.collect_comments.return_value = 7
@@ -275,12 +259,10 @@ class TestFetchComments:
         assert result == 10
 
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
-    @patch("aggre.dagster_defs.comments.job.setup_logging")
     @patch("aggre.dagster_defs.comments.job.load_config")
-    def test_skips_missing_collector(self, mock_load_config: MagicMock, mock_logging: MagicMock, mock_collectors: MagicMock) -> None:
+    def test_skips_missing_collector(self, mock_load_config: MagicMock, mock_collectors: MagicMock) -> None:
         """If a comment source has no entry in COLLECTORS, it is skipped gracefully."""
         mock_load_config.return_value = make_config()
-        mock_logging.return_value = MagicMock()
 
         mock_hn_cls = MagicMock()
         mock_hn_cls.return_value.collect_comments.return_value = 2

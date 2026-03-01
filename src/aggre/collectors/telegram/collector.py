@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import sqlalchemy as sa
-import structlog
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
 from aggre.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 # Columns to update on re-insert (views/forwards change over time)
 _UPSERT_COLS = ("title", "content_text", "score", "meta")
@@ -23,25 +25,22 @@ class TelegramCollector(BaseCollector):
 
     source_type = "telegram"
 
-    def collect_references(
-        self, engine: sa.engine.Engine, config: TelegramConfig, settings: Settings, log: structlog.stdlib.BoundLogger
-    ) -> list[ContentReference]:
+    def collect_references(self, engine: sa.engine.Engine, config: TelegramConfig, settings: Settings) -> list[ContentReference]:
         """Fetch Telegram messages, write bronze, return references."""
         if not config.sources:
             return []
 
         if not settings.telegram_api_id or not settings.telegram_session:
-            log.warning("telegram.not_configured")
+            logger.warning("telegram.not_configured")
             return []
 
-        return asyncio.run(self._collect_refs_async(engine, config, settings, log))
+        return asyncio.run(self._collect_refs_async(engine, config, settings))
 
     async def _collect_refs_async(
         self,
         engine: sa.engine.Engine,
         config: TelegramConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> list[ContentReference]:
         client = TelegramClient(
             StringSession(settings.telegram_session),
@@ -53,14 +52,14 @@ class TelegramCollector(BaseCollector):
         refs: list[ContentReference] = []
         try:
             for tg_source in config.sources:
-                log.info("telegram.collecting", username=tg_source.username)
+                logger.info("telegram.collecting username=%s", tg_source.username)
                 source_id = self._ensure_source(engine, tg_source.name)
 
                 try:
-                    source_refs = await self._collect_channel_refs(client, source_id, tg_source, config, log)
+                    source_refs = await self._collect_channel_refs(client, source_id, tg_source, config)
                     refs.extend(source_refs)
                 except Exception:
-                    log.exception("telegram.channel_error", username=tg_source.username)
+                    logger.exception("telegram.channel_error username=%s", tg_source.username)
 
                 await asyncio.sleep(settings.telegram_rate_limit)
                 self._update_last_fetched(engine, source_id)
@@ -75,7 +74,6 @@ class TelegramCollector(BaseCollector):
         source_id: int,
         tg_source: TelegramSource,
         config: TelegramConfig,
-        log: structlog.stdlib.BoundLogger,
     ) -> list[ContentReference]:
         messages = await client.get_messages(tg_source.username, limit=config.fetch_limit)
 
@@ -101,7 +99,7 @@ class TelegramCollector(BaseCollector):
             self._write_bronze(external_id, raw_data)
             refs.append(ContentReference(external_id=external_id, raw_data=raw_data, source_id=source_id))
 
-        log.info("telegram.references_collected", username=tg_source.username, count=len(refs), total_seen=len(messages))
+        logger.info("telegram.references_collected username=%s count=%d total_seen=%d", tg_source.username, len(refs), len(messages))
         return refs
 
     def process_reference(
@@ -109,7 +107,6 @@ class TelegramCollector(BaseCollector):
         ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        log: structlog.stdlib.BoundLogger,
     ) -> None:
         """Normalize one Telegram message into silver rows."""
         text = ref_data.get("text", "")

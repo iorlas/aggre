@@ -47,7 +47,7 @@ pytestmark = pytest.mark.acceptance
 class TestCommentsAsJsonReddit:
     """Reddit: collect -> collect_comments -> verify comments_json on SilverObservation."""
 
-    def test_comments_stored_as_json(self, engine, mock_http, log):
+    def test_comments_stored_as_json(self, engine, mock_http):
         config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
         collector = RedditCollector()
 
@@ -58,7 +58,7 @@ class TestCommentsAsJsonReddit:
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            collect(collector, engine, config.reddit, config.settings, log)
+            collect(collector, engine, config.reddit, config.settings)
 
         # Step 2: collect_comments — reset mock_http for new routes
         mock_http.reset()
@@ -68,7 +68,7 @@ class TestCommentsAsJsonReddit:
         mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_resp)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.reddit, config.settings, batch_limit=10)
 
         assert fetched == 1
 
@@ -91,7 +91,7 @@ class TestCommentsAsJsonReddit:
 class TestCommentsAsJsonHackernews:
     """HackerNews: collect -> collect_comments -> verify comments_json."""
 
-    def test_comments_stored_as_json(self, engine, mock_http, log):
+    def test_comments_stored_as_json(self, engine, mock_http):
         config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]))
         collector = HackernewsCollector()
 
@@ -100,7 +100,7 @@ class TestCommentsAsJsonHackernews:
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings)
 
         # Step 2: collect_comments — reset mock_http for new routes
         mock_http.reset()
@@ -110,7 +110,7 @@ class TestCommentsAsJsonHackernews:
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").respond(json=item_resp)
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
 
         assert fetched == 1
 
@@ -133,7 +133,7 @@ class TestCommentsAsJsonHackernews:
 class TestCommentsAsJsonLobsters:
     """Lobsters: collect -> collect_comments -> verify comments_json."""
 
-    def test_comments_stored_as_json(self, engine, mock_http, log):
+    def test_comments_stored_as_json(self, engine, mock_http):
         config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
         collector = LobstersCollector()
 
@@ -143,7 +143,7 @@ class TestCommentsAsJsonLobsters:
         mock_http.get(url__regex=r"newest\.json").respond(json=[])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            collect(collector, engine, config.lobsters, config.settings, log)
+            collect(collector, engine, config.lobsters, config.settings)
 
         # Step 2: collect_comments — reset mock_http for new routes
         mock_http.reset()
@@ -153,7 +153,7 @@ class TestCommentsAsJsonLobsters:
         mock_http.get(url__regex=r"s/abc123\.json").respond(json=detail)
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.lobsters, config.settings, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.lobsters, config.settings, batch_limit=10)
 
         assert fetched == 1
 
@@ -181,7 +181,7 @@ class TestCommentsAsJsonLobsters:
 class TestFullPipelineFlow:
     """Simulate fetch pipeline: collect -> collect_comments -> fetch_content."""
 
-    def test_rss_pipeline_creates_full_chain(self, engine, mock_http, log):
+    def test_rss_pipeline_creates_full_chain(self, engine, mock_http):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://blog.example.com/feed.xml")]))
 
         # Step 1: Collect RSS posts
@@ -195,7 +195,7 @@ class TestFullPipelineFlow:
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
             rss = RssCollector()
-            count = collect(rss, engine, config.rss, config.settings, log)
+            count = collect(rss, engine, config.rss, config.settings)
 
         assert count == 1
 
@@ -221,7 +221,7 @@ class TestFullPipelineFlow:
             headers={"content-type": "text/html"},
         )
 
-        downloaded = download_content(engine, config, log)
+        downloaded = download_content(engine, config)
 
         assert downloaded == 1
 
@@ -240,7 +240,7 @@ class TestFullPipelineFlow:
             mock_meta_obj.title = "Great Article - Full"
             mock_meta.return_value = mock_meta_obj
 
-            extracted = extract_html_text(engine, config, log)
+            extracted = extract_html_text(engine, config)
 
         assert extracted == 1
 
@@ -255,7 +255,7 @@ class TestFullPipelineFlow:
             assert content.fetched_at is not None
             assert content.error is None
 
-    def test_reddit_pipeline_with_comments(self, engine, mock_http, log):
+    def test_reddit_pipeline_with_comments(self, engine, mock_http):
         """Reddit collect -> collect_comments -> verify discussion with comments."""
         config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
         collector = RedditCollector()
@@ -267,7 +267,7 @@ class TestFullPipelineFlow:
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            count = collect(collector, engine, config.reddit, config.settings, log)
+            count = collect(collector, engine, config.reddit, config.settings)
 
         assert count == 1
 
@@ -278,7 +278,7 @@ class TestFullPipelineFlow:
         mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_resp)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.reddit, config.settings, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.reddit, config.settings, batch_limit=10)
 
         assert fetched == 1
 
@@ -298,7 +298,7 @@ class TestFullPipelineFlow:
 class TestContentFetcherIntegration:
     """Content fetcher: unprocessed -> downloaded -> text populated / error set."""
 
-    def test_download_then_extract_populates_fields(self, engine, mock_http, log):
+    def test_download_then_extract_populates_fields(self, engine, mock_http):
         config = make_config()
 
         seed_content(engine, "https://example.com/article-1", domain="example.com")
@@ -313,7 +313,7 @@ class TestContentFetcherIntegration:
             headers={"content-type": "text/html"},
         )
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
 
         assert count == 2
 
@@ -333,7 +333,7 @@ class TestContentFetcherIntegration:
             meta_obj.title = "Article Title"
             mock_meta.return_value = meta_obj
 
-            count = extract_html_text(engine, config, log)
+            count = extract_html_text(engine, config)
 
         assert count == 2
 
@@ -345,13 +345,13 @@ class TestContentFetcherIntegration:
                 assert row.fetched_at is not None
                 assert row.error is None
 
-    def test_youtube_urls_skipped(self, engine, log):
+    def test_youtube_urls_skipped(self, engine):
         config = make_config()
 
         seed_content(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
         seed_content(engine, "https://youtu.be/xyz", domain="youtu.be")
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 2
 
         rows = get_contents(engine)
@@ -359,14 +359,14 @@ class TestContentFetcherIntegration:
             assert row.error is not None
             assert "skipped" in row.error
 
-    def test_failed_download_stores_error(self, engine, mock_http, log):
+    def test_failed_download_stores_error(self, engine, mock_http):
         config = make_config()
 
         seed_content(engine, "https://broken.example.com/page", domain="broken.example.com")
 
         mock_http.get("https://broken.example.com/page").mock(side_effect=Exception("Connection timeout"))
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
 
         assert count == 1
 
@@ -375,7 +375,7 @@ class TestContentFetcherIntegration:
         assert "Connection timeout" in row.error
         assert row.fetched_at is not None
 
-    def test_mixed_statuses(self, engine, mock_http, log):
+    def test_mixed_statuses(self, engine, mock_http):
         """One normal, one YouTube (skip), one failing -- download step only."""
         config = make_config()
 
@@ -389,7 +389,7 @@ class TestContentFetcherIntegration:
         )
         mock_http.get("https://bad.example.com/broken").mock(side_effect=Exception("DNS failure"))
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
 
         assert count == 3
 
@@ -418,7 +418,7 @@ class TestContentFetcherIntegration:
             meta_obj.title = "Good Title"
             mock_meta.return_value = meta_obj
 
-            count = extract_html_text(engine, config, log)
+            count = extract_html_text(engine, config)
 
         assert count == 1
 
@@ -431,10 +431,10 @@ class TestContentFetcherIntegration:
             assert rows[1].error is not None  # youtube still skipped
             assert rows[2].error is not None  # broken still failed
 
-    def test_already_processed_not_reprocessed(self, engine, log):
+    def test_already_processed_not_reprocessed(self, engine):
         config = make_config()
 
         seed_content(engine, "https://example.com/done", domain="example.com", text="already done")
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 0

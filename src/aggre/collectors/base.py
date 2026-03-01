@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Protocol, TypedDict
 
 import sqlalchemy as sa
-import structlog
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -34,9 +33,7 @@ class Collector(Protocol):
 
     source_type: str
 
-    def collect_references(
-        self, engine: sa.engine.Engine, config: BaseModel, settings: Settings, log: structlog.stdlib.BoundLogger
-    ) -> list[ContentReference]:
+    def collect_references(self, engine: sa.engine.Engine, config: BaseModel, settings: Settings) -> list[ContentReference]:
         """Fetch feed, write each item to bronze, return references.
 
         Handles source management (ensure_source, TTL, fetch limits).
@@ -44,9 +41,7 @@ class Collector(Protocol):
         """
         ...
 
-    def process_reference(
-        self, ref_data: dict[str, object], conn: sa.Connection, source_id: int, log: structlog.stdlib.BoundLogger
-    ) -> None:
+    def process_reference(self, ref_data: dict[str, object], conn: sa.Connection, source_id: int) -> None:
         """Normalize one bronze reference into silver rows.
 
         Calls ensure_content() + _upsert_observation().
@@ -58,9 +53,7 @@ class Collector(Protocol):
 class SearchableCollector(Collector, Protocol):
     """Collector that supports searching for observations by URL."""
 
-    def search_by_url(
-        self, url: str, engine: sa.engine.Engine, config: BaseModel, settings: Settings, log: structlog.stdlib.BoundLogger
-    ) -> int:
+    def search_by_url(self, url: str, engine: sa.engine.Engine, config: BaseModel, settings: Settings) -> int:
         """Search for observations about a URL. Returns count of new items stored."""
         ...
 

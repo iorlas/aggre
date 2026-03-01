@@ -36,7 +36,7 @@ pytestmark = pytest.mark.acceptance
 
 
 class TestRssContentLinking:
-    def test_creates_silver_content_with_correct_url_and_domain(self, engine, log):
+    def test_creates_silver_content_with_correct_url_and_domain(self, engine):
         config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
 
         entry = rss_entry(
@@ -46,7 +46,7 @@ class TestRssContentLinking:
         feed = rss_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
-            collect(RssCollector(), engine, config.rss, config.settings, log)
+            collect(RssCollector(), engine, config.rss, config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1
@@ -64,7 +64,7 @@ class TestRssContentLinking:
 
 
 class TestRedditContentLinking:
-    def test_link_post_creates_silver_content(self, engine, mock_http, log):
+    def test_link_post_creates_silver_content(self, engine, mock_http):
         config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
 
         post = reddit_post(url="https://example.com/article", is_self=False)
@@ -73,7 +73,7 @@ class TestRedditContentLinking:
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+            collect(RedditCollector(), engine, config.reddit, config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1
@@ -84,7 +84,7 @@ class TestRedditContentLinking:
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
-    def test_self_post_creates_content_with_text(self, engine, mock_http, log):
+    def test_self_post_creates_content_with_text(self, engine, mock_http):
         """Self-posts (is_self=True) create SilverContent with text already populated."""
         config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
 
@@ -94,7 +94,7 @@ class TestRedditContentLinking:
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+            collect(RedditCollector(), engine, config.reddit, config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1
@@ -104,7 +104,7 @@ class TestRedditContentLinking:
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
-    def test_score_and_comment_count_populated(self, engine, mock_http, log):
+    def test_score_and_comment_count_populated(self, engine, mock_http):
         config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
 
         post = reddit_post(url="https://example.com/article", is_self=False, score=99, num_comments=12)
@@ -113,7 +113,7 @@ class TestRedditContentLinking:
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            collect(RedditCollector(), engine, config.reddit, config.settings, log)
+            collect(RedditCollector(), engine, config.reddit, config.settings)
 
         sd = get_observations(engine)[0]
         assert sd.score == 99
@@ -126,14 +126,14 @@ class TestRedditContentLinking:
 
 
 class TestHackernewsContentLinking:
-    def test_creates_silver_content_for_external_url(self, engine, mock_http, log):
+    def test_creates_silver_content_for_external_url(self, engine, mock_http):
         config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]))
 
         hit = hn_hit(url="https://example.com/article")
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(HackernewsCollector(), engine, config.hackernews, config.settings, log)
+            collect(HackernewsCollector(), engine, config.hackernews, config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1
@@ -144,7 +144,7 @@ class TestHackernewsContentLinking:
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
-    def test_no_silver_content_for_ask_hn(self, engine, mock_http, log):
+    def test_no_silver_content_for_ask_hn(self, engine, mock_http):
         """Ask HN stories with no external URL should NOT create SilverContent."""
         config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]))
 
@@ -153,7 +153,7 @@ class TestHackernewsContentLinking:
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(HackernewsCollector(), engine, config.hackernews, config.settings, log)
+            collect(HackernewsCollector(), engine, config.hackernews, config.settings)
 
         assert len(get_contents(engine)) == 0
 
@@ -161,14 +161,14 @@ class TestHackernewsContentLinking:
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id is None
 
-    def test_score_and_comment_count_populated(self, engine, mock_http, log):
+    def test_score_and_comment_count_populated(self, engine, mock_http):
         config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]))
 
         hit = hn_hit(points=200, num_comments=50)
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(HackernewsCollector(), engine, config.hackernews, config.settings, log)
+            collect(HackernewsCollector(), engine, config.hackernews, config.settings)
 
         sd = get_observations(engine)[0]
         assert sd.score == 200
@@ -181,7 +181,7 @@ class TestHackernewsContentLinking:
 
 
 class TestLobstersContentLinking:
-    def test_creates_silver_content_for_external_url(self, engine, mock_http, log):
+    def test_creates_silver_content_for_external_url(self, engine, mock_http):
         config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
 
         story = lobsters_story(url="https://example.com/article")
@@ -189,7 +189,7 @@ class TestLobstersContentLinking:
         mock_http.get(url__regex=r"newest\.json").respond(json=[story])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            collect(LobstersCollector(), engine, config.lobsters, config.settings, log)
+            collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1
@@ -200,7 +200,7 @@ class TestLobstersContentLinking:
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
-    def test_score_and_comment_count_populated(self, engine, mock_http, log):
+    def test_score_and_comment_count_populated(self, engine, mock_http):
         config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
 
         story = lobsters_story(score=77, comment_count=14)
@@ -208,7 +208,7 @@ class TestLobstersContentLinking:
         mock_http.get(url__regex=r"newest\.json").respond(json=[])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            collect(LobstersCollector(), engine, config.lobsters, config.settings, log)
+            collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         sd = get_observations(engine)[0]
         assert sd.score == 77
@@ -221,7 +221,7 @@ class TestLobstersContentLinking:
 
 
 class TestYoutubeContentLinking:
-    def test_creates_silver_content(self, engine, log):
+    def test_creates_silver_content(self, engine):
         config = make_config(youtube=YoutubeConfig(sources=[YoutubeSource(channel_id="UC_test", name="Test Channel")], fetch_limit=10))
 
         mock_ydl = MagicMock()
@@ -230,7 +230,7 @@ class TestYoutubeContentLinking:
         mock_ydl.__exit__ = MagicMock(return_value=False)
 
         with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
-            collect(YoutubeCollector(), engine, config.youtube, config.settings, log)
+            collect(YoutubeCollector(), engine, config.youtube, config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1
@@ -250,12 +250,12 @@ class TestYoutubeContentLinking:
 
 
 class TestHuggingfaceContentLinking:
-    def test_creates_silver_content(self, engine, mock_http, log):
+    def test_creates_silver_content(self, engine, mock_http):
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HF Papers")]))
 
         mock_http.get("https://huggingface.co/api/daily_papers").respond(json=[hf_paper()])
 
-        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1
@@ -266,12 +266,12 @@ class TestHuggingfaceContentLinking:
         assert len(sd_rows) == 1
         assert sd_rows[0].content_id == sc_rows[0].id
 
-    def test_score_and_comment_count_populated(self, engine, mock_http, log):
+    def test_score_and_comment_count_populated(self, engine, mock_http):
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HF Papers")]))
 
         mock_http.get("https://huggingface.co/api/daily_papers").respond(json=[hf_paper(upvotes=99, num_comments=7)])
 
-        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         sd = get_observations(engine)[0]
         assert sd.score == 99
@@ -284,7 +284,7 @@ class TestHuggingfaceContentLinking:
 
 
 class TestCrossSourceDedup:
-    def test_rss_and_hackernews_share_silver_content(self, engine, mock_http, log):
+    def test_rss_and_hackernews_share_silver_content(self, engine, mock_http):
         """Two collectors pointing at the same external URL should share one SilverContent row."""
         shared_url = "https://example.com/article"
 
@@ -294,7 +294,7 @@ class TestCrossSourceDedup:
         feed = rss_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
-            collect(RssCollector(), engine, rss_config.rss, rss_config.settings, log)
+            collect(RssCollector(), engine, rss_config.rss, rss_config.settings)
 
         # 2. Run HackerNews collector
         hn_config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]))
@@ -302,7 +302,7 @@ class TestCrossSourceDedup:
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings, log)
+            collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings)
 
         # 3. Verify: exactly 1 SilverContent, 2 SilverObservations
         sc_rows = get_contents(engine)
@@ -315,7 +315,7 @@ class TestCrossSourceDedup:
         assert source_types == {"rss", "hackernews"}
         assert all(r.content_id == content_id for r in sd_rows)
 
-    def test_lobsters_and_hackernews_share_silver_content(self, engine, mock_http, log):
+    def test_lobsters_and_hackernews_share_silver_content(self, engine, mock_http):
         """Lobsters and HN pointing at the same URL should share one SilverContent."""
         shared_url = "https://example.com/article"
 
@@ -326,7 +326,7 @@ class TestCrossSourceDedup:
         mock_http.get(url__regex=r"newest\.json").respond(json=[])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            collect(LobstersCollector(), engine, lob_config.lobsters, lob_config.settings, log)
+            collect(LobstersCollector(), engine, lob_config.lobsters, lob_config.settings)
 
         # 2. Run HN collector — reset mock_http for new routes
         mock_http.reset()
@@ -335,7 +335,7 @@ class TestCrossSourceDedup:
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings, log)
+            collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings)
 
         # 3. Verify
         sc_rows = get_contents(engine)
@@ -348,7 +348,7 @@ class TestCrossSourceDedup:
         assert source_types == {"lobsters", "hackernews"}
         assert all(r.content_id == content_id for r in sd_rows)
 
-    def test_url_normalization_dedup(self, engine, mock_http, log):
+    def test_url_normalization_dedup(self, engine, mock_http):
         """URLs that differ only by www. prefix / trailing slash should share SilverContent."""
         # RSS with "https://www.example.com/article/"
         rss_config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
@@ -356,7 +356,7 @@ class TestCrossSourceDedup:
         feed = rss_feed([entry])
 
         with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
-            collect(RssCollector(), engine, rss_config.rss, rss_config.settings, log)
+            collect(RssCollector(), engine, rss_config.rss, rss_config.settings)
 
         # HN with "https://example.com/article" (no www, no trailing slash)
         hn_config = make_config(hackernews=HackernewsConfig(sources=[HackernewsSource(name="HN")]))
@@ -364,7 +364,7 @@ class TestCrossSourceDedup:
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(json=hn_search_response(hit))
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings, log)
+            collect(HackernewsCollector(), engine, hn_config.hackernews, hn_config.settings)
 
         sc_rows = get_contents(engine)
         assert len(sc_rows) == 1, f"Expected 1 SilverContent after normalization, got {len(sc_rows)}"

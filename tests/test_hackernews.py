@@ -24,7 +24,7 @@ pytestmark = pytest.mark.integration
 
 
 class TestHackernewsCollectorDiscussions:
-    def test_stores_posts(self, engine, mock_http, log):
+    def test_stores_posts(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -37,7 +37,7 @@ class TestHackernewsCollectorDiscussions:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            count = collect(collector, engine, config.hackernews, config.settings, log)
+            count = collect(collector, engine, config.hackernews, config.settings)
 
         assert count == 1
 
@@ -55,7 +55,7 @@ class TestHackernewsCollectorDiscussions:
         meta = json.loads(items[0].meta)
         assert "hn_url" in meta
 
-    def test_dedup_same_story(self, engine, mock_http, log):
+    def test_dedup_same_story(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -68,15 +68,15 @@ class TestHackernewsCollectorDiscussions:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            count1 = collect(collector, engine, config.hackernews, config.settings, log)
-            count2 = collect(collector, engine, config.hackernews, config.settings, log)
+            count1 = collect(collector, engine, config.hackernews, config.settings)
+            count2 = collect(collector, engine, config.hackernews, config.settings)
 
         assert count1 == 1
         assert count2 == 1  # collect_references returns refs regardless; dedup is in upsert
 
         assert len(get_observations(engine)) == 1
 
-    def test_multiple_stories(self, engine, mock_http, log):
+    def test_multiple_stories(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -90,11 +90,11 @@ class TestHackernewsCollectorDiscussions:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            count = collect(collector, engine, config.hackernews, config.settings, log)
+            count = collect(collector, engine, config.hackernews, config.settings)
 
         assert count == 2
 
-    def test_story_without_url_creates_self_post_content(self, engine, mock_http, log):
+    def test_story_without_url_creates_self_post_content(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -107,7 +107,7 @@ class TestHackernewsCollectorDiscussions:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings)
 
         with engine.connect() as conn:
             item = conn.execute(sa.select(SilverObservation)).fetchone()
@@ -119,17 +119,17 @@ class TestHackernewsCollectorDiscussions:
             assert content is not None
             assert content.text == "This is a self-post with some text content."
 
-    def test_no_config_returns_zero(self, engine, log):
+    def test_no_config_returns_zero(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[]),
             rate_limit=0.0,
         )
         collector = HackernewsCollector()
-        assert collect(collector, engine, config.hackernews, config.settings, log) == 0
+        assert collect(collector, engine, config.hackernews, config.settings) == 0
 
 
 class TestHackernewsCollectorComments:
-    def test_fetches_comments_and_marks_done(self, engine, mock_http, log):
+    def test_fetches_comments_and_marks_done(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -143,7 +143,7 @@ class TestHackernewsCollectorComments:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings)
 
         # Now fetch comments
         comment = hn_comment_child(comment_id=100, text="Nice!")
@@ -152,7 +152,7 @@ class TestHackernewsCollectorComments:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
+            fetched = collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
 
         assert fetched == 1
 
@@ -169,7 +169,7 @@ class TestHackernewsCollectorComments:
         # Comments have been fetched
         assert items[0].comments_json is not None
 
-    def test_nested_comments(self, engine, mock_http, log):
+    def test_nested_comments(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -182,7 +182,7 @@ class TestHackernewsCollectorComments:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings)
 
         reply = hn_comment_child(comment_id=200, text="I agree", children=[])
         parent = hn_comment_child(comment_id=100, text="Top level", children=[reply])
@@ -191,7 +191,7 @@ class TestHackernewsCollectorComments:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10)
+            collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
 
         items = get_observations(engine)
         assert items[0].comments_json is not None
@@ -203,23 +203,23 @@ class TestHackernewsCollectorComments:
         assert len(comments_data[0]["children"]) == 1
         assert comments_data[0]["children"][0]["text"] == "I agree"
 
-    def test_no_pending_returns_zero(self, engine, log):
+    def test_no_pending_returns_zero(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
         )
         collector = HackernewsCollector()
-        assert collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=10) == 0
+        assert collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10) == 0
 
-    def test_zero_batch_returns_zero(self, engine, log):
+    def test_zero_batch_returns_zero(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
         )
         collector = HackernewsCollector()
-        assert collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=0) == 0
+        assert collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=0) == 0
 
-    def test_respects_batch_limit(self, engine, mock_http, log):
+    def test_respects_batch_limit(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -233,7 +233,7 @@ class TestHackernewsCollectorComments:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings)
 
         # Fetch comments with batch_limit=2 — set up routes for all 3 stories
         for i in range(3):
@@ -242,7 +242,7 @@ class TestHackernewsCollectorComments:
             )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.hackernews, config.settings, log, batch_limit=2)
+            fetched = collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=2)
 
         assert fetched == 2
 
@@ -254,7 +254,7 @@ class TestHackernewsCollectorComments:
 
 
 class TestHackernewsSearchByUrl:
-    def test_search_finds_and_stores(self, engine, mock_http, log):
+    def test_search_finds_and_stores(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -267,7 +267,7 @@ class TestHackernewsSearchByUrl:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            found = collector.search_by_url("https://example.com/article", engine, config.hackernews, config.settings, log)
+            found = collector.search_by_url("https://example.com/article", engine, config.hackernews, config.settings)
 
         assert found == 1
 
@@ -275,7 +275,7 @@ class TestHackernewsSearchByUrl:
         assert len(items) == 1
         assert items[0].source_type == "hackernews"
 
-    def test_search_dedup(self, engine, mock_http, log):
+    def test_search_dedup(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -288,13 +288,13 @@ class TestHackernewsSearchByUrl:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            found1 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings, log)
-            found2 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings, log)
+            found1 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings)
+            found2 = collector.search_by_url("https://example.com", engine, config.hackernews, config.settings)
 
         assert found1 == 1
         assert found2 == 1  # search_by_url always returns hit count, dedup is in upsert
 
-    def test_search_no_results(self, engine, mock_http, log):
+    def test_search_no_results(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -306,13 +306,13 @@ class TestHackernewsSearchByUrl:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            found = collector.search_by_url("https://no-results.com", engine, config.hackernews, config.settings, log)
+            found = collector.search_by_url("https://no-results.com", engine, config.hackernews, config.settings)
 
         assert found == 0
 
 
 class TestHackernewsSource:
-    def test_creates_source_row(self, engine, mock_http, log):
+    def test_creates_source_row(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -324,14 +324,14 @@ class TestHackernewsSource:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings)
 
         rows = get_sources(engine)
         assert len(rows) == 1
         assert rows[0].type == "hackernews"
         assert rows[0].name == "Hacker News"
 
-    def test_reuses_existing_source(self, engine, mock_http, log):
+    def test_reuses_existing_source(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
@@ -343,7 +343,7 @@ class TestHackernewsSource:
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings, log)
-            collect(collector, engine, config.hackernews, config.settings, log)
+            collect(collector, engine, config.hackernews, config.settings)
+            collect(collector, engine, config.hackernews, config.settings)
 
         assert len(get_sources(engine)) == 1

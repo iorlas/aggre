@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 import sqlalchemy as sa
-import structlog
 
 from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.hackernews.config import HackernewsConfig
@@ -14,6 +14,8 @@ from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+
+logger = logging.getLogger(__name__)
 
 HN_ALGOLIA_BASE = "https://hn.algolia.com/api/v1"
 
@@ -31,7 +33,6 @@ class HackernewsCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: HackernewsConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> list[ContentReference]:
         """Fetch HN front-page stories, write bronze, return references."""
         if not config.sources:
@@ -42,7 +43,7 @@ class HackernewsCollector(BaseCollector):
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for hn_source in config.sources:
-                log.info("hackernews.collecting", name=hn_source.name)
+                logger.info("hackernews.collecting name=%s", hn_source.name)
                 source_id = self._ensure_source(engine, hn_source.name)
 
                 url = f"{HN_ALGOLIA_BASE}/search_by_date?tags=story,front_page&hitsPerPage={config.fetch_limit}"
@@ -53,7 +54,7 @@ class HackernewsCollector(BaseCollector):
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception:
-                    log.exception("hackernews.fetch_failed")
+                    logger.exception("hackernews.fetch_failed")
                     continue
 
                 hits = data.get("hits", [])
@@ -71,7 +72,7 @@ class HackernewsCollector(BaseCollector):
                         )
                     )
 
-                log.info("hackernews.references_collected", count=len(hits))
+                logger.info("hackernews.references_collected count=%d", len(hits))
                 self._update_last_fetched(engine, source_id)
 
         return refs
@@ -81,7 +82,6 @@ class HackernewsCollector(BaseCollector):
         ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        log: structlog.stdlib.BoundLogger,
     ) -> None:
         """Normalize one HN hit into silver rows.
 
@@ -131,7 +131,6 @@ class HackernewsCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: HackernewsConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
         if batch_limit <= 0:
@@ -140,10 +139,10 @@ class HackernewsCollector(BaseCollector):
         rows = self._query_pending_comments(engine, batch_limit)
 
         if not rows:
-            log.info("hackernews.no_pending_comments")
+            logger.info("hackernews.no_pending_comments")
             return 0
 
-        log.info("hackernews.fetching_comments", pending=len(rows))
+        logger.info("hackernews.fetching_comments pending=%d", len(rows))
         rate_limit = settings.hn_rate_limit
         fetched = 0
 
@@ -160,7 +159,7 @@ class HackernewsCollector(BaseCollector):
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception:
-                    log.exception("hackernews.comments_fetch_failed", story_id=ext_id)
+                    logger.exception("hackernews.comments_fetch_failed story_id=%s", ext_id)
                     continue
 
                 # Write raw API response to bronze before storing in silver
@@ -170,7 +169,7 @@ class HackernewsCollector(BaseCollector):
                 self._mark_comments_done(engine, discussion_id, json.dumps(children), len(children))
                 fetched += 1
 
-            log.info("hackernews.comments_fetched", fetched=fetched, total_pending=len(rows))
+            logger.info("hackernews.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 
         return fetched
 
@@ -180,7 +179,6 @@ class HackernewsCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: HackernewsConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> int:
         rate_limit = settings.hn_rate_limit
         new_count = 0
@@ -205,7 +203,7 @@ class HackernewsCollector(BaseCollector):
                         continue
 
                     self._write_bronze(object_id, hit)
-                    self.process_reference(hit, conn, source_id, log)
+                    self.process_reference(hit, conn, source_id)
                     new_count += 1
 
         return new_count

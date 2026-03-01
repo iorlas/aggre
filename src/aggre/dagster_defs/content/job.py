@@ -6,11 +6,11 @@ cannot resolve deferred (stringified) annotations.
 """
 
 import concurrent.futures
+import logging
 
 import dagster as dg
 import httpx
 import sqlalchemy as sa
-import structlog
 import trafilatura
 from dagster import OpExecutionContext
 
@@ -19,7 +19,8 @@ from aggre.db import SilverContent, update_content
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.utils.db import now_iso
 from aggre.utils.http import create_http_client
-from aggre.utils.logging import setup_logging
+
+logger = logging.getLogger(__name__)
 
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com"})
 SKIP_EXTENSIONS = (".pdf",)
@@ -61,7 +62,6 @@ def _mark_failed(engine: sa.engine.Engine, content_id: int, *, error: str) -> No
 def _download_one(
     client: httpx.Client,
     engine: sa.engine.Engine,
-    log: structlog.stdlib.BoundLogger,
     content_id: int,
     url: str,
     domain: str | None,
@@ -79,7 +79,7 @@ def _download_one(
     # Bronze read-through cache: skip HTTP fetch if already downloaded
     if bronze_exists_by_url("content", url, "response", "html"):
         _mark_downloaded(engine, content_id)
-        log.info("content_downloader.bronze_hit", url=url)
+        logger.info("content_downloader.bronze_hit url=%s", url)
         return 1
 
     try:
@@ -87,7 +87,7 @@ def _download_one(
 
         # 404/410 — permanently gone, no traceback needed
         if resp.status_code in (404, 410):
-            log.warning("content_downloader.http_gone", url=url, status=resp.status_code)
+            logger.warning("content_downloader.http_gone url=%s status=%d", url, resp.status_code)
             _mark_failed(engine, content_id, error=f"HTTP {resp.status_code}")
             return 1
 
@@ -96,22 +96,22 @@ def _download_one(
         # Skip binary content (images, videos, etc.)
         content_type = resp.headers.get("content-type", "")
         if content_type and not _is_text_content_type(content_type):
-            log.info("content_downloader.skipped_non_text", url=url, content_type=content_type)
+            logger.info("content_downloader.skipped_non_text url=%s content_type=%s", url, content_type)
             _mark_skipped(engine, content_id, reason="non_text")
             return 1
 
         write_bronze_by_url("content", url, "response", resp.text, "html")
         _mark_downloaded(engine, content_id)
-        log.info("content_downloader.downloaded", url=url)
+        logger.info("content_downloader.downloaded url=%s", url)
         return 1
 
     except httpx.HTTPStatusError as exc:
-        log.warning("content_downloader.download_failed", url=url, status=exc.response.status_code)
+        logger.warning("content_downloader.download_failed url=%s status=%d", url, exc.response.status_code)
         _mark_failed(engine, content_id, error=str(exc))
         return 1
 
     except Exception as exc:
-        log.exception("content_downloader.download_failed", url=url)
+        logger.exception("content_downloader.download_failed url=%s", url)
         _mark_failed(engine, content_id, error=str(exc))
         return 1
 
@@ -119,7 +119,6 @@ def _download_one(
 def download_content(
     engine: sa.engine.Engine,
     config: AppConfig,
-    log: structlog.stdlib.BoundLogger,
     batch_limit: int = 50,
     max_workers: int = 5,
 ) -> int:
@@ -137,10 +136,10 @@ def download_content(
         ).fetchall()
 
     if not rows:
-        log.info("content_downloader.no_pending")
+        logger.info("content_downloader.no_pending")
         return 0
 
-    log.info("content_downloader.download_starting", batch_size=len(rows))
+    logger.info("content_downloader.download_starting batch_size=%d", len(rows))
     processed = 0
 
     with (
@@ -150,11 +149,11 @@ def download_content(
         ) as client,
         concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor,
     ):
-        futures = [executor.submit(_download_one, client, engine, log, row.id, row.canonical_url, row.domain) for row in rows]
+        futures = [executor.submit(_download_one, client, engine, row.id, row.canonical_url, row.domain) for row in rows]
         for future in concurrent.futures.as_completed(futures):
             processed += future.result()
 
-    log.info("content_downloader.download_complete", processed=processed)
+    logger.info("content_downloader.download_complete processed=%d", processed)
     return processed
 
 
@@ -174,7 +173,6 @@ def _mark_extract_failed(engine: sa.engine.Engine, content_id: int, *, error: st
 def extract_html_text(
     engine: sa.engine.Engine,
     config: AppConfig,
-    log: structlog.stdlib.BoundLogger,
     batch_limit: int = 50,
 ) -> int:
     """Extract text from downloaded HTML using trafilatura (single-threaded, CPU-bound)."""
@@ -191,10 +189,10 @@ def extract_html_text(
         ).fetchall()
 
     if not rows:
-        log.info("content_extractor.no_downloaded")
+        logger.info("content_extractor.no_downloaded")
         return 0
 
-    log.info("content_extractor.extract_starting", batch_size=len(rows))
+    logger.info("content_extractor.extract_starting batch_size=%d", len(rows))
     processed = 0
 
     for row in rows:
@@ -219,27 +217,26 @@ def extract_html_text(
 
             _mark_extracted(engine, content_id, text=result, title=extracted_title)
             processed += 1
-            log.info("content_extractor.extracted", url=url)
+            logger.info("content_extractor.extracted url=%s", url)
 
         except Exception as exc:
-            log.exception("content_extractor.extract_failed", url=url)
+            logger.exception("content_extractor.extract_failed url=%s", url)
             _mark_extract_failed(engine, content_id, error=str(exc))
             processed += 1
 
-    log.info("content_extractor.extract_complete", processed=processed)
+    logger.info("content_extractor.extract_complete processed=%d", processed)
     return processed
 
 
 # -- Dagster ops and job -------------------------------------------------------
 
 
-@dg.op(required_resource_keys={"database"})
+@dg.op(required_resource_keys={"database"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
 def download_content_op(context: OpExecutionContext) -> int:
     """Download raw HTML for pending content URLs."""
     cfg = load_config()
     engine = context.resources.database.get_engine()
-    log = setup_logging(cfg.settings.log_dir, "download")
-    return download_content(engine, cfg, log)
+    return download_content(engine, cfg)
 
 
 @dg.op(required_resource_keys={"database"})
@@ -247,8 +244,7 @@ def extract_content_op(context: OpExecutionContext, download_count: int) -> int:
     """Extract text from downloaded HTML."""
     cfg = load_config()
     engine = context.resources.database.get_engine()
-    log = setup_logging(cfg.settings.log_dir, "extract")
-    return extract_html_text(engine, cfg, log)
+    return extract_html_text(engine, cfg)
 
 
 @dg.job

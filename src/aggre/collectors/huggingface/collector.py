@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import sqlalchemy as sa
-import structlog
 
 from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.huggingface.config import HuggingfaceConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.http import create_http_client
+
+logger = logging.getLogger(__name__)
 
 HF_API_URL = "https://huggingface.co/api/daily_papers"
 
@@ -29,7 +31,6 @@ class HuggingfaceCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: HuggingfaceConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> list[ContentReference]:
         """Fetch HuggingFace daily papers, write bronze, return references."""
         if not config.sources:
@@ -39,7 +40,7 @@ class HuggingfaceCollector(BaseCollector):
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for hf_source in config.sources:
-                log.info("huggingface.collecting", name=hf_source.name)
+                logger.info("huggingface.collecting name=%s", hf_source.name)
                 source_id = self._ensure_source(engine, hf_source.name)
 
                 try:
@@ -47,7 +48,7 @@ class HuggingfaceCollector(BaseCollector):
                     resp.raise_for_status()
                     papers = resp.json()
                 except Exception:
-                    log.exception("huggingface.fetch_failed")
+                    logger.exception("huggingface.fetch_failed")
                     continue
 
                 for item in papers:
@@ -65,7 +66,7 @@ class HuggingfaceCollector(BaseCollector):
                         )
                     )
 
-                log.info("huggingface.references_collected", count=len(refs), total_seen=len(papers))
+                logger.info("huggingface.references_collected count=%d total_seen=%d", len(refs), len(papers))
                 self._update_last_fetched(engine, source_id)
 
         return refs
@@ -75,7 +76,6 @@ class HuggingfaceCollector(BaseCollector):
         ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        log: structlog.stdlib.BoundLogger,
     ) -> None:
         """Normalize one HuggingFace paper into silver rows."""
         paper = ref_data.get("paper", {})

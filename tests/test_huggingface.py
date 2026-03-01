@@ -17,11 +17,11 @@ HF_API = "https://huggingface.co/api/daily_papers"
 
 
 class TestHuggingfaceCollectorDiscussions:
-    def test_stores_papers(self, engine, mock_http, log):
+    def test_stores_papers(self, engine, mock_http):
         mock_http.get(HF_API).respond(json=[hf_paper()])
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert count == 1
 
@@ -40,17 +40,17 @@ class TestHuggingfaceCollectorDiscussions:
         meta = json.loads(items[0].meta)
         assert meta["github_repo"] == "https://github.com/example/repo"
 
-    def test_dedup_across_runs(self, engine, mock_http, log):
+    def test_dedup_across_runs(self, engine, mock_http):
         mock_http.get(HF_API).respond(json=[hf_paper()])
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        count1 = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
-        count2 = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        count1 = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
+        count2 = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert count1 == 1
         assert count2 == 1  # collect_references returns all API items; dedup is in upsert
 
-    def test_multiple_papers(self, engine, mock_http, log):
+    def test_multiple_papers(self, engine, mock_http):
         papers = [
             hf_paper(paper_id="2401.11111", title="First"),
             hf_paper(paper_id="2401.22222", title="Second"),
@@ -59,36 +59,36 @@ class TestHuggingfaceCollectorDiscussions:
         mock_http.get(HF_API).respond(json=papers)
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert count == 3
 
-    def test_skips_paper_without_id(self, engine, mock_http, log):
+    def test_skips_paper_without_id(self, engine, mock_http):
         bad_paper = {"paper": {"title": "No ID"}}
         mock_http.get(HF_API).respond(json=[bad_paper, hf_paper()])
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert count == 1
 
-    def test_no_config_returns_zero(self, engine, mock_http, log):
+    def test_no_config_returns_zero(self, engine, mock_http):
         config = make_config(huggingface=HuggingfaceConfig(sources=[]))
-        assert collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log) == 0
+        assert collect(HuggingfaceCollector(), engine, config.huggingface, config.settings) == 0
 
-    def test_handles_fetch_error(self, engine, mock_http, log):
+    def test_handles_fetch_error(self, engine, mock_http):
         mock_http.get(HF_API).mock(side_effect=Exception("network error"))
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert count == 0
 
-    def test_paper_with_no_authors(self, engine, mock_http, log):
+    def test_paper_with_no_authors(self, engine, mock_http):
         mock_http.get(HF_API).respond(json=[hf_paper(authors=[])])
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert count == 1
 
@@ -97,22 +97,22 @@ class TestHuggingfaceCollectorDiscussions:
 
 
 class TestHuggingfaceSource:
-    def test_creates_source_row(self, engine, mock_http, log):
+    def test_creates_source_row(self, engine, mock_http):
         mock_http.get(HF_API).respond(json=[])
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         rows = get_sources(engine)
         assert len(rows) == 1
         assert rows[0].type == "huggingface"
         assert rows[0].name == "HuggingFace Papers"
 
-    def test_reuses_existing_source(self, engine, mock_http, log):
+    def test_reuses_existing_source(self, engine, mock_http):
         mock_http.get(HF_API).respond(json=[])
 
         config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
-        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
-        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings, log)
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
+        collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert len(get_sources(engine)) == 1

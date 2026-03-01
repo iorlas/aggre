@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import UTC, datetime
 
 import httpx
 import sqlalchemy as sa
-import structlog
 from tenacity import (
     RetryCallState,
     retry,
@@ -23,6 +23,8 @@ from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
 
+logger = logging.getLogger(__name__)
+
 # Columns to update on re-insert (scores/titles always fresh)
 _UPSERT_COLS = ("title", "author", "url", "content_text", "meta", "score", "comment_count")
 
@@ -32,18 +34,18 @@ def _should_retry(retry_state: RetryCallState) -> bool:
     return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503)
 
 
-def _rate_limit_sleep(resp: httpx.Response, min_delay: float, log: structlog.stdlib.BoundLogger) -> None:
+def _rate_limit_sleep(resp: httpx.Response, min_delay: float) -> None:
     """Adaptively sleep based on Reddit's rate-limit response headers."""
     remaining = resp.headers.get("x-ratelimit-remaining")
     reset = resp.headers.get("x-ratelimit-reset")
     if remaining is not None and reset is not None:
         remaining_f, reset_f = float(remaining), float(reset)
         if remaining_f <= 1:
-            log.warning("reddit.rate_limit_exhausted", remaining=remaining_f, sleeping=reset_f)
+            logger.warning("reddit.rate_limit_exhausted remaining=%s sleeping=%s", remaining_f, reset_f)
             time.sleep(reset_f)
         elif remaining_f < 5:
             delay = reset_f / remaining_f
-            log.info("reddit.rate_limit_low", remaining=remaining_f, reset_in=reset_f, sleeping=round(delay, 1))
+            logger.info("reddit.rate_limit_low remaining=%s reset_in=%s sleeping=%s", remaining_f, reset_f, round(delay, 1))
             time.sleep(delay)
         else:
             time.sleep(min_delay)
@@ -56,13 +58,13 @@ def _rate_limit_sleep(resp: httpx.Response, min_delay: float, log: structlog.std
     stop=stop_after_attempt(7),
     wait=wait_exponential(multiplier=2, min=4, max=120),
 )
-def _fetch_json(client: httpx.Client, url: str, log: structlog.stdlib.BoundLogger) -> tuple[dict[str, object], httpx.Response]:
+def _fetch_json(client: httpx.Client, url: str) -> tuple[dict[str, object], httpx.Response]:
     """Fetch JSON from URL, respecting Retry-After on 429s."""
     resp = client.get(url)
     if resp.status_code == 429:
         retry_after = resp.headers.get("retry-after")
         if retry_after:
-            log.warning("reddit.429_retry_after", url=url, retry_after=retry_after)
+            logger.warning("reddit.429_retry_after url=%s retry_after=%s", url, retry_after)
             time.sleep(float(retry_after))
         resp.raise_for_status()
     resp.raise_for_status()
@@ -79,7 +81,6 @@ class RedditCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: RedditConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> list[ContentReference]:
         """Fetch post listings, write bronze, return references with source_ids."""
         refs: list[ContentReference] = []
@@ -88,7 +89,7 @@ class RedditCollector(BaseCollector):
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for reddit_source in config.sources:
                 sub = reddit_source.subreddit
-                log.info("reddit.collecting", subreddit=sub)
+                logger.info("reddit.collecting subreddit=%s", sub)
 
                 source_id = self._ensure_source(engine, sub, {"subreddit": sub})
 
@@ -98,10 +99,10 @@ class RedditCollector(BaseCollector):
                     url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit={config.fetch_limit}"
                     time.sleep(rate_limit)
                     try:
-                        data, resp = _fetch_json(client, url, log)
-                        _rate_limit_sleep(resp, 0, log)
+                        data, resp = _fetch_json(client, url)
+                        _rate_limit_sleep(resp, 0)
                     except Exception:
-                        log.exception("reddit.fetch_failed", subreddit=sub, sort=sort)
+                        logger.exception("reddit.fetch_failed subreddit=%s sort=%s", sub, sort)
                         continue
 
                     for child in data.get("data", {}).get("children", []):
@@ -121,7 +122,7 @@ class RedditCollector(BaseCollector):
                         )
                     )
 
-                log.info("reddit.refs_collected", subreddit=sub, count=len(posts_by_id))
+                logger.info("reddit.refs_collected subreddit=%s count=%d", sub, len(posts_by_id))
                 self._update_last_fetched(engine, source_id)
 
         return refs
@@ -131,7 +132,6 @@ class RedditCollector(BaseCollector):
         ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        log: structlog.stdlib.BoundLogger,
     ) -> None:
         """Normalize one bronze Reddit post into silver rows."""
         post_data = ref_data
@@ -182,7 +182,6 @@ class RedditCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: RedditConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
         """Fetch comments for posts with comments_json=NULL, up to batch_limit posts."""
@@ -192,10 +191,10 @@ class RedditCollector(BaseCollector):
         rows = self._query_pending_comments(engine, batch_limit)
 
         if not rows:
-            log.info("reddit.no_pending_comments")
+            logger.info("reddit.no_pending_comments")
             return 0
 
-        log.info("reddit.fetching_comments", pending=len(rows))
+        logger.info("reddit.fetching_comments pending=%d", len(rows))
         rate_limit = settings.reddit_rate_limit
         fetched = 0
 
@@ -210,10 +209,10 @@ class RedditCollector(BaseCollector):
                 url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json"
                 time.sleep(rate_limit)
                 try:
-                    data, resp = _fetch_json(client, url, log)
-                    _rate_limit_sleep(resp, 0, log)
+                    data, resp = _fetch_json(client, url)
+                    _rate_limit_sleep(resp, 0)
                 except Exception:
-                    log.exception("reddit.comments_fetch_failed", post_id=ext_id)
+                    logger.exception("reddit.comments_fetch_failed post_id=%s", ext_id)
                     continue
 
                 # Write raw API response to bronze before storing in silver
@@ -229,6 +228,6 @@ class RedditCollector(BaseCollector):
                 self._mark_comments_done(engine, discussion_id, comments_json, comment_count)
                 fetched += 1
 
-            log.info("reddit.comments_fetched", fetched=fetched, total_pending=len(rows))
+            logger.info("reddit.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 
         return fetched

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import MagicMock
 
 import pytest
 import respx
@@ -55,12 +54,6 @@ def mock_http():
     """Transport-layer httpx mocking via respx."""
     with respx.mock(assert_all_mocked=True, assert_all_called=False) as rsps:
         yield rsps
-
-
-@pytest.fixture()
-def log():
-    """MagicMock logger — avoids `log = MagicMock()` in every test."""
-    return MagicMock()
 
 
 @pytest.fixture()

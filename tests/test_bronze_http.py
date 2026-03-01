@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -42,24 +43,23 @@ def _make_client(response: MagicMock) -> MagicMock:
 
 
 class TestFetchItemJson:
-    def test_cache_miss(self, tmp_path: Path) -> None:
+    def test_cache_miss(self, tmp_path: Path, caplog) -> None:
         """No cache — fetches from HTTP, writes to bronze, returns data."""
         data = {"title": "Test Story", "points": 42}
         client = _make_client(_mock_json_response(data))
-        log = MagicMock()
 
-        result = fetch_item_json(
-            "hackernews",
-            "12345",
-            "https://hn.algolia.com/api/v1/items/12345",
-            client,
-            log,
-            bronze_root=tmp_path,
-        )
+        with caplog.at_level(logging.INFO):
+            result = fetch_item_json(
+                "hackernews",
+                "12345",
+                "https://hn.algolia.com/api/v1/items/12345",
+                client,
+                bronze_root=tmp_path,
+            )
 
         assert result == data
         client.get.assert_called_once_with("https://hn.algolia.com/api/v1/items/12345")
-        log.info.assert_called_once()
+        assert any("bronze_http.fetched_item" in r.message for r in caplog.records)
 
     def test_cache_hit(self, tmp_path: Path) -> None:
         """Pre-populated bronze — HTTP not called, returns cached data."""
@@ -67,14 +67,12 @@ class TestFetchItemJson:
         write_bronze_json("hackernews", "12345", data, bronze_root=tmp_path)
 
         client = _make_client(_mock_json_response({"should": "not be returned"}))
-        log = MagicMock()
 
         result = fetch_item_json(
             "hackernews",
             "12345",
             "https://hn.algolia.com/api/v1/items/12345",
             client,
-            log,
             bronze_root=tmp_path,
         )
 
@@ -85,9 +83,8 @@ class TestFetchItemJson:
         """Verify file written at {source_type}/{external_id}/raw.json."""
         data = {"id": "abc", "value": 1}
         client = _make_client(_mock_json_response(data))
-        log = MagicMock()
 
-        fetch_item_json("reddit", "abc", "https://reddit.com/api/abc", client, log, bronze_root=tmp_path)
+        fetch_item_json("reddit", "abc", "https://reddit.com/api/abc", client, bronze_root=tmp_path)
 
         path = tmp_path / "reddit" / "abc" / "raw.json"
         assert path.exists()
@@ -103,7 +100,6 @@ class TestFetchItemJson:
             response=resp,
         )
         client = _make_client(resp)
-        log = MagicMock()
 
         with pytest.raises(httpx.HTTPStatusError):
             fetch_item_json(
@@ -111,29 +107,27 @@ class TestFetchItemJson:
                 "99999",
                 "https://hn.algolia.com/api/v1/items/99999",
                 client,
-                log,
                 bronze_root=tmp_path,
             )
 
 
 class TestFetchUrlText:
-    def test_cache_miss(self, tmp_path: Path) -> None:
+    def test_cache_miss(self, tmp_path: Path, caplog) -> None:
         """Fetches HTML, writes to bronze, returns text."""
         html = "<html><body>Hello World</body></html>"
         client = _make_client(_mock_text_response(html))
-        log = MagicMock()
 
-        result = fetch_url_text(
-            "fetch",
-            "https://example.com/article",
-            client,
-            log,
-            bronze_root=tmp_path,
-        )
+        with caplog.at_level(logging.INFO):
+            result = fetch_url_text(
+                "fetch",
+                "https://example.com/article",
+                client,
+                bronze_root=tmp_path,
+            )
 
         assert result == html
         client.get.assert_called_once_with("https://example.com/article")
-        log.info.assert_called_once()
+        assert any("bronze_http.fetched_url" in r.message for r in caplog.records)
 
     def test_cache_hit(self, tmp_path: Path) -> None:
         """Pre-populated bronze — no HTTP call, returns cached text."""
@@ -149,9 +143,8 @@ class TestFetchUrlText:
         )
 
         client = _make_client(_mock_text_response("<html>wrong</html>"))
-        log = MagicMock()
 
-        result = fetch_url_text("fetch", url, client, log, bronze_root=tmp_path)
+        result = fetch_url_text("fetch", url, client, bronze_root=tmp_path)
 
         assert result == html
         client.get.assert_not_called()
@@ -161,9 +154,8 @@ class TestFetchUrlText:
         html = "<html>content</html>"
         url = "https://example.com/some/long/path?query=1"
         client = _make_client(_mock_text_response(html))
-        log = MagicMock()
 
-        fetch_url_text("fetch", url, client, log, bronze_root=tmp_path)
+        fetch_url_text("fetch", url, client, bronze_root=tmp_path)
 
         expected_dir = tmp_path / "fetch" / url_hash(url)
         assert expected_dir.is_dir()

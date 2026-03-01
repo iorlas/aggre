@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 import sqlalchemy as sa
@@ -15,12 +16,12 @@ pytestmark = pytest.mark.integration
 
 
 class TestReprocessFromBronze:
-    def test_empty_bronze_returns_zero(self, engine, log, tmp_bronze):
+    def test_empty_bronze_returns_zero(self, engine, tmp_bronze):
         """No raw.json files -> returns 0."""
-        count = reprocess_from_bronze(engine, log, bronze_root=tmp_bronze)
+        count = reprocess_from_bronze(engine, bronze_root=tmp_bronze)
         assert count == 0
 
-    def test_reprocesses_single_source_type(self, engine, log, tmp_bronze):
+    def test_reprocesses_single_source_type(self, engine, tmp_bronze):
         """Write HN raw.json, verify SilverObservation created."""
         hn_dir = tmp_bronze / "hackernews" / "12345"
         hn_dir.mkdir(parents=True)
@@ -28,7 +29,7 @@ class TestReprocessFromBronze:
         raw_data = hn_hit(object_id="12345", title="Test Story", url="https://example.com/article")
         (hn_dir / "raw.json").write_text(json.dumps(raw_data))
 
-        count = reprocess_from_bronze(engine, log, bronze_root=tmp_bronze)
+        count = reprocess_from_bronze(engine, bronze_root=tmp_bronze)
         assert count == 1
 
         with engine.connect() as conn:
@@ -39,7 +40,7 @@ class TestReprocessFromBronze:
             assert rows[0].title == "Test Story"
             assert rows[0].url == "https://example.com/article"
 
-    def test_reprocesses_multiple_source_types(self, engine, log, tmp_bronze):
+    def test_reprocesses_multiple_source_types(self, engine, tmp_bronze):
         """Write raw.json for HN + Lobsters, verify both processed."""
         # HN bronze
         hn_dir = tmp_bronze / "hackernews" / "111"
@@ -51,7 +52,7 @@ class TestReprocessFromBronze:
         lob_dir.mkdir(parents=True)
         (lob_dir / "raw.json").write_text(json.dumps(lobsters_story(short_id="abc123", title="Lobsters Story")))
 
-        count = reprocess_from_bronze(engine, log, bronze_root=tmp_bronze)
+        count = reprocess_from_bronze(engine, bronze_root=tmp_bronze)
         assert count == 2
 
         with engine.connect() as conn:
@@ -65,20 +66,19 @@ class TestReprocessFromBronze:
             assert "HN Story" in titles
             assert "Lobsters Story" in titles
 
-    def test_skips_invalid_json(self, engine, log, tmp_bronze):
+    def test_skips_invalid_json(self, engine, tmp_bronze, caplog):
         """Invalid JSON in raw.json is skipped with error logged."""
         hn_dir = tmp_bronze / "hackernews" / "bad"
         hn_dir.mkdir(parents=True)
         (hn_dir / "raw.json").write_text("{not valid json!!!")
 
-        count = reprocess_from_bronze(engine, log, bronze_root=tmp_bronze)
+        with caplog.at_level(logging.ERROR):
+            count = reprocess_from_bronze(engine, bronze_root=tmp_bronze)
+
         assert count == 0
+        assert any("reprocess.ref_error" in r.message for r in caplog.records)
 
-        log.exception.assert_called_once()
-        call_kwargs = log.exception.call_args
-        assert call_kwargs[0][0] == "reprocess.ref_error"
-
-    def test_error_in_one_ref_continues(self, engine, log, tmp_bronze):
+    def test_error_in_one_ref_continues(self, engine, tmp_bronze, caplog):
         """One bad raw.json does not stop processing of other files."""
         # Bad file
         bad_dir = tmp_bronze / "hackernews" / "bad"
@@ -90,7 +90,9 @@ class TestReprocessFromBronze:
         good_dir.mkdir(parents=True)
         (good_dir / "raw.json").write_text(json.dumps(hn_hit(object_id="good", title="Good Story")))
 
-        count = reprocess_from_bronze(engine, log, bronze_root=tmp_bronze)
+        with caplog.at_level(logging.ERROR):
+            count = reprocess_from_bronze(engine, bronze_root=tmp_bronze)
+
         assert count == 1
 
         with engine.connect() as conn:
@@ -99,9 +101,9 @@ class TestReprocessFromBronze:
             assert rows[0].external_id == "good"
 
         # The bad file should have been logged
-        log.exception.assert_called_once()
+        assert any("reprocess.ref_error" in r.message for r in caplog.records)
 
-    def test_creates_source_if_missing(self, engine, log, tmp_bronze):
+    def test_creates_source_if_missing(self, engine, tmp_bronze):
         """Source row is created if it does not exist."""
         # Verify no sources exist before reprocessing
         with engine.connect() as conn:
@@ -111,7 +113,7 @@ class TestReprocessFromBronze:
         hn_dir.mkdir(parents=True)
         (hn_dir / "raw.json").write_text(json.dumps(hn_hit(object_id="42")))
 
-        reprocess_from_bronze(engine, log, bronze_root=tmp_bronze)
+        reprocess_from_bronze(engine, bronze_root=tmp_bronze)
 
         with engine.connect() as conn:
             sources = conn.execute(sa.select(Source)).fetchall()

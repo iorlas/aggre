@@ -6,10 +6,10 @@ cannot resolve deferred (stringified) annotations.
 """
 
 import json
+import logging
 
 import dagster as dg
 import sqlalchemy as sa
-import structlog
 import yt_dlp
 from dagster import OpExecutionContext
 from faster_whisper import WhisperModel
@@ -17,7 +17,8 @@ from faster_whisper import WhisperModel
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverObservation, update_content
 from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
-from aggre.utils.logging import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def _mark_transcribed(engine: sa.engine.Engine, content_id: int, *, text: str, detected_language: str) -> None:
@@ -42,7 +43,6 @@ def create_whisper_model(config: AppConfig) -> WhisperModel:
 def transcribe(
     engine: sa.engine.Engine,
     config: AppConfig,
-    log: structlog.stdlib.BoundLogger,
     batch_limit: int = 0,
     *,
     model: WhisperModel | None = None,
@@ -74,11 +74,11 @@ def transcribe(
     for item in pending:
         content_id = item.id
         external_id = item.external_id
-        log.info("transcribing_video", external_id=external_id, title=item.title)
+        logger.info("transcribing_video external_id=%s title=%s", external_id, item.title)
 
         # Cache check: if whisper.json exists in bronze, skip transcription
         if bronze_exists("youtube", external_id, "whisper", "json"):
-            log.info("transcription_cached", external_id=external_id)
+            logger.info("transcription_cached external_id=%s", external_id)
             cached = json.loads(read_bronze("youtube", external_id, "whisper", "json"))
             transcript = cached["transcript"] if isinstance(cached, dict) else ""
             language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
@@ -90,7 +90,7 @@ def transcribe(
             # Check if audio already exists in bronze (from a previous partial run)
             audio_dest = bronze_path("youtube", external_id, "audio", "opus")
             if audio_dest.exists():
-                log.info("audio_cached", external_id=external_id)
+                logger.info("audio_cached external_id=%s", external_id)
             else:
                 # Download audio to bronze
                 audio_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -129,7 +129,7 @@ def transcribe(
             # Check audio file size (500MB limit)
             file_size = audio_dest.stat().st_size
             if file_size > 500 * 1024 * 1024:
-                log.warning("audio_file_too_large", external_id=external_id, size_mb=file_size / (1024 * 1024))
+                logger.warning("audio_file_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
                 _mark_transcription_failed(engine, content_id, error="Audio file exceeds 500MB limit")
                 continue
 
@@ -150,11 +150,11 @@ def transcribe(
             # Store result on SilverContent
             _mark_transcribed(engine, content_id, text=transcript, detected_language=info.language)
 
-            log.info("transcription_complete", external_id=external_id)
+            logger.info("transcription_complete external_id=%s", external_id)
             processed += 1
 
         except Exception as exc:
-            log.exception("transcription_failed", external_id=external_id)
+            logger.exception("transcription_failed external_id=%s", external_id)
             _mark_transcription_failed(engine, content_id, error=str(exc))
 
     return processed
@@ -168,8 +168,7 @@ def transcribe_videos_op(context: OpExecutionContext) -> int:
     """Download and transcribe pending YouTube videos."""
     cfg = load_config()
     engine = context.resources.database.get_engine()
-    log = setup_logging(cfg.settings.log_dir, "transcribe")
-    return transcribe(engine, cfg, log)
+    return transcribe(engine, cfg)
 
 
 @dg.job

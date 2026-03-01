@@ -7,12 +7,12 @@ import sqlalchemy as sa
 from aggre.db import SilverContent, SilverObservation, Source
 
 
-def collect(collector, engine: sa.engine.Engine, config, settings, log, **kwargs) -> int:
+def collect(collector, engine: sa.engine.Engine, config, settings, **kwargs) -> int:
     """Collect references and process them into silver. Returns count of new refs."""
-    refs = collector.collect_references(engine, config, settings, log, **kwargs)
+    refs = collector.collect_references(engine, config, settings, **kwargs)
     for ref in refs:
         with engine.begin() as conn:
-            collector.process_reference(ref["raw_data"], conn, ref["source_id"], log)
+            collector.process_reference(ref["raw_data"], conn, ref["source_id"])
     return len(refs)
 
 

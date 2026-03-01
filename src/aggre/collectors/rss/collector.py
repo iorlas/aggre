@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import feedparser
 import sqlalchemy as sa
-import structlog
 
 from aggre.collectors.base import BaseCollector, ContentReference
 from aggre.collectors.rss.config import RssConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import url_hash
+
+logger = logging.getLogger(__name__)
 
 # Columns to update on re-insert (titles/content always fresh)
 _UPSERT_COLS = ("title", "author", "url", "content_text", "meta")
@@ -28,30 +30,29 @@ class RssCollector(BaseCollector):
         engine: sa.engine.Engine,
         config: RssConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
     ) -> list[ContentReference]:
         """Fetch RSS/Atom feeds, write bronze, return references."""
         refs: list[ContentReference] = []
 
         for rss_source in config.sources:
-            log.info("rss.collecting", name=rss_source.name, url=rss_source.url)
+            logger.info("rss.collecting name=%s url=%s", rss_source.name, rss_source.url)
 
             source_id = self._ensure_source(engine, rss_source.name, {"url": rss_source.url})
 
             feed = feedparser.parse(rss_source.url)
 
             if feed.bozo:
-                log.warning("rss_bozo_error", name=rss_source.name, error=str(feed.bozo_exception))
+                logger.warning("rss_bozo_error name=%s error=%s", rss_source.name, str(feed.bozo_exception))
 
             if not feed.entries:
-                log.warning("rss_no_entries", name=rss_source.name)
+                logger.warning("rss_no_entries name=%s", rss_source.name)
                 self._update_last_fetched(engine, source_id)
                 continue
 
             for entry in feed.entries:
                 external_id = entry.get("id") or entry.get("link")
                 if not external_id:
-                    log.warning("skipping_entry_no_id", feed=rss_source.name)
+                    logger.warning("skipping_entry_no_id feed=%s", rss_source.name)
                     continue
 
                 raw_data = dict(entry)
@@ -68,7 +69,7 @@ class RssCollector(BaseCollector):
                 )
 
             self._update_last_fetched(engine, source_id)
-            log.info("rss.references_collected", name=rss_source.name, count=len(feed.entries))
+            logger.info("rss.references_collected name=%s count=%d", rss_source.name, len(feed.entries))
 
         return refs
 
@@ -77,7 +78,6 @@ class RssCollector(BaseCollector):
         ref_data: dict[str, object],
         conn: sa.Connection,
         source_id: int,
-        log: structlog.stdlib.BoundLogger,
     ) -> None:
         """Normalize one RSS entry into silver rows."""
         external_id = ref_data.get("id") or ref_data.get("link")

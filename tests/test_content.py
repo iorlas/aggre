@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,33 +16,33 @@ pytestmark = pytest.mark.integration
 
 
 class TestDownloadContent:
-    def test_no_pending_returns_zero(self, engine, log):
+    def test_no_pending_returns_zero(self, engine):
         config = make_config()
-        assert download_content(engine, config, log) == 0
+        assert download_content(engine, config) == 0
 
-    def test_skips_youtube_urls(self, engine, log):
+    def test_skips_youtube_urls(self, engine):
         config = make_config()
         seed_content(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.error == "skipped:youtube"
 
-    def test_skips_pdf_urls(self, engine, log):
+    def test_skips_pdf_urls(self, engine):
         config = make_config()
         seed_content(engine, "https://example.com/paper.pdf", domain="example.com")
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.error == "skipped:pdf"
 
-    def test_downloads_and_stores_raw_html(self, engine, mock_http, log):
+    def test_downloads_and_stores_raw_html(self, engine, mock_http):
         config = make_config()
         seed_content(engine, "https://example.com/article", domain="example.com")
 
@@ -50,7 +51,7 @@ class TestDownloadContent:
             headers={"content-type": "text/html"},
         )
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 1
 
         with engine.connect() as conn:
@@ -59,13 +60,13 @@ class TestDownloadContent:
             assert row.error is None
             assert row.text is None  # text set by extract phase
 
-    def test_handles_download_error(self, engine, mock_http, log):
+    def test_handles_download_error(self, engine, mock_http):
         config = make_config()
         seed_content(engine, "https://example.com/broken", domain="example.com")
 
         mock_http.get("https://example.com/broken").mock(side_effect=Exception("Connection refused"))
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 1
 
         with engine.connect() as conn:
@@ -73,23 +74,23 @@ class TestDownloadContent:
             assert row.error is not None
             assert "Connection refused" in row.error
 
-    def test_respects_batch_limit(self, engine, log):
+    def test_respects_batch_limit(self, engine):
         config = make_config()
 
         for i in range(5):
             seed_content(engine, f"https://youtube.com/watch?v=vid{i}", domain="youtube.com")
 
-        count = download_content(engine, config, log, batch_limit=3)
+        count = download_content(engine, config, batch_limit=3)
         assert count == 3
 
-    def test_skips_already_processed(self, engine, log):
+    def test_skips_already_processed(self, engine):
         config = make_config()
         seed_content(engine, "https://example.com/already-done", text="some text")
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 0
 
-    def test_parallel_downloads(self, engine, mock_http, log):
+    def test_parallel_downloads(self, engine, mock_http):
         config = make_config()
 
         for i in range(3):
@@ -99,7 +100,7 @@ class TestDownloadContent:
                 headers={"content-type": "text/html"},
             )
 
-        count = download_content(engine, config, log, max_workers=3)
+        count = download_content(engine, config, max_workers=3)
         assert count == 3
 
         with engine.connect() as conn:
@@ -108,13 +109,14 @@ class TestDownloadContent:
             ).fetchall()
             assert len(rows) == 3
 
-    def test_404_logs_warning_not_exception(self, engine, mock_http, log):
+    def test_404_logs_warning_not_exception(self, engine, mock_http, caplog):
         config = make_config()
         seed_content(engine, "https://example.com/gone", domain="example.com")
 
         mock_http.get("https://example.com/gone").respond(status_code=404)
 
-        count = download_content(engine, config, log)
+        with caplog.at_level(logging.WARNING, logger="aggre.dagster_defs.content.job"):
+            count = download_content(engine, config)
         assert count == 1
 
         with engine.connect() as conn:
@@ -122,10 +124,10 @@ class TestDownloadContent:
             assert row.error is not None
             assert "404" in row.error
 
-        log.warning.assert_called()
-        log.exception.assert_not_called()
+        assert any("content_downloader.http_gone" in r.message for r in caplog.records)
+        assert not any(r.levelno >= logging.ERROR for r in caplog.records)
 
-    def test_skips_non_text_content_type(self, engine, mock_http, log):
+    def test_skips_non_text_content_type(self, engine, mock_http):
         config = make_config()
         seed_content(engine, "https://i.redd.it/image.png", domain="i.redd.it")
 
@@ -134,14 +136,14 @@ class TestDownloadContent:
             headers={"content-type": "image/png"},
         )
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 1
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent)).fetchone()
             assert row.error == "skipped:non_text"
 
-    def test_skips_video_content_type(self, engine, mock_http, log):
+    def test_skips_video_content_type(self, engine, mock_http):
         config = make_config()
         seed_content(engine, "https://v.redd.it/video123", domain="v.redd.it")
 
@@ -150,7 +152,7 @@ class TestDownloadContent:
             headers={"content-type": "video/mp4"},
         )
 
-        count = download_content(engine, config, log)
+        count = download_content(engine, config)
         assert count == 1
 
         with engine.connect() as conn:
@@ -159,11 +161,11 @@ class TestDownloadContent:
 
 
 class TestExtractHtmlText:
-    def test_no_downloaded_returns_zero(self, engine, log):
+    def test_no_downloaded_returns_zero(self, engine):
         config = make_config()
-        assert extract_html_text(engine, config, log) == 0
+        assert extract_html_text(engine, config) == 0
 
-    def test_extracts_text_from_downloaded(self, engine, log):
+    def test_extracts_text_from_downloaded(self, engine):
         config = make_config()
 
         html = "<html><body><p>Article content here</p></body></html>"
@@ -182,7 +184,7 @@ class TestExtractHtmlText:
             mock_meta_obj.title = "Test Article"
             mock_meta.return_value = mock_meta_obj
 
-            count = extract_html_text(engine, config, log)
+            count = extract_html_text(engine, config)
 
         assert count == 1
 
@@ -193,7 +195,7 @@ class TestExtractHtmlText:
             assert row.fetched_at is not None
             assert row.error is None
 
-    def test_handles_extraction_error(self, engine, log):
+    def test_handles_extraction_error(self, engine):
         config = make_config()
 
         seed_content(engine, "https://example.com/bad-html", domain="example.com", fetched_at="2024-01-01T00:00:00Z")
@@ -203,7 +205,7 @@ class TestExtractHtmlText:
         write_bronze_by_url("content", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
 
         with patch("aggre.dagster_defs.content.job.trafilatura.extract", side_effect=Exception("Parse error")):
-            count = extract_html_text(engine, config, log)
+            count = extract_html_text(engine, config)
 
         assert count == 1
 
@@ -212,16 +214,16 @@ class TestExtractHtmlText:
             assert row.error is not None
             assert "Parse error" in row.error
 
-    def test_ignores_undownloaded_content(self, engine, log):
+    def test_ignores_undownloaded_content(self, engine):
         config = make_config()
 
         # No fetched_at = not yet downloaded
         seed_content(engine, "https://example.com/still-pending")
 
-        count = extract_html_text(engine, config, log)
+        count = extract_html_text(engine, config)
         assert count == 0
 
-    def test_respects_batch_limit(self, engine, log):
+    def test_respects_batch_limit(self, engine):
         config = make_config()
 
         from aggre.utils.bronze import write_bronze_by_url
@@ -240,6 +242,6 @@ class TestExtractHtmlText:
             patch("aggre.dagster_defs.content.job.trafilatura.extract", return_value="text"),
             patch("aggre.dagster_defs.content.job.trafilatura.metadata.extract_metadata", return_value=None),
         ):
-            count = extract_html_text(engine, config, log, batch_limit=3)
+            count = extract_html_text(engine, config, batch_limit=3)
 
         assert count == 3

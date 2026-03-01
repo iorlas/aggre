@@ -17,7 +17,7 @@ pytestmark = pytest.mark.integration
 
 
 class TestEnrichment:
-    def test_enriches_content(self, engine, log):
+    def test_enriches_content(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource()]),
             lobsters=LobstersConfig(sources=[LobstersSource()]),
@@ -34,7 +34,6 @@ class TestEnrichment:
         results = enrich_content_discussions(
             engine,
             config,
-            log,
             batch_limit=50,
             hn_collector=mock_hn,
             lobsters_collector=mock_lob,
@@ -42,15 +41,15 @@ class TestEnrichment:
 
         assert results == {"hackernews": 2, "lobsters": 1, "processed": 1}
 
-        mock_hn.search_by_url.assert_called_once_with("https://example.com/article", engine, config.hackernews, config.settings, log)
-        mock_lob.search_by_url.assert_called_once_with("https://example.com/article", engine, config.lobsters, config.settings, log)
+        mock_hn.search_by_url.assert_called_once_with("https://example.com/article", engine, config.hackernews, config.settings)
+        mock_lob.search_by_url.assert_called_once_with("https://example.com/article", engine, config.lobsters, config.settings)
 
         # Check enriched_at was set on SilverContent
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.canonical_url == "https://example.com/article")).fetchone()
             assert row.enriched_at is not None
 
-    def test_skips_already_enriched(self, engine, log):
+    def test_skips_already_enriched(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource()]),
             lobsters=LobstersConfig(sources=[LobstersSource()]),
@@ -67,7 +66,6 @@ class TestEnrichment:
         results = enrich_content_discussions(
             engine,
             config,
-            log,
             batch_limit=50,
             hn_collector=mock_hn,
             lobsters_collector=mock_lob,
@@ -77,7 +75,7 @@ class TestEnrichment:
         mock_hn.search_by_url.assert_not_called()
         mock_lob.search_by_url.assert_not_called()
 
-    def test_respects_batch_limit(self, engine, log):
+    def test_respects_batch_limit(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource()]),
             lobsters=LobstersConfig(sources=[LobstersSource()]),
@@ -96,7 +94,6 @@ class TestEnrichment:
         results = enrich_content_discussions(
             engine,
             config,
-            log,
             batch_limit=3,
             hn_collector=mock_hn,
             lobsters_collector=mock_lob,
@@ -107,7 +104,7 @@ class TestEnrichment:
         assert mock_lob.search_by_url.call_count == 3
         assert results["processed"] == 3
 
-    def test_handles_search_failure_gracefully(self, engine, log):
+    def test_handles_search_failure_gracefully(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource()]),
             lobsters=LobstersConfig(sources=[LobstersSource()]),
@@ -124,7 +121,6 @@ class TestEnrichment:
         results = enrich_content_discussions(
             engine,
             config,
-            log,
             batch_limit=50,
             hn_collector=mock_hn,
             lobsters_collector=mock_lob,
@@ -138,7 +134,7 @@ class TestEnrichment:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.canonical_url == "https://example.com/fail")).fetchone()
             assert row.enriched_at is None
 
-    def test_no_pending_returns_zeros(self, engine, log):
+    def test_no_pending_returns_zeros(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource()]),
             lobsters=LobstersConfig(sources=[LobstersSource()]),
@@ -150,7 +146,6 @@ class TestEnrichment:
         results = enrich_content_discussions(
             engine,
             config,
-            log,
             batch_limit=50,
             hn_collector=mock_hn,
             lobsters_collector=mock_lob,

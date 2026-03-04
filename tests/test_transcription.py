@@ -66,10 +66,10 @@ class TestTranscribe:
         assert result == 0
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_transcribes_and_stores_text(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_transcribes_and_stores_text(self, mock_ydl_cls, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """Downloads audio, transcribes, stores text + detected_language on SilverContent."""
         content_id = _seed_youtube(engine, external_id="vid001")
         config = make_config()
@@ -78,7 +78,9 @@ class TestTranscribe:
         # Set up audio file so the code finds it after "download"
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio data")
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         # Mock YoutubeDL context manager
         mock_ydl_instance = MagicMock()
@@ -116,9 +118,9 @@ class TestTranscribe:
         assert_tracking(engine, "youtube", "cached01", Stage.TRANSCRIBE, StageStatus.DONE)
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
-    def test_uses_cached_audio(self, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_uses_cached_audio(self, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """When audio file exists in bronze, skip download but still transcribe."""
         content_id = _seed_youtube(engine, external_id="audio01")
         config = make_config()
@@ -127,7 +129,9 @@ class TestTranscribe:
         # Audio file already exists on disk
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake cached audio")
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         result = transcribe(engine, config, model=mock_model)
         assert result == 1
@@ -140,17 +144,19 @@ class TestTranscribe:
         assert_tracking(engine, "youtube", "audio01", Stage.TRANSCRIBE, StageStatus.DONE)
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_handles_download_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_handles_download_error(self, mock_ydl_cls, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """yt-dlp fails -> tracking set to failed."""
         _seed_youtube(engine, external_id="fail01")
         config = make_config()
 
         # Audio file does not exist on disk
         audio_file = tmp_path / "nonexistent_audio.opus"
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         # Make YoutubeDL.download raise
         mock_ydl_instance = MagicMock()
@@ -164,10 +170,10 @@ class TestTranscribe:
         assert_tracking(engine, "youtube", "fail01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="Video unavailable")
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_handles_transcription_error(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_handles_transcription_error(self, mock_ydl_cls, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """WhisperModel fails -> tracking set to failed."""
         _seed_youtube(engine, external_id="terr01")
         config = make_config()
@@ -175,7 +181,9 @@ class TestTranscribe:
         # Set up audio file
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio")
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         # Mock YoutubeDL context manager
         mock_ydl_instance = MagicMock()
@@ -192,10 +200,10 @@ class TestTranscribe:
         assert_tracking(engine, "youtube", "terr01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="CUDA out of memory")
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_skips_large_audio_file(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_skips_large_audio_file(self, mock_ydl_cls, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """Audio >500MB -> tracking set to failed."""
         _seed_youtube(engine, external_id="big01")
         config = make_config()
@@ -203,7 +211,9 @@ class TestTranscribe:
         # Create a file and fake its size via stat
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"x")
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         # Mock YoutubeDL context manager
         mock_ydl_instance = MagicMock()
@@ -219,10 +229,10 @@ class TestTranscribe:
         assert_tracking(engine, "youtube", "big01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="500MB")
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_respects_batch_limit(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_respects_batch_limit(self, mock_ydl_cls, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """batch_limit=1 with 2 pending -> only 1 processed."""
         _seed_youtube(engine, external_id="batch01", title="Video 1")
         _seed_youtube(engine, external_id="batch02", title="Video 2")
@@ -232,7 +242,9 @@ class TestTranscribe:
         # Set up audio file
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio")
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         # Mock YoutubeDL context manager
         mock_ydl_instance = MagicMock()
@@ -255,10 +267,10 @@ class TestTranscribe:
             assert len(pending) == 1
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_writes_whisper_output_to_bronze(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_writes_whisper_output_to_bronze(self, mock_ydl_cls, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """Verify whisper.json is written to bronze after transcription."""
         _seed_youtube(engine, external_id="bronze01")
         config = make_config()
@@ -267,7 +279,9 @@ class TestTranscribe:
         # Set up audio file
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio")
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         # Mock YoutubeDL context manager
         mock_ydl_instance = MagicMock()
@@ -340,10 +354,10 @@ class TestTranscribe:
         assert_tracking(engine, "youtube", "nodur01", Stage.TRANSCRIBE, StageStatus.DONE)
 
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.bronze_path")
+    @patch("aggre.dagster_defs.transcription.job.get_store")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
     @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
-    def test_parallel_transcription(self, mock_ydl_cls, mock_exists, mock_path, mock_write, engine, tmp_path):
+    def test_parallel_transcription(self, mock_ydl_cls, mock_exists, mock_get_store, mock_write, engine, tmp_path):
         """max_workers=2 processes multiple videos in parallel."""
         _seed_youtube(engine, external_id="par01", title="Parallel 1")
         _seed_youtube(engine, external_id="par02", title="Parallel 2")
@@ -353,7 +367,9 @@ class TestTranscribe:
         # Set up audio file
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio")
-        mock_path.return_value = audio_file
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
 
         # Mock YoutubeDL context manager
         mock_ydl_instance = MagicMock()

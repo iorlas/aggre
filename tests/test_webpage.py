@@ -406,7 +406,7 @@ class TestExtractHtmlText:
             "https://example.com/orphaned",
             Stage.EXTRACT,
             StageStatus.FAILED,
-            error_contains="No such file",
+            error_contains="Bronze artifact not found",
         )
 
 

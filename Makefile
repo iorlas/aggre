@@ -5,12 +5,11 @@ test:
 	uv run pytest tests/
 
 test-e2e:
-	docker compose -f docker-compose.local.yml --profile test up -d test-db --wait
+	docker compose -f docker-compose.test.yml up -d --wait
 	AGGRE_TEST_DATABASE_URL=postgresql+psycopg2://aggre:aggre@localhost:5433/aggre_test \
 		uv run pytest tests/ ; \
 	EXIT=$$? ; \
-	docker compose -f docker-compose.local.yml --profile test stop test-db ; \
-	docker compose -f docker-compose.local.yml --profile test rm -f test-db ; \
+	docker compose -f docker-compose.test.yml down ; \
 	exit $$EXIT
 
 lint:

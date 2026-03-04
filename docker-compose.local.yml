@@ -4,9 +4,6 @@
 # Dagster UI at http://localhost:3000
 # Grafana  at http://localhost:3002 (anonymous access, no login)
 # Data persists in ./data/postgres/ between runs.
-#
-# Test database (ephemeral):
-#   make test-e2e
 
 x-app-env: &app-env
   AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
@@ -45,22 +42,17 @@ services:
       timeout: 5s
       retries: 5
 
-  test-db:
-    image: postgres:16-alpine
-    profiles: [test]
-    environment:
-      POSTGRES_DB: aggre_test
-      POSTGRES_USER: aggre
-      POSTGRES_PASSWORD: aggre
+  garage:
+    image: dxflrs/garage:v1.1
     ports:
-      - "5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aggre"]
-      interval: 2s
-      timeout: 3s
-      retries: 10
-    tmpfs:
-      - /var/lib/postgresql/data
+      - "3900:3900"  # S3 API
+      - "3902:3902"  # Web
+      - "3903:3903"  # Admin
+    volumes:
+      - ./data/garage/meta:/var/lib/garage/meta
+      - ./data/garage/data:/var/lib/garage/data
+      - ./garage.local.toml:/etc/garage.toml:ro
+    restart: unless-stopped
 
   migrate:
     build: .

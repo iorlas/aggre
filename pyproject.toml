@@ -37,6 +37,7 @@ dev = [
     "polyfactory>=2.18",
     "hypothesis>=6.120",
     "inline-snapshot>=0.15",
+    "moto[s3]>=5.0",
 ]
 
 [project.scripts]

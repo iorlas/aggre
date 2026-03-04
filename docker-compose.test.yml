@@ -1,0 +1,18 @@
+# Ephemeral test database. Data is lost on container stop.
+# Usage: make test-e2e
+services:
+  test-db:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: aggre_test
+      POSTGRES_USER: aggre
+      POSTGRES_PASSWORD: aggre
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggre"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /var/lib/postgresql/data

@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from aggre.utils.bronze import (
+    FilesystemStore,
+    S3Store,
     bronze_exists,
     bronze_exists_by_url,
     bronze_path,
@@ -132,3 +134,77 @@ class TestBronzeByUrl:
     def test_read_raises_file_not_found(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             read_bronze_by_url("fetch", "https://missing.com", "response", "html", bronze_root=tmp_path)
+
+
+class TestS3StoreOperations:
+    @pytest.fixture()
+    def s3_store(self):
+        import boto3
+        from moto import mock_aws
+
+        with mock_aws():
+            client = boto3.client("s3", region_name="us-east-1")
+            client.create_bucket(Bucket="test-bronze")
+
+            # Build S3Store without __init__ to avoid creating a client
+            # with endpoint_url, which moto cannot intercept.
+            store = S3Store.__new__(S3Store)
+            store._bucket = "test-bronze"
+            store._s3 = client
+            yield store
+
+    def test_write_and_read_roundtrip(self, s3_store: S3Store) -> None:
+        s3_store.write("hackernews/12345/raw.json", '{"title": "hello"}')
+        result = s3_store.read("hackernews/12345/raw.json")
+        assert result == '{"title": "hello"}'
+
+    def test_exists_returns_false_when_missing(self, s3_store: S3Store) -> None:
+        assert s3_store.exists("hackernews/missing/raw.json") is False
+
+    def test_exists_returns_true_after_write(self, s3_store: S3Store) -> None:
+        s3_store.write("hackernews/12345/raw.json", "data")
+        assert s3_store.exists("hackernews/12345/raw.json") is True
+
+    def test_read_raises_file_not_found(self, s3_store: S3Store) -> None:
+        with pytest.raises(FileNotFoundError):
+            s3_store.read("hackernews/nonexistent/raw.json")
+
+    def test_local_path_returns_none(self, s3_store: S3Store) -> None:
+        assert s3_store.local_path("hackernews/12345/raw.json") is None
+
+    def test_write_read_unicode(self, s3_store: S3Store) -> None:
+        text = "Geist mit Umlauten: aou — emoji"
+        s3_store.write("rss/feed1/raw.txt", text)
+        assert s3_store.read("rss/feed1/raw.txt") == text
+
+
+class TestFilesystemStoreOperations:
+    @pytest.fixture()
+    def fs_store(self, tmp_path: Path) -> FilesystemStore:
+        return FilesystemStore(tmp_path)
+
+    def test_write_and_read_roundtrip(self, fs_store: FilesystemStore) -> None:
+        fs_store.write("hackernews/12345/raw.json", '{"title": "hello"}')
+        result = fs_store.read("hackernews/12345/raw.json")
+        assert result == '{"title": "hello"}'
+
+    def test_exists_returns_false_when_missing(self, fs_store: FilesystemStore) -> None:
+        assert fs_store.exists("hackernews/missing/raw.json") is False
+
+    def test_exists_returns_true_after_write(self, fs_store: FilesystemStore) -> None:
+        fs_store.write("hackernews/12345/raw.json", "data")
+        assert fs_store.exists("hackernews/12345/raw.json") is True
+
+    def test_read_raises_file_not_found(self, fs_store: FilesystemStore) -> None:
+        with pytest.raises(FileNotFoundError):
+            fs_store.read("hackernews/nonexistent/raw.json")
+
+    def test_local_path_returns_actual_path(self, fs_store: FilesystemStore, tmp_path: Path) -> None:
+        result = fs_store.local_path("hackernews/12345/raw.json")
+        assert result == tmp_path / "hackernews/12345/raw.json"
+
+    def test_write_atomic_no_tmp_lingers(self, fs_store: FilesystemStore, tmp_path: Path) -> None:
+        fs_store.write("hackernews/12345/raw.json", "data")
+        parent = tmp_path / "hackernews" / "12345"
+        tmp_files = list(parent.glob("*.tmp"))
+        assert tmp_files == []

@@ -9,6 +9,7 @@ import concurrent.futures
 import json
 import logging
 import threading
+from pathlib import Path
 
 import dagster as dg
 import sqlalchemy as sa
@@ -22,7 +23,7 @@ from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
 from aggre.tracking.status import Stage
-from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
+from aggre.utils.bronze import bronze_exists, get_store, read_bronze, write_bronze
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +81,13 @@ def _transcribe_one(
         return 1
 
     try:
-        # Check if audio already exists in bronze (from a previous partial run)
-        audio_dest = bronze_path("youtube", external_id, "audio", "opus")
+        # Check if audio already exists locally (from a previous partial run)
+        store = get_store()
+        audio_local = store.local_path(f"youtube/{external_id}/audio.opus")
+        if audio_local is None:
+            # S3 backend — use temp dir for audio download
+            audio_local = Path(config.settings.youtube_temp_dir) / external_id / "audio.opus"
+        audio_dest = audio_local
         if audio_dest.exists():
             logger.info("transcription.audio_cached external_id=%s", external_id)
         else:

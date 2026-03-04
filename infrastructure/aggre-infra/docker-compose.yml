@@ -3,7 +3,7 @@ services:
     image: ghcr.io/tailscale/tailscale:latest
     environment:
       TS_AUTHKEY: ${TS_AUTHKEY}
-      TS_HOSTNAME: aggre
+      TS_HOSTNAME: aggre-shen
       TS_STATE_DIR: /var/lib/tailscale
     volumes:
       - ./data/tailscale:/var/lib/tailscale

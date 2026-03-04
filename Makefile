@@ -9,7 +9,8 @@ test-e2e:
 	AGGRE_TEST_DATABASE_URL=postgresql+psycopg2://aggre:aggre@localhost:5433/aggre_test \
 		uv run pytest tests/ ; \
 	EXIT=$$? ; \
-	docker compose -f docker-compose.local.yml --profile test down test-db ; \
+	docker compose -f docker-compose.local.yml --profile test stop test-db ; \
+	docker compose -f docker-compose.local.yml --profile test rm -f test-db ; \
 	exit $$EXIT
 
 lint:
@@ -19,6 +20,9 @@ lint:
 
 validate:
 	uv run dagster definitions validate
+
+grafana:
+	docker compose -f docker-compose.local.yml up grafana -d
 
 verify:
 	bash .planning/verification/run.sh all

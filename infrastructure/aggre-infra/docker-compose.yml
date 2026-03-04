@@ -1,0 +1,36 @@
+services:
+  tailscale:
+    image: ghcr.io/tailscale/tailscale:latest
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_HOSTNAME: aggre
+      TS_STATE_DIR: /var/lib/tailscale
+    volumes:
+      - ./data/tailscale:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - net_admin
+      - sys_module
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    network_mode: service:tailscale
+    depends_on: [tailscale]
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aggre}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-aggre}
+    restart: unless-stopped
+
+  garage:
+    image: dxflrs/garage:v1.1
+    network_mode: service:tailscale
+    depends_on: [tailscale]
+    volumes:
+      - ./data/garage/meta:/var/lib/garage/meta
+      - ./data/garage/data:/var/lib/garage/data
+      - ./garage.toml:/etc/garage.toml
+    restart: unless-stopped

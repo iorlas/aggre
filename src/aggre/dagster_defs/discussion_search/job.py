@@ -1,4 +1,4 @@
-"""Enrichment job -- discover cross-source discussions.
+"""Discussion search job -- discover cross-source discussions.
 
 Note: ``from __future__ import annotations`` is omitted because Dagster's
 ``@op`` decorator inspects context-parameter type hints at decoration time and
@@ -14,7 +14,7 @@ from dagster import OpExecutionContext
 from aggre.collectors.base import SearchableCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.lobsters.collector import LobstersCollector
-from aggre.config import AppConfig, load_config
+from aggre.config import AppConfig
 from aggre.db import SilverContent
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
@@ -22,7 +22,7 @@ from aggre.tracking.status import Stage
 
 logger = logging.getLogger(__name__)
 
-ENRICHMENT_SKIP_DOMAINS = frozenset(
+DISCUSSION_SEARCH_SKIP_DOMAINS = frozenset(
     {
         "youtube.com",
         "m.youtube.com",
@@ -36,7 +36,7 @@ ENRICHMENT_SKIP_DOMAINS = frozenset(
 )
 
 
-def enrich_content_discussions(
+def search_content_discussions(
     engine: sa.engine.Engine,
     config: AppConfig,
     batch_limit: int = 50,
@@ -48,7 +48,7 @@ def enrich_content_discussions(
 
     Returns aggregate counts of new discussions found per platform.
     """
-    # Find content that hasn't been enriched yet
+    # Find content that hasn't been searched yet
     with engine.connect() as conn:
         rows = conn.execute(
             sa.select(SilverContent.id, SilverContent.canonical_url)
@@ -57,15 +57,15 @@ def enrich_content_discussions(
                 sa.and_(
                     StageTracking.source == "webpage",
                     StageTracking.external_id == SilverContent.canonical_url,
-                    StageTracking.stage == Stage.ENRICH,
+                    StageTracking.stage == Stage.DISCUSSION_SEARCH,
                 ),
             )
             .where(
                 SilverContent.canonical_url.isnot(None),
-                SilverContent.domain.notin_(ENRICHMENT_SKIP_DOMAINS),
+                SilverContent.domain.notin_(DISCUSSION_SEARCH_SKIP_DOMAINS),
                 sa.or_(
                     StageTracking.id.is_(None),
-                    retry_filter(StageTracking, Stage.ENRICH),
+                    retry_filter(StageTracking, Stage.DISCUSSION_SEARCH),
                 ),
             )
             .order_by(SilverContent.created_at.asc())
@@ -73,53 +73,57 @@ def enrich_content_discussions(
         ).fetchall()
 
     if not rows:
-        logger.info("enrich.no_pending")
+        logger.info("discussion_search.no_pending")
         return {"hackernews": 0, "lobsters": 0, "processed": 0}
 
-    logger.info("enrich.starting batch_size=%d", len(rows))
+    logger.info("discussion_search.starting batch_size=%d", len(rows))
 
     totals: dict[str, int] = {"hackernews": 0, "lobsters": 0, "processed": 0}
 
     for row in rows:
         totals["processed"] += 1
         content_url = row.canonical_url
-        logger.info("enrich.searching url=%s", content_url)
+        logger.info("discussion_search.searching url=%s", content_url)
 
         failed = False
+        hn_found = 0
+        lobsters_found = 0
 
         try:
             hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings)
             totals["hackernews"] += hn_found
         except Exception:
-            logger.exception("enrich.hn_search_failed url=%s", content_url)
+            logger.exception("discussion_search.hn_search_failed url=%s", content_url)
             failed = True
 
         try:
             lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings)
             totals["lobsters"] += lobsters_found
         except Exception:
-            logger.exception("enrich.lobsters_search_failed url=%s", content_url)
+            logger.exception("discussion_search.lobsters_search_failed url=%s", content_url)
             failed = True
 
-        if not failed:
-            upsert_done(engine, "webpage", content_url, Stage.ENRICH)
-        else:
-            upsert_failed(engine, "webpage", content_url, Stage.ENRICH, "partial failure")
+        logger.info("discussion_search.searched url=%s hackernews=%d lobsters=%d", content_url, hn_found, lobsters_found)
 
-    logger.info("enrich.complete totals=%s", totals)
+        if not failed:
+            upsert_done(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH)
+        else:
+            upsert_failed(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH, "partial failure")
+
+    logger.info("discussion_search.complete totals=%s", totals)
     return totals
 
 
 # -- Dagster ops and job -------------------------------------------------------
 
 
-@dg.op(required_resource_keys={"database"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def enrich_discussions_op(context: OpExecutionContext) -> dict[str, int]:
+@dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
+def discussion_search_op(context: OpExecutionContext) -> dict[str, int]:
     """Search HN and Lobsters for discussions about content URLs."""
-    cfg = load_config()
+    cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
 
-    return enrich_content_discussions(
+    return search_content_discussions(
         engine,
         cfg,
         hn_collector=HackernewsCollector(),
@@ -128,5 +132,5 @@ def enrich_discussions_op(context: OpExecutionContext) -> dict[str, int]:
 
 
 @dg.job
-def enrich_job() -> None:
-    enrich_discussions_op()
+def discussion_search_job() -> None:
+    discussion_search_op()

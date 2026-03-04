@@ -168,8 +168,8 @@
 - Discovers cross-source discussions for known content URLs
 - Queries each source API for discussions about a URL (SearchableCollector pattern)
 - Updates `SilverDiscussion` records with content_id foreign key
-- Domain skip list (`ENRICHMENT_SKIP_DOMAINS`): `youtube.com`, `m.youtube.com`, `youtu.be`, `i.redd.it`, `v.redd.it`, `linkedin.com`, `www.linkedin.com`
-- Implementation: `src/aggre/dagster_defs/enrichment/job.py`
+- Domain skip list (`DISCUSSION_SEARCH_SKIP_DOMAINS`): `youtube.com`, `m.youtube.com`, `youtu.be`, `i.redd.it`, `v.redd.it`, `linkedin.com`, `www.linkedin.com`
+- Implementation: `src/aggre/dagster_defs/discussion_search/job.py`
 
 ---
 

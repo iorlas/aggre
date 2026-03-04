@@ -67,12 +67,9 @@ def reprocess_from_bronze(
 @dg.op(required_resource_keys={"database"})
 def reprocess_bronze_op(context: OpExecutionContext) -> int:
     """Rebuild silver from bronze ref.json files."""
-    from aggre.config import load_config
-
-    load_config()
     engine = context.resources.database.get_engine()
     count = reprocess_from_bronze(engine)
-    context.log.info(f"Reprocessed {count} references from bronze")
+    logger.info("reprocess.complete discussions=%d", count)
     return count
 
 

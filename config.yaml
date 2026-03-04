@@ -18,6 +18,43 @@ rss:
       url: "http://blog.samaltman.com/posts.atom"
     - name: "HuggingFace Papers (Takara)"
       url: "https://tldr.takara.ai/api/papers"
+    # --- Practitioner/Researcher Blogs ---
+    - name: "Lilian Weng"
+      url: "https://lilianweng.github.io/index.xml"
+    - name: "Ahead of AI (Sebastian Raschka)"
+      url: "https://magazine.sebastianraschka.com/feed"
+    - name: "Interconnects (Nathan Lambert)"
+      url: "https://www.interconnects.ai/feed"
+    - name: "Chip Huyen"
+      url: "https://huyenchip.com/feed.xml"
+    - name: "Eugene Yan"
+      url: "https://eugeneyan.com/rss/"
+    - name: "Deep Learning Focus (Cameron Wolfe)"
+      url: "https://cameronrwolfe.substack.com/feed"
+    - name: "Vicki Boykis"
+      url: "https://vickiboykis.com/index.xml"
+    - name: "Andrej Karpathy"
+      url: "https://karpathy.bearblog.dev/feed/"
+    # --- Lab/Org Research Blogs ---
+    - name: "Google DeepMind"
+      url: "https://deepmind.google/blog/rss.xml"
+    - name: "OpenAI"
+      url: "https://openai.com/news/rss.xml"
+    - name: "Anthropic"
+      url: "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml"
+    - name: "Meta FAIR"
+      url: "https://engineering.fb.com/category/ai-research/feed/"
+    - name: "Microsoft Research"
+      url: "https://www.microsoft.com/en-us/research/feed/"
+    - name: "fast.ai"
+      url: "https://www.fast.ai/index.xml"
+    # --- Curated Digests ---
+    - name: "AlphaSignal"
+      url: "https://alphasignalai.substack.com/feed"
+    - name: "BAIR Blog"
+      url: "https://bair.berkeley.edu/blog/feed.xml"
+    - name: "The Gradient"
+      url: "https://thegradient.pub/rss/"
 
 reddit:
   fetch_limit: 100
@@ -337,6 +374,10 @@ youtube:
       name: "StarMorph AI"
     - channel_id: "UCJS9pqu9BzkAMNTmzNMNhvg"
       name: "Google Cloud Tech"
+    - channel_id: "UCPbwhExawYrn9xxI21TFfyw"
+      name: "The Pragmatic Engineer"
+    - channel_id: "UC2ojq-nuP8ceeHqiroeKhBA"
+      name: "Nate Herk"
 
 hackernews:
   fetch_limit: 100

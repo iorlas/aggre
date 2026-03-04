@@ -1,4 +1,4 @@
-"""Tests for the URL enrichment module."""
+"""Tests for the discussion search module."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
-from aggre.dagster_defs.enrichment.job import enrich_content_discussions
+from aggre.dagster_defs.discussion_search.job import search_content_discussions
 from aggre.tracking.ops import upsert_done
 from aggre.tracking.status import Stage, StageStatus
 from tests.factories import make_config, seed_content
@@ -17,7 +17,7 @@ from tests.helpers import assert_tracking
 pytestmark = pytest.mark.integration
 
 
-class TestEnrichment:
+class TestDiscussionSearch:
     def test_enriches_content(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource()]),
@@ -32,7 +32,7 @@ class TestEnrichment:
         mock_lob = MagicMock()
         mock_lob.search_by_url.return_value = 1
 
-        results = enrich_content_discussions(
+        results = search_content_discussions(
             engine,
             config,
             batch_limit=50,
@@ -45,17 +45,17 @@ class TestEnrichment:
         mock_hn.search_by_url.assert_called_once_with("https://example.com/article", engine, config.hackernews, config.settings)
         mock_lob.search_by_url.assert_called_once_with("https://example.com/article", engine, config.lobsters, config.settings)
 
-        # Check enrichment tracking was set
-        assert_tracking(engine, "webpage", "https://example.com/article", Stage.ENRICH, StageStatus.DONE)
+        # Check discussion search tracking was set
+        assert_tracking(engine, "webpage", "https://example.com/article", Stage.DISCUSSION_SEARCH, StageStatus.DONE)
 
-    def test_skips_already_enriched(self, engine):
+    def test_skips_already_searched(self, engine):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource()]),
             lobsters=LobstersConfig(sources=[LobstersSource()]),
         )
 
         seed_content(engine, "https://example.com/old", domain="example.com")
-        upsert_done(engine, "webpage", "https://example.com/old", Stage.ENRICH)
+        upsert_done(engine, "webpage", "https://example.com/old", Stage.DISCUSSION_SEARCH)
 
         mock_hn = MagicMock()
         mock_hn.search_by_url.return_value = 0
@@ -63,7 +63,7 @@ class TestEnrichment:
         mock_lob = MagicMock()
         mock_lob.search_by_url.return_value = 0
 
-        results = enrich_content_discussions(
+        results = search_content_discussions(
             engine,
             config,
             batch_limit=50,
@@ -90,7 +90,7 @@ class TestEnrichment:
         mock_lob = MagicMock()
         mock_lob.search_by_url.return_value = 0
 
-        results = enrich_content_discussions(
+        results = search_content_discussions(
             engine,
             config,
             batch_limit=3,
@@ -117,7 +117,7 @@ class TestEnrichment:
         mock_lob = MagicMock()
         mock_lob.search_by_url.return_value = 1
 
-        results = enrich_content_discussions(
+        results = search_content_discussions(
             engine,
             config,
             batch_limit=50,
@@ -129,7 +129,7 @@ class TestEnrichment:
         assert results == {"hackernews": 0, "lobsters": 1, "processed": 1}
 
         # Content should be marked as failed (will be retried next batch)
-        assert_tracking(engine, "webpage", "https://example.com/fail", Stage.ENRICH, StageStatus.FAILED)
+        assert_tracking(engine, "webpage", "https://example.com/fail", Stage.DISCUSSION_SEARCH, StageStatus.FAILED)
 
     def test_skips_reddit_domain_content(self, engine):
         config = make_config(
@@ -142,7 +142,7 @@ class TestEnrichment:
         mock_hn = MagicMock()
         mock_lob = MagicMock()
 
-        results = enrich_content_discussions(
+        results = search_content_discussions(
             engine,
             config,
             batch_limit=50,
@@ -164,7 +164,7 @@ class TestEnrichment:
         mock_hn = MagicMock()
         mock_lob = MagicMock()
 
-        results = enrich_content_discussions(
+        results = search_content_discussions(
             engine,
             config,
             batch_limit=50,

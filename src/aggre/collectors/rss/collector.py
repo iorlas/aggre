@@ -69,7 +69,7 @@ class RssCollector(BaseCollector):
                 )
 
             self._update_last_fetched(engine, source_id)
-            logger.info("rss.references_collected name=%s count=%d", rss_source.name, len(feed.entries))
+            logger.info("rss.discussions_collected name=%s count=%d", rss_source.name, len(feed.entries))
 
         return refs
 

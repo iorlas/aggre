@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     whisper_model_cache: str = "./data/models"
     proxy_url: str = ""
     browserless_url: str = ""
+    # Bronze storage backend
+    bronze_backend: str = "filesystem"  # "filesystem" or "s3"
+    bronze_root: str = "./data/bronze"
+    bronze_s3_endpoint: str = ""
+    bronze_s3_bucket: str = "bronze"
+    bronze_s3_access_key: str = ""
+    bronze_s3_secret_key: str = ""
     # Rate limits (operational, stay as env vars)
     reddit_rate_limit: float = 3.0
     hn_rate_limit: float = 1.0

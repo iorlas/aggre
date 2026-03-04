@@ -196,6 +196,86 @@ class TestDownloadContent:
         assert_tracking(engine, "webpage", "https://example.com/article", Stage.DOWNLOAD, StageStatus.DONE)
 
 
+class TestBrowserlessDownload:
+    """Tests for the browserless /function endpoint integration."""
+
+    def test_browserless_success_stores_html(self, engine, mock_http):
+        config = make_config(browserless_url="http://browserless:3000")
+        seed_content(engine, "https://example.com/article", domain="example.com")
+
+        mock_http.post("http://browserless:3000/function").respond(
+            json={"data": {"status": 200, "html": "<html><body><p>Real content</p></body></html>"}},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(engine, "webpage", "https://example.com/article", Stage.DOWNLOAD, StageStatus.DONE)
+
+    def test_browserless_403_marks_failed(self, engine, mock_http):
+        config = make_config(browserless_url="http://browserless:3000")
+        seed_content(engine, "https://example.com/blocked", domain="example.com")
+
+        mock_http.post("http://browserless:3000/function").respond(
+            json={"data": {"status": 403, "html": "<html><body>Cloudflare challenge</body></html>"}},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(
+            engine,
+            "webpage",
+            "https://example.com/blocked",
+            Stage.DOWNLOAD,
+            StageStatus.FAILED,
+            error_contains="Cloudflare challenge",
+        )
+
+    def test_browserless_429_marks_failed(self, engine, mock_http):
+        config = make_config(browserless_url="http://browserless:3000")
+        seed_content(engine, "https://example.com/ratelimited", domain="example.com")
+
+        mock_http.post("http://browserless:3000/function").respond(
+            json={"data": {"status": 429, "html": "<html><body>Too Many Requests</body></html>"}},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(engine, "webpage", "https://example.com/ratelimited", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="HTTP 429")
+
+    def test_browserless_service_400_stores_response_body(self, engine, mock_http):
+        config = make_config(browserless_url="http://browserless:3000")
+        seed_content(engine, "https://example.com/ssl-fail", domain="example.com")
+        mock_http.post("http://browserless:3000/function").respond(
+            status_code=400,
+            text="BadRequest: net::ERR_CERT_AUTHORITY_INVALID at https://example.com/ssl-fail",
+        )
+        download_content(engine, config)
+        assert_tracking(
+            engine,
+            "webpage",
+            "https://example.com/ssl-fail",
+            Stage.DOWNLOAD,
+            StageStatus.FAILED,
+            error_contains="ERR_CERT_AUTHORITY_INVALID",
+        )
+
+    def test_browserless_service_error(self, engine, mock_http):
+        config = make_config(browserless_url="http://browserless:3000")
+        seed_content(engine, "https://example.com/service-down", domain="example.com")
+
+        mock_http.post("http://browserless:3000/function").mock(side_effect=Exception("Connection refused"))
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(
+            engine, "webpage", "https://example.com/service-down", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="Connection refused"
+        )
+
+
 class TestExtractHtmlText:
     def test_no_downloaded_returns_zero(self, engine):
         config = make_config()
@@ -231,6 +311,39 @@ class TestExtractHtmlText:
             assert row.title == "Test Article"
 
         assert_tracking(engine, "webpage", "https://example.com/article", Stage.EXTRACT, StageStatus.DONE)
+
+    def test_trafilatura_returns_none_marks_failed(self, engine):
+        config = make_config()
+
+        html = "<html><body><nav>Menu only</nav></body></html>"
+        seed_content(engine, "https://example.com/empty-page", domain="example.com")
+        upsert_done(engine, "webpage", "https://example.com/empty-page", Stage.DOWNLOAD)
+
+        from aggre.utils.bronze import write_bronze_by_url
+
+        write_bronze_by_url("webpage", "https://example.com/empty-page", "response", html, "html")
+
+        with (
+            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value=None),
+            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata", return_value=None),
+        ):
+            count = extract_html_text(engine, config)
+
+        assert count == 1
+
+        assert_tracking(
+            engine,
+            "webpage",
+            "https://example.com/empty-page",
+            Stage.EXTRACT,
+            StageStatus.FAILED,
+            error_contains="no_extractable_content",
+        )
+
+        # text must remain NULL
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent)).fetchone()
+            assert row.text is None
 
     def test_handles_extraction_error(self, engine):
         config = make_config()
@@ -276,3 +389,119 @@ class TestExtractHtmlText:
             count = extract_html_text(engine, config, batch_limit=3)
 
         assert count == 3
+
+    def test_missing_bronze_file_marks_failed(self, engine):
+        config = make_config()
+
+        seed_content(engine, "https://example.com/orphaned", domain="example.com")
+        upsert_done(engine, "webpage", "https://example.com/orphaned", Stage.DOWNLOAD)
+
+        # No bronze HTML written — simulates orphaned file after source rename
+        count = extract_html_text(engine, config)
+
+        assert count == 1
+        assert_tracking(
+            engine,
+            "webpage",
+            "https://example.com/orphaned",
+            Stage.EXTRACT,
+            StageStatus.FAILED,
+            error_contains="No such file",
+        )
+
+
+WAYBACK_API_URL = "https://archive.org/wayback/available"
+ARCHIVE_URL = "https://web.archive.org/web/20240101000000/https://example.com/article"
+WAYBACK_SNAPSHOT = {
+    "archived_snapshots": {
+        "closest": {
+            "available": True,
+            "url": ARCHIVE_URL,
+            "timestamp": "20240101000000",
+            "status": "200",
+        }
+    }
+}
+WAYBACK_NO_SNAPSHOT = {"archived_snapshots": {}}
+
+
+class TestWaybackFallback:
+    def test_wayback_on_connection_error(self, engine, mock_http):
+        """Direct fetch raises Exception → Wayback returns HTML → status=DONE, bronze written."""
+        config = make_config()
+        seed_content(engine, "https://example.com/wayback-conn-err", domain="example.com")
+
+        mock_http.get("https://example.com/wayback-conn-err").mock(side_effect=Exception("Connection reset"))
+        mock_http.get(WAYBACK_API_URL).respond(json=WAYBACK_SNAPSHOT)
+        mock_http.get(ARCHIVE_URL).respond(
+            text="<html><body><p>Archived content</p></body></html>",
+            headers={"content-type": "text/html"},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(engine, "webpage", "https://example.com/wayback-conn-err", Stage.DOWNLOAD, StageStatus.DONE)
+
+    def test_wayback_on_target_http_error(self, engine, mock_http):
+        """Browserless returns 403 → Wayback returns HTML → status=DONE."""
+        config = make_config(browserless_url="http://browserless:3000")
+        seed_content(engine, "https://example.com/wayback-403", domain="example.com")
+
+        mock_http.post("http://browserless:3000/function").respond(
+            json={"data": {"status": 403, "html": "<html>Blocked</html>"}},
+        )
+        mock_http.get(WAYBACK_API_URL).respond(json=WAYBACK_SNAPSHOT)
+        mock_http.get(ARCHIVE_URL).respond(
+            text="<html><body><p>Archived content</p></body></html>",
+            headers={"content-type": "text/html"},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(engine, "webpage", "https://example.com/wayback-403", Stage.DOWNLOAD, StageStatus.DONE)
+
+    def test_wayback_skipped_for_404(self, engine, mock_http):
+        """Browserless returns 404 → no Wayback attempt, status=FAILED."""
+        config = make_config(browserless_url="http://browserless:3000")
+        seed_content(engine, "https://example.com/gone", domain="example.com")
+
+        mock_http.post("http://browserless:3000/function").respond(
+            json={"data": {"status": 404, "html": "<html>Not Found</html>"}},
+        )
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(engine, "webpage", "https://example.com/gone", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="HTTP 404")
+
+    def test_wayback_unavailable_still_fails(self, engine, mock_http):
+        """Direct fetch fails, Wayback API returns no snapshot → status=FAILED."""
+        config = make_config()
+        seed_content(engine, "https://example.com/no-wayback", domain="example.com")
+
+        mock_http.get("https://example.com/no-wayback").mock(side_effect=Exception("DNS failure"))
+        mock_http.get(WAYBACK_API_URL).respond(json=WAYBACK_NO_SNAPSHOT)
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(
+            engine, "webpage", "https://example.com/no-wayback", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="DNS failure"
+        )
+
+    def test_wayback_api_error_still_fails(self, engine, mock_http):
+        """Direct fetch fails, Wayback API itself errors → status=FAILED."""
+        config = make_config()
+        seed_content(engine, "https://example.com/wayback-down", domain="example.com")
+
+        mock_http.get("https://example.com/wayback-down").mock(side_effect=Exception("SSL error"))
+        mock_http.get(WAYBACK_API_URL).mock(side_effect=Exception("Wayback down"))
+
+        count = download_content(engine, config)
+        assert count == 1
+
+        assert_tracking(
+            engine, "webpage", "https://example.com/wayback-down", Stage.DOWNLOAD, StageStatus.FAILED, error_contains="SSL error"
+        )

@@ -2,6 +2,7 @@
 # Usage: make dev  (or: docker compose -f docker-compose.local.yml up --build --watch)
 #
 # Dagster UI at http://localhost:3000
+# Grafana  at http://localhost:3002 (anonymous access, no login)
 # Data persists in ./data/postgres/ between runs.
 #
 # Test database (ephemeral):
@@ -99,4 +100,20 @@ services:
       migrate:
         condition: service_completed_successfully
       browserless:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana-oss:11.6.0
+    ports:
+      - "3002:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/pipeline-overview.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      postgres:
         condition: service_healthy

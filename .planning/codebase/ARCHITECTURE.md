@@ -9,7 +9,7 @@
 ```
   Schedule (hourly)          Sensors (30-60s poll)
        |                /       |        \        \
-  collect_job     webpage  transcribe  enrich  comments
+  collect_job     webpage  transcribe  discussion_search  comments
        |            job      job        job      job
        v            v        v          v        v
   [Collectors]  [Download→ [yt-dlp→  [Search  [Fetch HN/
@@ -17,7 +17,7 @@
    RSS/YT/etc]      |         |         |      comments]
        |            v         v         v        v
        v        SilverContent           SC    SilverDisc
-  SilverDisc       .text       .text  .enriched  .comments_json
+  SilverDisc       .text       .text  .discussion_searched  .comments_json
   + SilverContent .title   .detected_lang  _at
     (via ensure_content)
 
@@ -27,7 +27,7 @@
 **Key Characteristics:**
 - Dagster-first orchestration: jobs, sensors, schedules, resource injection
 - Framework-first architecture: business logic lives in dagster_defs ops/jobs, no separate pipeline layer
-- Domain-aligned dagster_defs packages (collection, comments, webpage, enrichment, reprocess, transcription)
+- Domain-aligned dagster_defs packages (collection, comments, webpage, discussion_searchment, reprocess, transcription)
 - Immutable raw data in bronze filesystem (JSON files)
 - Parsed discussions (SilverDiscussion) with optional mutable field updates
 - Content-independent entity (SilverContent) linked from multiple discussions
@@ -66,7 +66,7 @@
 - Location: `src/aggre/collectors/`
 - Contains: BaseCollector shared helpers, individual collectors (HackerNews, Reddit, RSS, YouTube, Lobsters, HuggingFace, Telegram)
 - Depends on: db, config, urls, utils/http
-- Used by: Dagster collection job, enrichment module
+- Used by: Dagster collection job, discussion_searchment module
 
 **Utilities:**
 - Purpose: Generic reusable helpers with zero Aggre-specific logic
@@ -120,13 +120,13 @@
    - Success: store `text` (transcript) + `detected_language`
    - Failure: set `error` with error message
 
-**Enrichment Flow (Dagster enrich_job, triggered by enrichment_sensor):**
+**Discussion Search Flow (Dagster discussion_search_job, triggered by discussion_searchment_sensor):**
 
-1. `enrichment_sensor` watches for SilverContent where `text IS NOT NULL AND canonical_url IS NOT NULL AND enriched_at IS NULL`
-2. `enrich_job` runs:
+1. `discussion_searchment_sensor` watches for SilverContent where `text IS NOT NULL AND canonical_url IS NOT NULL AND discussion_searched_at IS NULL`
+2. `discussion_search_job` runs:
    - HackernewsCollector.search_by_url() → discover HN discussions
    - LobstersCollector.search_by_url() → discover Lobsters discussions
-   - After both succeed: SilverContent.enriched_at = now()
+   - After both succeed: SilverContent.discussion_searched_at = now()
 
 **Reprocess Flow (Dagster reprocess_job, manual trigger):**
 
@@ -217,7 +217,7 @@ Pipeline concurrency invariants (sensor exclusion, state transitions, null-check
 **Idempotency:**
 - Duplicates: SilverDiscussion dedup via (source_type, external_id) unique constraint
 - Score/title updates: SilverDiscussion upserts mutable fields on re-insert
-- Content enrichment: Tracked via enriched_at flag to avoid re-searching
+- Content discussion_searchment: Tracked via discussion_searched_at flag to avoid re-searching
 
 ---
 

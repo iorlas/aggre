@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: PostgreSQL
+    type: grafana-postgresql-datasource
+    uid: postgres
+    access: proxy
+    url: postgres:5432
+    database: aggre
+    user: aggre
+    isDefault: true
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 2
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    secureJsonData:
+      password: aggre
+    editable: false

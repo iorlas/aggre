@@ -77,7 +77,7 @@ class LobstersCollector(BaseCollector):
                     self._write_bronze(short_id, story)
                     refs.append(DiscussionRef(external_id=short_id, raw_data=story, source_id=source_id))
 
-                logger.info("lobsters.references_collected count=%d", len(stories_by_id))
+                logger.info("lobsters.discussions_collected count=%d", len(stories_by_id))
                 self._update_last_fetched(engine, source_id)
 
         return refs

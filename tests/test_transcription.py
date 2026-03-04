@@ -23,7 +23,12 @@ def _get_content(engine: sa.engine.Engine, content_id: int) -> sa.engine.Row:
         return conn.execute(sa.select(SilverContent).where(SilverContent.id == content_id)).fetchone()
 
 
-def _seed_youtube(engine: sa.engine.Engine, external_id: str = "abc123", title: str = "Test Video") -> int:
+def _seed_youtube(
+    engine: sa.engine.Engine,
+    external_id: str = "abc123",
+    title: str = "Test Video",
+    meta: str | None = None,
+) -> int:
     """Seed a SilverContent + SilverDiscussion pair for a YouTube video. Returns content_id."""
     content_id = seed_content(
         engine,
@@ -36,6 +41,7 @@ def _seed_youtube(engine: sa.engine.Engine, external_id: str = "abc123", title: 
         external_id=external_id,
         content_id=content_id,
         title=title,
+        meta=meta,
     )
     return content_id
 
@@ -285,6 +291,54 @@ class TestTranscribe:
 
         assert call_args[0][4] == "json"
 
+    def test_skips_long_video(self, engine):
+        """Videos longer than 30 minutes are skipped via stage_tracking."""
+        meta = json.dumps({"duration": 3600, "channel_id": "UC123"})
+        _seed_youtube(engine, external_id="long01", title="Long Video", meta=meta)
+        config = make_config()
+
+        result = transcribe(engine, config)
+        assert result == 0
+
+        assert_tracking(engine, "youtube", "long01", Stage.TRANSCRIBE, StageStatus.SKIPPED)
+
+    def test_processes_short_video_with_duration(self, engine, tmp_path):
+        """Videos under 30 minutes are NOT skipped."""
+        meta = json.dumps({"duration": 1200, "channel_id": "UC123"})
+        _seed_youtube(engine, external_id="short01", title="Short Video", meta=meta)
+        config = make_config()
+
+        # Use cached whisper.json path to avoid download
+        with (
+            patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=True),
+            patch(
+                "aggre.dagster_defs.transcription.job.read_bronze",
+                return_value=json.dumps({"transcript": "Short transcript", "language": "en"}),
+            ),
+        ):
+            result = transcribe(engine, config)
+
+        assert result == 1
+        assert_tracking(engine, "youtube", "short01", Stage.TRANSCRIBE, StageStatus.DONE)
+
+    def test_processes_video_without_duration(self, engine, tmp_path):
+        """Videos with no duration in meta are NOT skipped."""
+        meta = json.dumps({"channel_id": "UC123"})
+        _seed_youtube(engine, external_id="nodur01", title="No Duration", meta=meta)
+        config = make_config()
+
+        with (
+            patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=True),
+            patch(
+                "aggre.dagster_defs.transcription.job.read_bronze",
+                return_value=json.dumps({"transcript": "Transcript", "language": "en"}),
+            ),
+        ):
+            result = transcribe(engine, config)
+
+        assert result == 1
+        assert_tracking(engine, "youtube", "nodur01", Stage.TRANSCRIBE, StageStatus.DONE)
+
     @patch("aggre.dagster_defs.transcription.job.write_bronze")
     @patch("aggre.dagster_defs.transcription.job.bronze_path")
     @patch("aggre.dagster_defs.transcription.job.bronze_exists", return_value=False)
@@ -315,3 +369,32 @@ class TestTranscribe:
             assert len(rows) == 2
 
         assert mock_model.transcribe.call_count == 2
+
+    @patch("aggre.dagster_defs.transcription.job.write_bronze")
+    @patch("aggre.dagster_defs.transcription.job.read_bronze")
+    @patch("aggre.dagster_defs.transcription.job.bronze_exists")
+    def test_processes_shorter_videos_first(self, mock_exists, mock_read, mock_write, engine):
+        """Duration-based ordering: shorter videos are processed before longer ones."""
+        # Seed 3 videos with different durations
+        _seed_youtube(engine, external_id="long01", title="Long Video", meta=json.dumps({"duration": 1800}))
+        _seed_youtube(engine, external_id="short01", title="Short Video", meta=json.dumps({"duration": 120}))
+        _seed_youtube(engine, external_id="nodur01", title="No Duration", meta=json.dumps({"channel_id": "UC123"}))
+
+        config = make_config()
+        cached_data = json.dumps({"transcript": "Transcript", "language": "en"})
+        mock_exists.return_value = True
+        mock_read.return_value = cached_data
+
+        # batch_limit=1: only the shortest-duration video should be processed
+        result = transcribe(engine, config, batch_limit=1)
+        assert result == 1
+
+        # short01 (120s) should be processed first
+        with engine.connect() as conn:
+            rows = conn.execute(sa.select(SilverContent).where(SilverContent.text.isnot(None))).fetchall()
+            assert len(rows) == 1
+            # Find which discussion was transcribed by checking content_id
+            from aggre.db import SilverDiscussion
+
+            disc = conn.execute(sa.select(SilverDiscussion.external_id).where(SilverDiscussion.content_id == rows[0].id)).fetchone()
+            assert disc.external_id == "short01"

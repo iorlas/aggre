@@ -15,6 +15,7 @@ Read the relevant docs first:
 - **Before changing deps:** `.planning/codebase/STACK.md` — tech stack, versions, configuration
 - **Before touching integrations:** `.planning/codebase/INTEGRATIONS.md` — external APIs, auth, rate limits
 - **Before touching data layers:** `docs/guidelines/medallion.md` — medallion architecture, bronze/silver patterns
+- **Before adding processing logic:** `docs/guidelines/component-contracts.md` — input accountability, disposition tracking
 - **Before changing concurrency/pipeline:** `docs/guidelines/formal-verification.md` — TLA+ specs, spec-first workflow
 - **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
 

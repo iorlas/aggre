@@ -46,11 +46,16 @@ class HackernewsCollector(BaseCollector):
                 logger.info("hackernews.collecting name=%s", hn_source.name)
                 source_id = self._ensure_source(engine, hn_source.name)
 
-                url = f"{HN_ALGOLIA_BASE}/search_by_date?tags=story,front_page&hitsPerPage={config.fetch_limit}"
                 time.sleep(rate_limit)
 
                 try:
-                    resp = client.get(url)
+                    resp = client.get(
+                        f"{HN_ALGOLIA_BASE}/search_by_date",
+                        params={
+                            "tags": "story,front_page",
+                            "hitsPerPage": config.fetch_limit,
+                        },
+                    )
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception:
@@ -72,7 +77,7 @@ class HackernewsCollector(BaseCollector):
                         )
                     )
 
-                logger.info("hackernews.references_collected count=%d", len(hits))
+                logger.info("hackernews.discussions_collected count=%d", len(hits))
                 self._update_last_fetched(engine, source_id)
 
         return refs
@@ -185,10 +190,16 @@ class HackernewsCollector(BaseCollector):
         new_count = 0
 
         with create_http_client(proxy_url=settings.proxy_url or None) as client:
-            search_url = f"{HN_ALGOLIA_BASE}/search?query={url}&tags=story&restrictSearchableAttributes=url"
             time.sleep(rate_limit)
 
-            resp = client.get(search_url)
+            resp = client.get(
+                f"{HN_ALGOLIA_BASE}/search",
+                params={
+                    "query": url,
+                    "tags": "story",
+                    "restrictSearchableAttributes": "url",
+                },
+            )
             if resp.status_code == 404:
                 return 0
             resp.raise_for_status()

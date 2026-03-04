@@ -43,7 +43,7 @@ Imports form a DAG with three layers:
 ```
 Layer 3 (composition root): cli.py, config.py
   ↓ imports from
-Layer 2 (business modules): collectors/*, dagster_defs/content/, dagster_defs/transcription/, dagster_defs/enrichment/
+Layer 2 (business modules): collectors/*, dagster_defs/content/, dagster_defs/transcription/, dagster_defs/discussion_search/
   ↓ imports from
 Layer 1 (infrastructure): db.py, urls.py, utils/http.py, settings.py
 ```

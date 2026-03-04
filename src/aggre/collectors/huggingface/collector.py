@@ -66,7 +66,7 @@ class HuggingfaceCollector(BaseCollector):
                         )
                     )
 
-                logger.info("huggingface.references_collected count=%d total_seen=%d", len(refs), len(papers))
+                logger.info("huggingface.discussions_collected count=%d total_seen=%d", len(refs), len(papers))
                 self._update_last_fetched(engine, source_id)
 
         return refs

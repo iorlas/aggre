@@ -10,7 +10,7 @@ import pytest
 import sqlalchemy as sa
 
 from aggre.dagster_defs.comments.sensor import comments_sensor
-from aggre.dagster_defs.enrichment.sensor import enrichment_sensor
+from aggre.dagster_defs.discussion_search.sensor import discussion_search_sensor
 from aggre.dagster_defs.resources import DatabaseResource
 from aggre.dagster_defs.transcription.sensor import transcription_sensor
 from aggre.dagster_defs.webpage.sensor import webpage_sensor
@@ -159,19 +159,19 @@ class TestTranscriptionSensor:
 
 
 # ---------------------------------------------------------------------------
-# enrichment_sensor
+# discussion_search_sensor
 # ---------------------------------------------------------------------------
 
 
-class TestEnrichmentSensor:
+class TestDiscussionSearchSensor:
     def test_skips_when_job_running(self, engine):
         ctx = _sensor_context(active_runs=[MagicMock()])
-        result = _run_sensor(enrichment_sensor, ctx, _database(engine))
+        result = _run_sensor(discussion_search_sensor, ctx, _database(engine))
         assert "already running" in _skip_message(result)
         assert not result.run_requests
-        assert ctx.instance.get_runs.call_args.kwargs["filters"].job_name == "enrich_job"
+        assert ctx.instance.get_runs.call_args.kwargs["filters"].job_name == "discussion_search_job"
 
-    def test_triggers_when_text_set_but_not_enriched(self, engine):
+    def test_triggers_when_text_set_but_not_searched(self, engine):
         with engine.begin() as conn:
             conn.execute(
                 sa.insert(SilverContent).values(
@@ -181,16 +181,16 @@ class TestEnrichmentSensor:
                 )
             )
         ctx = _sensor_context()
-        result = _run_sensor(enrichment_sensor, ctx, _database(engine))
+        result = _run_sensor(discussion_search_sensor, ctx, _database(engine))
         assert result.run_requests and len(result.run_requests) == 1
 
     def test_skips_when_no_work(self, engine):
         ctx = _sensor_context()
-        result = _run_sensor(enrichment_sensor, ctx, _database(engine))
+        result = _run_sensor(discussion_search_sensor, ctx, _database(engine))
         assert "No content" in _skip_message(result)
 
-    def test_skips_already_enriched_content(self, engine):
-        """Content with text but already enriched should not trigger."""
+    def test_skips_already_searched_content(self, engine):
+        """Content with text but already searched should not trigger."""
         with engine.begin() as conn:
             conn.execute(
                 sa.insert(SilverContent).values(
@@ -199,9 +199,9 @@ class TestEnrichmentSensor:
                     text="Some text",
                 )
             )
-        upsert_done(engine, "webpage", "https://example.com", Stage.ENRICH)
+        upsert_done(engine, "webpage", "https://example.com", Stage.DISCUSSION_SEARCH)
         ctx = _sensor_context()
-        result = _run_sensor(enrichment_sensor, ctx, _database(engine))
+        result = _run_sensor(discussion_search_sensor, ctx, _database(engine))
         assert "No content" in _skip_message(result)
 
 

@@ -82,7 +82,7 @@ class TestAlembicMigration:
         sc_indexes = {idx["name"] for idx in inspector.get_indexes("silver_content")}
         assert "idx_silver_content_domain" in sc_indexes
         assert "idx_content_text_null" in sc_indexes
-        assert "idx_content_needs_enrich" in sc_indexes
+        assert "idx_content_needs_discussion_search" in sc_indexes
 
         # Verify indexes on stage_tracking
         st_indexes = {idx["name"] for idx in inspector.get_indexes("stage_tracking")}

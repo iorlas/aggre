@@ -60,7 +60,7 @@ class SilverDiscussion(Base):
 sa.Index("idx_silver_content_domain", SilverContent.domain, postgresql_where=SilverContent.domain.isnot(None))
 sa.Index("idx_content_text_null", SilverContent.id, postgresql_where=SilverContent.text.is_(None))
 sa.Index(
-    "idx_content_needs_enrich",
+    "idx_content_needs_discussion_search",
     SilverContent.id,
     postgresql_where=sa.and_(SilverContent.text.isnot(None), SilverContent.canonical_url.isnot(None)),
 )

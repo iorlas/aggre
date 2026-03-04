@@ -33,11 +33,11 @@ tables:
       fetched_at:             { type: text, nullable: true, description: "ISO 8601 — when content was fetched (intermediate marker between download and extraction)" }
       created_at:             { type: text, default: "now()", description: "ISO 8601 timestamp" }
       detected_language:      { type: text, nullable: true, description: "ISO language code from whisper" }
-      enriched_at:            { type: text, nullable: true, description: "ISO 8601 — when HN/Lobsters enrichment was run for this URL" }
+      enriched_at:            { type: text, nullable: true, description: "ISO 8601 — when discussion search was run for this URL" }
     indexes:
       - idx_silver_content_domain: { columns: [domain], where: "domain IS NOT NULL" }
       - idx_content_needs_processing: { columns: [id], where: "text IS NULL AND error IS NULL" }
-      - idx_silver_content_enriched_at: { columns: [enriched_at], where: "enriched_at IS NULL" }
+      - idx_content_needs_discussion_search: { columns: [id], where: "text IS NOT NULL AND canonical_url IS NOT NULL" }
 
   silver_discussions:
     description: >
@@ -137,7 +137,7 @@ Cast with `meta::jsonb` before querying.
 
 7. **YouTube `score` is NULL** — YouTube view counts are in `meta::jsonb->>'view_count'`, not in the `score` column.
 
-8. **Enrichment creates discussions** — the enrichment process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_discussions` rows. Check `silver_content.enriched_at IS NOT NULL` to find content that has been enriched.
+8. **Discussion search creates discussions** — the discussion search process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_discussions` rows. Check `silver_content.enriched_at IS NOT NULL` to find content that has been searched.
 
 ---
 
@@ -373,16 +373,16 @@ GROUP BY state;
 SELECT source_type, COUNT(*) FROM silver_discussions GROUP BY source_type ORDER BY count DESC;
 ```
 
-**Enrichment coverage:**
+**Discussion search coverage:**
 ```sql
--- How many content URLs have been enriched
+-- How many content URLs have been searched for discussions
 SELECT
-  CASE WHEN enriched_at IS NOT NULL THEN 'enriched' ELSE 'not_enriched' END AS status,
+  CASE WHEN enriched_at IS NOT NULL THEN 'searched' ELSE 'not_searched' END AS status,
   COUNT(*)
 FROM silver_content
 GROUP BY status;
 
--- Content enriched but no cross-platform discussions found
+-- Content searched but no cross-platform discussions found
 SELECT sc.canonical_url, sc.domain, sc.title
 FROM silver_content sc
 LEFT JOIN silver_discussions sd ON sd.content_id = sc.id

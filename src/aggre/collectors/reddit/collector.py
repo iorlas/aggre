@@ -122,7 +122,7 @@ class RedditCollector(BaseCollector):
                         )
                     )
 
-                logger.info("reddit.refs_collected subreddit=%s count=%d", sub, len(posts_by_id))
+                logger.info("reddit.discussions_collected subreddit=%s count=%d", sub, len(posts_by_id))
                 self._update_last_fetched(engine, source_id)
 
         return refs

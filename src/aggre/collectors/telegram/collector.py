@@ -99,7 +99,7 @@ class TelegramCollector(BaseCollector):
             self._write_bronze(external_id, raw_data)
             refs.append(DiscussionRef(external_id=external_id, raw_data=raw_data, source_id=source_id))
 
-        logger.info("telegram.references_collected username=%s count=%d total_seen=%d", tg_source.username, len(refs), len(messages))
+        logger.info("telegram.discussions_collected username=%s count=%d total_seen=%d", tg_source.username, len(refs), len(messages))
         return refs
 
     def process_discussion(

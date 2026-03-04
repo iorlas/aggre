@@ -5,11 +5,15 @@ sensor decorator inspects type hints at decoration time and cannot resolve
 deferred (stringified) annotations.
 """
 
+import logging
+
 import dagster as dg
 import sqlalchemy as sa
 from dagster import DagsterRunStatus, RunsFilter
 
 from aggre.dagster_defs.resources import DatabaseResource
+
+logger = logging.getLogger(__name__)
 
 
 def make_processing_sensor(
@@ -43,6 +47,7 @@ def make_processing_sensor(
             count = conn.execute(sa.select(sa.func.count()).select_from(query.subquery())).scalar()
 
         if count and count > 0:
+            logger.info("sensor.triggered sensor=%s pending=%d", name, count)
             next_cursor = str(int(context.cursor or "0") + 1)
             return dg.SensorResult(
                 run_requests=[dg.RunRequest(run_key=f"{run_key_prefix}-{next_cursor}")],

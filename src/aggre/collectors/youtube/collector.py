@@ -105,7 +105,7 @@ class YoutubeCollector(BaseCollector):
                 )
 
             self._update_last_fetched(engine, source_id)
-            logger.info("youtube.references_collected name=%s count=%d", yt_source.name, len(refs) - refs_before)
+            logger.info("youtube.discussions_collected name=%s count=%d", yt_source.name, len(refs) - refs_before)
 
         return refs
 

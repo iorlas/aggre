@@ -15,11 +15,12 @@ import sqlalchemy as sa
 import yt_dlp
 from dagster import OpExecutionContext
 from faster_whisper import WhisperModel
+from sqlalchemy.dialects.postgresql import JSONB
 
-from aggre.config import AppConfig, load_config
+from aggre.config import AppConfig
 from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.tracking.model import StageTracking
-from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
+from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
 from aggre.tracking.status import Stage
 from aggre.utils.bronze import bronze_exists, bronze_path, read_bronze, write_bronze
 
@@ -56,11 +57,21 @@ def _transcribe_one(
     """Transcribe a single video. Returns 1 on success, 0 on failure/skip."""
     content_id = item.id
     external_id = item.external_id
-    logger.info("transcribing_video external_id=%s title=%s", external_id, item.title)
+
+    # Skip videos longer than 30 minutes
+    meta = json.loads(item.meta) if item.meta else {}
+    duration = meta.get("duration")
+    if duration is not None and duration > 1800:
+        duration_min = duration / 60
+        logger.info("transcription.skipped_long external_id=%s duration_min=%.0f", external_id, duration_min)
+        upsert_skipped(engine, "youtube", external_id, Stage.TRANSCRIBE, f"video_too_long: {duration_min:.0f}min (limit 30min)")
+        return 0
+
+    logger.info("transcription.transcribing external_id=%s title=%s", external_id, item.title)
 
     # Cache check: if whisper.json exists in bronze, skip transcription
     if bronze_exists("youtube", external_id, "whisper", "json"):
-        logger.info("transcription_cached external_id=%s", external_id)
+        logger.info("transcription.cached external_id=%s", external_id)
         cached = json.loads(read_bronze("youtube", external_id, "whisper", "json"))
         transcript = cached["transcript"] if isinstance(cached, dict) else ""
         language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
@@ -72,7 +83,7 @@ def _transcribe_one(
         # Check if audio already exists in bronze (from a previous partial run)
         audio_dest = bronze_path("youtube", external_id, "audio", "opus")
         if audio_dest.exists():
-            logger.info("audio_cached external_id=%s", external_id)
+            logger.info("transcription.audio_cached external_id=%s", external_id)
         else:
             # Download audio to bronze
             audio_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +122,7 @@ def _transcribe_one(
         # Check audio file size (500MB limit)
         file_size = audio_dest.stat().st_size
         if file_size > 500 * 1024 * 1024:
-            logger.warning("audio_file_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
+            logger.warning("transcription.audio_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
             upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, "Audio file exceeds 500MB limit")
             return 0
 
@@ -132,11 +143,11 @@ def _transcribe_one(
         upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
         update_content(engine, content_id, text=transcript, detected_language=info.language)
 
-        logger.info("transcription_complete external_id=%s", external_id)
+        logger.info("transcription.transcribed external_id=%s", external_id)
         return 1
 
     except Exception as exc:
-        logger.exception("transcription_failed external_id=%s", external_id)
+        logger.exception("transcription.failed external_id=%s", external_id)
         upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, str(exc))
         return 0
 
@@ -147,7 +158,7 @@ def transcribe(
     batch_limit: int = 0,
     *,
     model: WhisperModel | None = None,
-    max_workers: int = 2,
+    max_workers: int = 1,
 ) -> int:
     # Query SilverContent needing transcription: text IS NULL, YouTube domain, stage not done
     query = (
@@ -156,6 +167,7 @@ def transcribe(
             SilverContent.canonical_url,
             SilverDiscussion.external_id,
             SilverDiscussion.title,
+            SilverDiscussion.meta,
         )
         .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
         .outerjoin(
@@ -174,7 +186,13 @@ def transcribe(
                 retry_filter(StageTracking, Stage.TRANSCRIBE),
             ),
         )
-        .order_by(SilverContent.created_at.asc())
+        .order_by(
+            sa.func.coalesce(
+                sa.cast(sa.cast(SilverDiscussion.meta, JSONB)["duration"].as_string(), sa.Integer),
+                999999,
+            ).asc(),
+            SilverContent.created_at.asc(),
+        )
     )
     if batch_limit > 0:
         query = query.limit(batch_limit)
@@ -182,29 +200,36 @@ def transcribe(
     with engine.connect() as conn:
         pending = conn.execute(query).fetchall()
 
+    if not pending:
+        logger.info("transcription.no_pending")
+        return 0
+
+    logger.info("transcription.starting pending=%d", len(pending))
+
     if max_workers <= 1:
         processed = 0
         for item in pending:
             processed += _transcribe_one(engine, config, item, model=model)
-        return processed
+    else:
+        processed = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_transcribe_one, engine, config, item, model=model) for item in pending]
+            for future in concurrent.futures.as_completed(futures):
+                processed += future.result()
 
-    processed = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_transcribe_one, engine, config, item, model=model) for item in pending]
-        for future in concurrent.futures.as_completed(futures):
-            processed += future.result()
+    logger.info("transcription.complete succeeded=%d failed=%d total=%d", processed, len(pending) - processed, len(pending))
     return processed
 
 
 # -- Dagster ops and job -------------------------------------------------------
 
 
-@dg.op(required_resource_keys={"database"})
+@dg.op(required_resource_keys={"database", "app_config"})
 def transcribe_videos_op(context: OpExecutionContext) -> int:
     """Download and transcribe pending YouTube videos."""
-    cfg = load_config()
+    cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
-    return transcribe(engine, cfg)
+    return transcribe(engine, cfg, batch_limit=30, max_workers=3)
 
 
 @dg.job

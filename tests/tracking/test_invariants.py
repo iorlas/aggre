@@ -13,7 +13,7 @@ Stage tracking state machine (per stage):
 
 Silver-level discovery:
     text=NULL                     -> needs download/transcription
-    text=SET                      -> needs enrichment (if no enrich tracking)
+    text=SET                      -> needs discussion search (if no discussion_search tracking)
 
 For SilverDiscussion:
     comments_json=NULL            -> needs comments (if no comments tracking)
@@ -156,8 +156,8 @@ def _transcription_query():
     )
 
 
-def _enrichment_query():
-    """Build the enrichment sensor query."""
+def _discussion_search_query():
+    """Build the discussion search sensor query."""
     return (
         sa.select(SilverContent.id)
         .outerjoin(
@@ -165,7 +165,7 @@ def _enrichment_query():
             sa.and_(
                 StageTracking.source == "webpage",
                 StageTracking.external_id == SilverContent.canonical_url,
-                StageTracking.stage == Stage.ENRICH,
+                StageTracking.stage == Stage.DISCUSSION_SEARCH,
             ),
         )
         .where(
@@ -173,7 +173,7 @@ def _enrichment_query():
             SilverContent.canonical_url.isnot(None),
             sa.or_(
                 StageTracking.id.is_(None),
-                retry_filter(StageTracking, Stage.ENRICH),
+                retry_filter(StageTracking, Stage.DISCUSSION_SEARCH),
             ),
         )
     )
@@ -280,21 +280,21 @@ class TestStageTrackingStateTransitions:
             assert len(download) == 0
             assert len(transcription) == 0
 
-    def test_text_set_no_enrich_tracking_found_by_enrichment_query(self, engine):
-        """text=SET, no enrich tracking -> found by enrichment query."""
-        seed_content(engine, "https://example.com/to-enrich", domain="example.com", text="hello")
+    def test_text_set_no_search_tracking_found_by_discussion_search_query(self, engine):
+        """text=SET, no discussion_search tracking -> found by discussion search query."""
+        seed_content(engine, "https://example.com/to-search", domain="example.com", text="hello")
 
         with engine.connect() as conn:
-            rows = conn.execute(_enrichment_query()).fetchall()
+            rows = conn.execute(_discussion_search_query()).fetchall()
             assert len(rows) == 1
 
-    def test_enrich_done_excluded_from_enrichment_query(self, engine):
-        """Enrich tracking done -> NOT found by enrichment query."""
-        seed_content(engine, "https://example.com/enriched", domain="example.com", text="hello")
-        upsert_done(engine, "webpage", "https://example.com/enriched", Stage.ENRICH)
+    def test_discussion_search_done_excluded_from_discussion_search_query(self, engine):
+        """Discussion search tracking done -> NOT found by discussion search query."""
+        seed_content(engine, "https://example.com/searched", domain="example.com", text="hello")
+        upsert_done(engine, "webpage", "https://example.com/searched", Stage.DISCUSSION_SEARCH)
 
         with engine.connect() as conn:
-            rows = conn.execute(_enrichment_query()).fetchall()
+            rows = conn.execute(_discussion_search_query()).fetchall()
             assert len(rows) == 0
 
     def test_youtube_content_found_by_transcription_query(self, engine):

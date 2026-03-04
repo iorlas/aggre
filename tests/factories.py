@@ -63,6 +63,7 @@ def seed_discussion(
     score: int | None = None,
     comment_count: int | None = None,
     source_id: int | None = None,
+    meta: str | None = None,
 ) -> int:
     """Insert a SilverDiscussion row. Returns the row id."""
     with engine.begin() as conn:
@@ -79,6 +80,7 @@ def seed_discussion(
             score=score,
             comment_count=comment_count,
             source_id=source_id,
+            meta=meta,
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["source_type", "external_id"])
         result = conn.execute(stmt)
@@ -432,6 +434,7 @@ def make_config(
     telegram: TelegramConfig | None = None,
     rate_limit: float = 0.0,
     proxy_url: str = "",
+    browserless_url: str = "",
     telegram_api_id: int = 0,
     telegram_api_hash: str = "",
     telegram_session: str = "",
@@ -451,6 +454,7 @@ def make_config(
             lobsters_rate_limit=rate_limit,
             telegram_rate_limit=rate_limit,
             proxy_url=proxy_url,
+            browserless_url=browserless_url,
             telegram_api_id=telegram_api_id,
             telegram_api_hash=telegram_api_hash,
             telegram_session=telegram_session,

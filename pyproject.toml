@@ -23,6 +23,7 @@ dependencies = [
     "dagster>=1.9",
     "dagster-webserver>=1.9",
     "dagster-postgres>=0.25",
+    "boto3>=1.35",
 ]
 
 [dependency-groups]

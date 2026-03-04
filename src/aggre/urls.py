@@ -35,7 +35,7 @@ def normalize_url(url: str | None) -> str | None:
         return None
 
     # Remove www.
-    if netloc.startswith("www."):
+    while netloc.startswith("www."):
         netloc = netloc[4:]
 
     path = parsed.path

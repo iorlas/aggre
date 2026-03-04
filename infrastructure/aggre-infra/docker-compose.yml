@@ -2,7 +2,7 @@ services:
   tailscale:
     image: ghcr.io/tailscale/tailscale:latest
     environment:
-      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
       TS_HOSTNAME: aggre-shen
       TS_STATE_DIR: /var/lib/tailscale
     volumes:
@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     network_mode: service:tailscale
     depends_on: [tailscale]
     volumes:
@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
 
   garage:
-    image: dxflrs/garage:v1.1
+    image: dxflrs/garage:v2.2.0
     network_mode: service:tailscale
     depends_on: [tailscale]
     volumes:

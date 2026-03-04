@@ -27,7 +27,7 @@ services:
       retries: 3
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: aggre
       POSTGRES_USER: aggre
@@ -43,7 +43,7 @@ services:
       retries: 5
 
   garage:
-    image: dxflrs/garage:v1.1
+    image: dxflrs/garage:v2.2.0
     ports:
       - "3900:3900"  # S3 API
       - "3902:3902"  # Web

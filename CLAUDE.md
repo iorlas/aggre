@@ -9,6 +9,7 @@ Read the relevant docs first:
 - **Always read:** `docs/guidelines/semantic-model.md` — entity definitions, ubiquitous language, status lifecycles
 - **Before changing Python code:** `docs/guidelines/python.md` — module design, typing, tooling, imports
 - **Before changing code:** `.planning/codebase/CONVENTIONS.md` — code style, naming, imports, error handling
+- **Before changing tests:** `docs/guidelines/testing.md` — coverage, pragmas, thresholds
 - **Before changing tests:** `.planning/codebase/TESTING.md` — fixtures, mocking patterns, factories
 - **Before adding features:** `.planning/codebase/ARCHITECTURE.md` — layers, data flow, entry points
 - **Before adding files:** `.planning/codebase/STRUCTURE.md` — directory layout, where to put new code
@@ -23,7 +24,8 @@ Read the relevant docs first:
 
 ## Dev Commands
 
-- Run tests: `make test` or `uv run pytest tests/` (requires PostgreSQL — see `AGGRE_TEST_DATABASE_URL`)
+- Run tests: `make test` or `uv run pytest tests/` (requires PostgreSQL — see `AGGRE_TEST_DATABASE_URL`). Coverage is always reported — check for uncovered lines in files you changed.
+- Check diff coverage: `make coverage-diff` — shows coverage of changed lines vs main. Fails below 95%. Run after writing tests to verify new code is covered.
 - Run migrations: `alembic upgrade head`
 - Lint: `make lint` (runs ruff check, ruff format --check, ty check)
 - Dagster dev: `uv run dagster dev` (starts Dagster UI at http://localhost:3000)

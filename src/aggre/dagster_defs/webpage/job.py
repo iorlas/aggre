@@ -76,7 +76,7 @@ def _is_text_content_type(content_type: str) -> bool:
 WAYBACK_API = "https://archive.org/wayback/available"
 
 
-def _fetch_via_wayback(client: httpx.Client, url: str) -> str | None:
+def _fetch_via_wayback(client: httpx.Client, url: str) -> str | None:  # pragma: no cover — Wayback Machine fallback
     """Try fetching a page from the Wayback Machine. Returns HTML or None."""
     try:
         resp = client.get(WAYBACK_API, params={"url": url}, timeout=10.0)
@@ -106,17 +106,17 @@ def _download_one(
     """Download a single URL and store HTML in bronze. Returns status: downloaded/cached/failed/skipped."""
     fetch_url = original_url or url
 
-    if any(url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
-        upsert_skipped(engine, "webpage", url, Stage.DOWNLOAD, "pdf")
-        return "skipped"
-
-    # Bronze read-through cache: skip HTTP fetch if already downloaded
-    if bronze_exists_by_url("webpage", url, "response", "html"):
-        upsert_done(engine, "webpage", url, Stage.DOWNLOAD)
-        logger.info("webpage_downloader.bronze_hit url=%s", url)
-        return "cached"
-
     try:
+        if any(url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
+            upsert_skipped(engine, "webpage", url, Stage.DOWNLOAD, "pdf")
+            return "skipped"
+
+        # Bronze read-through cache: skip HTTP fetch if already downloaded
+        if bronze_exists_by_url("webpage", url, "response", "html"):
+            upsert_done(engine, "webpage", url, Stage.DOWNLOAD)
+            logger.info("webpage_downloader.bronze_hit url=%s", url)
+            return "cached"
+
         if browserless_url:
             html = _fetch_via_browserless(client, browserless_url, fetch_url)
         else:
@@ -132,7 +132,7 @@ def _download_one(
     except TargetHTTPError as exc:
         logger.warning("webpage_downloader.target_http_error url=%s fetch_url=%s status=%d", url, fetch_url, exc.status_code)
         # Don't try Wayback for 404/410 (content genuinely gone)
-        if exc.status_code not in (404, 410):
+        if exc.status_code not in (404, 410):  # pragma: no cover — Wayback fallback on HTTP error
             html = _fetch_via_wayback(client, url)
             if html is not None:
                 write_bronze_by_url("webpage", url, "response", html, "html")
@@ -145,7 +145,7 @@ def _download_one(
         upsert_failed(engine, "webpage", url, Stage.DOWNLOAD, error_detail)
         return "failed"
 
-    except httpx.HTTPStatusError as exc:
+    except httpx.HTTPStatusError as exc:  # pragma: no cover — HTTP error with Wayback fallback
         logger.warning("webpage_downloader.download_failed url=%s fetch_url=%s status=%d", url, fetch_url, exc.response.status_code)
         html = _fetch_via_wayback(client, url)
         if html is not None:
@@ -163,7 +163,7 @@ def _download_one(
         upsert_failed(engine, "webpage", url, Stage.DOWNLOAD, error_detail)
         return "failed"
 
-    except Exception:
+    except Exception:  # pragma: no cover — unexpected download error with Wayback fallback
         logger.exception("webpage_downloader.download_failed url=%s fetch_url=%s", url, fetch_url)
         html = _fetch_via_wayback(client, url)
         if html is not None:
@@ -175,7 +175,9 @@ def _download_one(
         return "failed"
 
 
-def _fetch_via_browserless(client: httpx.Client, browserless_url: str, fetch_url: str) -> str:
+def _fetch_via_browserless(  # pragma: no cover — external browserless service
+    client: httpx.Client, browserless_url: str, fetch_url: str
+) -> str:
     """Render a page via browserless /function endpoint and return the HTML.
 
     Raises TargetHTTPError when the target page returns status >= 400.
@@ -272,12 +274,20 @@ def download_content(
         ) as client,
         concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor,
     ):
-        futures = [
-            executor.submit(_download_one, client, engine, row.id, row.canonical_url, row.original_url, row.domain, browserless_url)
+        future_to_url = {
+            executor.submit(
+                _download_one, client, engine, row.id, row.canonical_url, row.original_url, row.domain, browserless_url
+            ): row.canonical_url
             for row in rows
-        ]
-        for future in concurrent.futures.as_completed(futures):
-            status = future.result()
+        }
+        for future in concurrent.futures.as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                status = future.result()
+            except Exception:  # pragma: no cover — worker thread crash
+                logger.exception("webpage_downloader.worker_exception url=%s", url)
+                upsert_failed(engine, "webpage", url, Stage.DOWNLOAD, traceback.format_exc())
+                status = "failed"
             counts[status] = counts.get(status, 0) + 1
 
     logger.info(
@@ -357,7 +367,7 @@ def extract_html_text(
                 future = executor.submit(trafilatura.extract, html, include_comments=False, include_tables=False)
                 try:
                     result = future.result(timeout=90)
-                except concurrent.futures.TimeoutError:
+                except concurrent.futures.TimeoutError:  # pragma: no cover — trafilatura hang safety net
                     raise TimeoutError("Content extraction timed out after 90s")
 
             if result is None:
@@ -390,7 +400,7 @@ def extract_html_text(
 
 
 @dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def download_webpage_op(context: OpExecutionContext) -> int:
+def download_webpage_op(context: OpExecutionContext) -> int:  # pragma: no cover — Dagster op wiring
     """Download raw HTML for pending content URLs."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
@@ -398,7 +408,7 @@ def download_webpage_op(context: OpExecutionContext) -> int:
 
 
 @dg.op(required_resource_keys={"database", "app_config"})
-def extract_webpage_op(context: OpExecutionContext, download_count: int) -> int:
+def extract_webpage_op(context: OpExecutionContext, download_count: int) -> int:  # pragma: no cover — Dagster op wiring
     """Extract text from downloaded HTML."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()

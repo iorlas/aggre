@@ -9,6 +9,7 @@ import concurrent.futures
 import json
 import logging
 import threading
+import traceback
 from pathlib import Path
 
 import dagster as dg
@@ -23,7 +24,7 @@ from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
 from aggre.tracking.status import Stage
-from aggre.utils.bronze import bronze_exists, get_store, read_bronze, write_bronze
+from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 
 logger = logging.getLogger(__name__)
 
@@ -59,39 +60,52 @@ def _transcribe_one(
     content_id = item.id
     external_id = item.external_id
 
-    # Skip videos longer than 30 minutes
-    meta = json.loads(item.meta) if item.meta else {}
-    duration = meta.get("duration")
-    if duration is not None and duration > 1800:
-        duration_min = duration / 60
-        logger.info("transcription.skipped_long external_id=%s duration_min=%.0f", external_id, duration_min)
-        upsert_skipped(engine, "youtube", external_id, Stage.TRANSCRIBE, f"video_too_long: {duration_min:.0f}min (limit 30min)")
-        return 0
-
-    logger.info("transcription.transcribing external_id=%s title=%s", external_id, item.title)
-
-    # Cache check: if whisper.json exists in bronze, skip transcription
-    if bronze_exists("youtube", external_id, "whisper", "json"):
-        logger.info("transcription.cached external_id=%s", external_id)
-        cached = json.loads(read_bronze("youtube", external_id, "whisper", "json"))
-        transcript = cached["transcript"] if isinstance(cached, dict) else ""
-        language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
-        upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
-        update_content(engine, content_id, text=transcript, detected_language=language)
-        return 1
-
     try:
-        # Check if audio already exists locally (from a previous partial run)
+        # Skip videos longer than 30 minutes
+        meta = json.loads(item.meta) if item.meta else {}
+        duration = meta.get("duration")
+        if duration is not None and duration > 1800:
+            duration_min = duration / 60
+            logger.info("transcription.skipped_long external_id=%s duration_min=%.0f", external_id, duration_min)
+            upsert_skipped(engine, "youtube", external_id, Stage.TRANSCRIBE, f"video_too_long: {duration_min:.0f}min (limit 30min)")
+            return 0
+
+        logger.info("transcription.transcribing external_id=%s title=%s", external_id, item.title)
+
+        # Cache check: if whisper.json exists in bronze, skip transcription
+        cached_whisper = read_bronze_or_none("youtube", external_id, "whisper", "json")
+        if cached_whisper is not None:
+            logger.info("transcription.cached external_id=%s", external_id)
+            cached = json.loads(cached_whisper)
+            transcript = cached["transcript"] if isinstance(cached, dict) else ""
+            language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
+            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
+            update_content(engine, content_id, text=transcript, detected_language=language)
+            return 1
+        # Resolve audio location — filesystem store uses local path, S3 uses temp dir
         store = get_store()
-        audio_local = store.local_path(f"youtube/{external_id}/audio.opus")
-        if audio_local is None:
-            # S3 backend — use temp dir for audio download
-            audio_local = Path(config.settings.youtube_temp_dir) / external_id / "audio.opus"
-        audio_dest = audio_local
+        audio_key = f"youtube/{external_id}/audio.opus"
+        audio_local = store.local_path(audio_key)
+        is_remote = audio_local is None
+        if is_remote:
+            audio_dest = Path(config.settings.youtube_temp_dir) / external_id / "audio.opus"
+        else:
+            audio_dest = audio_local
+
         if audio_dest.exists():
             logger.info("transcription.audio_cached external_id=%s", external_id)
-        else:
-            # Download audio to bronze
+        elif is_remote:
+            # Try fetching cached audio from S3 before downloading from YouTube
+            try:
+                audio_data = store.read_bytes(audio_key)
+                audio_dest.parent.mkdir(parents=True, exist_ok=True)
+                audio_dest.write_bytes(audio_data)
+                logger.info("transcription.audio_from_s3 external_id=%s", external_id)
+            except FileNotFoundError:
+                pass  # Not in S3 either — will download from YouTube below
+
+        if not audio_dest.exists():
+            # Download audio from YouTube
             audio_dest.parent.mkdir(parents=True, exist_ok=True)
             output_path = str(audio_dest.parent / f"{external_id}.%(ext)s")
 
@@ -115,15 +129,19 @@ def _transcribe_one(
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([f"https://www.youtube.com/watch?v={external_id}"])
 
-            # Find the downloaded file and move to bronze path
+            # Find the downloaded file and move to target path
             candidates = list(audio_dest.parent.glob(f"{external_id}.*"))
             if not candidates:
                 raise FileNotFoundError(f"No downloaded file found for {external_id}")
             audio_file = candidates[0]
 
-            # If the downloaded file isn't already at the target path, rename it
             if audio_file != audio_dest:
                 audio_file.rename(audio_dest)
+
+            # Upload audio to S3 so it survives temp dir cleanup
+            if is_remote:
+                store.write_bytes(audio_key, audio_dest.read_bytes())
+                logger.info("transcription.audio_uploaded external_id=%s", external_id)
 
         # Check audio file size (500MB limit)
         file_size = audio_dest.stat().st_size
@@ -156,6 +174,15 @@ def _transcribe_one(
         logger.exception("transcription.failed external_id=%s", external_id)
         upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, str(exc))
         return 0
+
+    finally:
+        # Clean up temp audio when using remote storage (S3)
+        try:
+            if is_remote and audio_dest.exists():
+                audio_dest.unlink()
+                logger.info("transcription.audio_cleaned external_id=%s", external_id)
+        except NameError:  # pragma: no cover — only if early failure before variable assignment
+            pass
 
 
 def transcribe(
@@ -219,9 +246,14 @@ def transcribe(
     else:
         processed = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_transcribe_one, engine, config, item, model=model) for item in pending]
-            for future in concurrent.futures.as_completed(futures):
-                processed += future.result()
+            future_to_id = {executor.submit(_transcribe_one, engine, config, item, model=model): item.external_id for item in pending}
+            for future in concurrent.futures.as_completed(future_to_id):
+                ext_id = future_to_id[future]
+                try:
+                    processed += future.result()
+                except Exception:
+                    logger.exception("transcription.worker_exception external_id=%s", ext_id)
+                    upsert_failed(engine, "youtube", ext_id, Stage.TRANSCRIBE, traceback.format_exc())
 
     logger.info("transcription.complete succeeded=%d failed=%d total=%d", processed, len(pending) - processed, len(pending))
     return processed
@@ -231,7 +263,7 @@ def transcribe(
 
 
 @dg.op(required_resource_keys={"database", "app_config"})
-def transcribe_videos_op(context: OpExecutionContext) -> int:
+def transcribe_videos_op(context: OpExecutionContext) -> int:  # pragma: no cover — Dagster op wiring
     """Download and transcribe pending YouTube videos."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()

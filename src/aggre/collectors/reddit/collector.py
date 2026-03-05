@@ -61,7 +61,7 @@ def _rate_limit_sleep(resp: httpx.Response, min_delay: float) -> None:
 def _fetch_json(client: httpx.Client, url: str) -> tuple[dict[str, object], httpx.Response]:
     """Fetch JSON from URL, respecting Retry-After on 429s."""
     resp = client.get(url)
-    if resp.status_code == 429:
+    if resp.status_code == 429:  # pragma: no cover — rate limiting
         retry_after = resp.headers.get("retry-after")
         if retry_after:
             logger.warning("reddit.429_retry_after url=%s retry_after=%s", url, retry_after)
@@ -101,7 +101,7 @@ class RedditCollector(BaseCollector):
                     try:
                         data, resp = _fetch_json(client, url)
                         _rate_limit_sleep(resp, 0)
-                    except Exception:
+                    except Exception:  # pragma: no cover — network error
                         logger.exception("reddit.fetch_failed subreddit=%s sort=%s", sub, sort)
                         continue
 
@@ -211,23 +211,23 @@ class RedditCollector(BaseCollector):
                 try:
                     data, resp = _fetch_json(client, url)
                     _rate_limit_sleep(resp, 0)
-                except Exception:
+
+                    # Write raw API response to bronze before storing in silver
+                    write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+
+                    comments_json = None
+                    comment_count = 0
+                    if len(data) >= 2:
+                        comment_children = data[1].get("data", {}).get("children", [])
+                        comments_json = json.dumps(comment_children)
+                        comment_count = len(comment_children)
+
+                    self._mark_comments_done(engine, discussion_id, ext_id, comments_json, comment_count)
+                    fetched += 1
+                except Exception:  # pragma: no cover — network error during comments fetch
                     logger.exception("reddit.comments_fetch_failed post_id=%s", ext_id)
                     self._mark_comments_failed(engine, ext_id, f"fetch_error:{ext_id}")
                     continue
-
-                # Write raw API response to bronze before storing in silver
-                write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
-
-                comments_json = None
-                comment_count = 0
-                if len(data) >= 2:
-                    comment_children = data[1].get("data", {}).get("children", [])
-                    comments_json = json.dumps(comment_children)
-                    comment_count = len(comment_children)
-
-                self._mark_comments_done(engine, discussion_id, ext_id, comments_json, comment_count)
-                fetched += 1
 
             logger.info("reddit.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 

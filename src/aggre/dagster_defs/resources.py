@@ -14,7 +14,7 @@ class DatabaseResource(dg.ConfigurableResource):
 
     database_url: str = dg.EnvVar("AGGRE_DATABASE_URL")
 
-    def get_engine(self) -> sa.engine.Engine:
+    def get_engine(self) -> sa.engine.Engine:  # pragma: no cover — Dagster resource wiring
         return get_engine(self.database_url)
 
 
@@ -23,5 +23,5 @@ class AppConfigResource(dg.ConfigurableResource):
 
     config_path: str = "config.yaml"
 
-    def get_config(self) -> AppConfig:
+    def get_config(self) -> AppConfig:  # pragma: no cover — Dagster resource wiring
         return load_config(self.config_path)

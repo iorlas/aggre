@@ -13,7 +13,7 @@ from aggre.dagster_defs.collection._shared import _RETRY, collect_source
 
 
 @dg.op(required_resource_keys={"database", "app_config"}, retry_policy=_RETRY)
-def collect_rss_op(context: OpExecutionContext) -> int:
+def collect_rss_op(context: OpExecutionContext) -> int:  # pragma: no cover — Dagster op wiring
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
     return collect_source(engine, cfg, "rss", RssCollector)

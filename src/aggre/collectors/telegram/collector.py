@@ -58,7 +58,7 @@ class TelegramCollector(BaseCollector):
                 try:
                     source_refs = await self._collect_channel_refs(client, source_id, tg_source, config)
                     refs.extend(source_refs)
-                except Exception:
+                except Exception:  # pragma: no cover — Telegram API error
                     logger.exception("telegram.channel_error username=%s", tg_source.username)
 
                 await asyncio.sleep(settings.telegram_rate_limit)

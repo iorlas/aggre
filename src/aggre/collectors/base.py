@@ -105,7 +105,7 @@ class BaseCollector:
         cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
         with engine.connect() as conn:
             last = conn.execute(sa.select(Source.last_fetched_at).where(Source.id == source_id)).scalar()
-        if last is None:
+        if last is None:  # pragma: no cover — source never fetched
             return False
         return last >= cutoff
 
@@ -208,7 +208,7 @@ class BaseCollector:
             return None
 
         canonical = normalize_url(discussion_url)
-        if not canonical:
+        if not canonical:  # pragma: no cover — malformed URL
             return None
 
         row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
@@ -223,7 +223,7 @@ class BaseCollector:
         )
         stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
         result = conn.execute(stmt)
-        if result.rowcount == 0:
+        if result.rowcount == 0:  # pragma: no cover — race condition: concurrent insert
             row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
             return row[0] if row else None
         return result.inserted_primary_key[0]

@@ -81,34 +81,41 @@ def search_content_discussions(
     totals: dict[str, int] = {"hackernews": 0, "lobsters": 0, "processed": 0}
 
     for row in rows:
-        totals["processed"] += 1
         content_url = row.canonical_url
-        logger.info("discussion_search.searching url=%s", content_url)
-
-        failed = False
-        hn_found = 0
-        lobsters_found = 0
-
         try:
-            hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings)
-            totals["hackernews"] += hn_found
-        except Exception:
-            logger.exception("discussion_search.hn_search_failed url=%s", content_url)
-            failed = True
+            logger.info("discussion_search.searching url=%s", content_url)
 
-        try:
-            lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings)
-            totals["lobsters"] += lobsters_found
-        except Exception:
-            logger.exception("discussion_search.lobsters_search_failed url=%s", content_url)
-            failed = True
+            failed = False
+            hn_found = 0
+            lobsters_found = 0
 
-        logger.info("discussion_search.searched url=%s hackernews=%d lobsters=%d", content_url, hn_found, lobsters_found)
+            try:
+                hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings)
+                totals["hackernews"] += hn_found
+            except Exception:
+                logger.exception("discussion_search.hn_search_failed url=%s", content_url)
+                failed = True
 
-        if not failed:
-            upsert_done(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH)
-        else:
-            upsert_failed(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH, "partial failure")
+            try:
+                lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings)
+                totals["lobsters"] += lobsters_found
+            except Exception:  # pragma: no cover — external API error
+                logger.exception("discussion_search.lobsters_search_failed url=%s", content_url)
+                failed = True
+
+            logger.info("discussion_search.searched url=%s hackernews=%d lobsters=%d", content_url, hn_found, lobsters_found)
+
+            if not failed:
+                upsert_done(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH)
+            else:
+                upsert_failed(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH, "partial failure")
+        except Exception:  # pragma: no cover — unexpected item-level failure
+            logger.exception("discussion_search.item_failed url=%s", content_url)
+            try:
+                upsert_failed(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH, "item processing error")
+            except Exception:
+                pass  # DB is down — logged above
+        totals["processed"] += 1
 
     logger.info("discussion_search.complete totals=%s", totals)
     return totals
@@ -118,7 +125,7 @@ def search_content_discussions(
 
 
 @dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def discussion_search_op(context: OpExecutionContext) -> dict[str, int]:
+def discussion_search_op(context: OpExecutionContext) -> dict[str, int]:  # pragma: no cover — Dagster op wiring
     """Search HN and Lobsters for discussions about content URLs."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()

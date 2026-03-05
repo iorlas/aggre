@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from dagster import OpExecutionContext
 
 from aggre.collectors import COLLECTORS
-from aggre.utils.bronze import DEFAULT_BRONZE_ROOT
+from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, _store_for
 
 logger = logging.getLogger(__name__)
 
@@ -25,37 +25,37 @@ def reprocess_from_bronze(
 ) -> int:
     """Scan bronze ref.json files and rebuild silver via process_discussion.
 
-    For each source type, iterates bronze/{source_type}/*/raw.json,
+    For each source type, lists bronze keys matching {source_type}/*/raw.json,
     loads the raw data, and calls the collector's process_discussion().
     Returns total count of references reprocessed.
     """
+    store = _store_for(bronze_root)
     total = 0
 
     for config_name, collector_cls in COLLECTORS.items():
         collector = collector_cls()
         source_type = collector.source_type
-        source_dir = bronze_root / source_type
 
-        if not source_dir.exists():
-            continue
-
-        # Find all raw.json files under this source type
-        ref_files = sorted(source_dir.glob("*/raw.json"))
-        if not ref_files:
+        # List all keys under this source type and filter for raw.json
+        all_keys = store.list_keys(f"{source_type}/")
+        raw_keys = sorted(k for k in all_keys if k.endswith("/raw.json"))
+        if not raw_keys:
             continue
 
         # Ensure source row exists
         source_id = collector._ensure_source(engine, source_type)
 
         reprocessed = 0
-        for ref_file in ref_files:
+        for key in raw_keys:
             try:
-                raw_data = json.loads(ref_file.read_text())
+                raw_data = json.loads(store.read(key))
                 with engine.begin() as conn:
                     collector.process_discussion(raw_data, conn, source_id)
                 reprocessed += 1
             except Exception:
-                ext_id = ref_file.parent.name
+                # Extract external_id from key: "hackernews/12345/raw.json" -> "12345"
+                parts = key.split("/")
+                ext_id = parts[1] if len(parts) >= 2 else key
                 logger.exception("reprocess.ref_error source=%s external_id=%s", source_type, ext_id)
 
         total += reprocessed
@@ -65,7 +65,7 @@ def reprocess_from_bronze(
 
 
 @dg.op(required_resource_keys={"database"})
-def reprocess_bronze_op(context: OpExecutionContext) -> int:
+def reprocess_bronze_op(context: OpExecutionContext) -> int:  # pragma: no cover — Dagster op wiring
     """Rebuild silver from bronze ref.json files."""
     engine = context.resources.database.get_engine()
     count = reprocess_from_bronze(engine)

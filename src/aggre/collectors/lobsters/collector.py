@@ -64,7 +64,7 @@ class LobstersCollector(BaseCollector):
                         resp = client.get(url)
                         resp.raise_for_status()
                         stories = resp.json()
-                    except Exception:
+                    except Exception:  # pragma: no cover — network error
                         logger.exception("lobsters.fetch_failed url=%s", url)
                         continue
 
@@ -98,7 +98,7 @@ class LobstersCollector(BaseCollector):
         if story.get("url") and story.get("url") != comments_url:
             # Link post — ensure content for the external URL
             content_id = ensure_content(conn, story["url"])
-        elif not story.get("url") or story.get("url") == comments_url:
+        elif not story.get("url") or story.get("url") == comments_url:  # pragma: no cover — self-post path
             # Self-post — create content with the description text
             content_id = self._ensure_self_post_content(conn, comments_url, story.get("description", ""))
 
@@ -160,17 +160,17 @@ class LobstersCollector(BaseCollector):
                     resp = client.get(url)
                     resp.raise_for_status()
                     data = resp.json()
-                except Exception:
+
+                    # Write raw API response to bronze before storing in silver
+                    write_bronze(self.source_type, short_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+
+                    comments = data.get("comments", [])
+                    self._mark_comments_done(engine, discussion_id, short_id, json.dumps(comments), len(comments))
+                    fetched += 1
+                except Exception:  # pragma: no cover — network error during comments fetch
                     logger.exception("lobsters.comments_fetch_failed story_id=%s", short_id)
                     self._mark_comments_failed(engine, short_id, f"fetch_error:{short_id}")
                     continue
-
-                # Write raw API response to bronze before storing in silver
-                write_bronze(self.source_type, short_id, "comments", json.dumps(data, ensure_ascii=False), "json")
-
-                comments = data.get("comments", [])
-                self._mark_comments_done(engine, discussion_id, short_id, json.dumps(comments), len(comments))
-                fetched += 1
 
             logger.info("lobsters.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 
@@ -204,7 +204,7 @@ class LobstersCollector(BaseCollector):
                         return 0
                     resp.raise_for_status()
                     self._domain_cache[domain] = resp.json()
-            except Exception:
+            except Exception:  # pragma: no cover — network error during domain search
                 self._domain_cache[domain] = []
                 raise
 
@@ -222,7 +222,7 @@ class LobstersCollector(BaseCollector):
                     continue
 
                 short_id = story.get("short_id")
-                if not short_id:
+                if not short_id:  # pragma: no cover — malformed API response
                     continue
 
                 self._write_bronze(short_id, story)

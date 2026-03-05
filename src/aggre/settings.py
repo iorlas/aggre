@@ -13,7 +13,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = "postgresql+psycopg2://localhost/aggre"
+    database_url: str = "postgresql+psycopg://localhost/aggre"
     log_dir: str = "./data/logs"
     youtube_temp_dir: str = "./data/tmp/videos"
     whisper_model: str = "large-v3-turbo"
@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     bronze_s3_bucket: str = "bronze"
     bronze_s3_access_key: str = ""
     bronze_s3_secret_key: str = ""
+    bronze_s3_region: str = "garage"
     # Rate limits (operational, stay as env vars)
     reddit_rate_limit: float = 3.0
     hn_rate_limit: float = 1.0

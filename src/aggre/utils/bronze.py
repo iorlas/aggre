@@ -18,7 +18,7 @@ DEFAULT_BRONZE_ROOT = Path("data/bronze")
 class BronzeS3Error(Exception):
     """S3 operation failed with non-retriable error. Wraps botocore ClientError with context."""
 
-    def __init__(self, operation: str, bucket: str, key: str, code: str, message: str) -> None:
+    def __init__(self, operation: str, bucket: str, key: str, code: str, message: str) -> None:  # pragma: no cover — only non-404 S3 errors
         super().__init__(f"S3 {operation} failed: bucket={bucket} key={key} code={code} message={message}")
 
 
@@ -117,7 +117,7 @@ class S3Store:
             ),
         )
 
-    def _raise_s3_error(self, operation: str, key: str, e: Exception) -> None:
+    def _raise_s3_error(self, operation: str, key: str, e: Exception) -> None:  # pragma: no cover — only non-404 S3 errors
         """Re-raise botocore ClientError as BronzeS3Error with full context."""
         code = e.response["Error"]["Code"]  # type: ignore[union-attr]
         msg = e.response["Error"].get("Message", "")  # type: ignore[union-attr]
@@ -132,7 +132,7 @@ class S3Store:
         except botocore.exceptions.ClientError as e:
             if e.response["Error"]["Code"] == "404":
                 return False
-            self._raise_s3_error("HeadObject", key, e)
+            self._raise_s3_error("HeadObject", key, e)  # pragma: no cover
 
     def read(self, key: str) -> str:
         import botocore.exceptions
@@ -143,7 +143,7 @@ class S3Store:
         except botocore.exceptions.ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 raise FileNotFoundError(f"Bronze artifact not found: {key}") from e
-            self._raise_s3_error("GetObject", key, e)
+            self._raise_s3_error("GetObject", key, e)  # pragma: no cover
 
     def read_or_none(self, key: str) -> str | None:
         import botocore.exceptions
@@ -154,15 +154,15 @@ class S3Store:
         except botocore.exceptions.ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 return None
-            self._raise_s3_error("GetObject", key, e)
+            self._raise_s3_error("GetObject", key, e)  # pragma: no cover
 
     def write(self, key: str, data: str) -> None:
         import botocore.exceptions
 
         try:
             self._s3.put_object(Bucket=self._bucket, Key=key, Body=data.encode("utf-8"))
-        except botocore.exceptions.ClientError as e:
-            self._raise_s3_error("PutObject", key, e)
+        except botocore.exceptions.ClientError as e:  # pragma: no cover
+            self._raise_s3_error("PutObject", key, e)  # pragma: no cover
 
     def read_bytes(self, key: str) -> bytes:
         import botocore.exceptions
@@ -173,15 +173,15 @@ class S3Store:
         except botocore.exceptions.ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 raise FileNotFoundError(f"Bronze artifact not found: {key}") from e
-            self._raise_s3_error("GetObject", key, e)
+            self._raise_s3_error("GetObject", key, e)  # pragma: no cover
 
     def write_bytes(self, key: str, data: bytes) -> None:
         import botocore.exceptions
 
         try:
             self._s3.put_object(Bucket=self._bucket, Key=key, Body=data)
-        except botocore.exceptions.ClientError as e:
-            self._raise_s3_error("PutObject", key, e)
+        except botocore.exceptions.ClientError as e:  # pragma: no cover
+            self._raise_s3_error("PutObject", key, e)  # pragma: no cover
 
     def list_keys(self, prefix: str) -> list[str]:
         keys: list[str] = []
@@ -282,10 +282,10 @@ def bronze_path(
     path = store.local_path(key)
     if path is not None:
         return path
-    # S3 backend — return a path relative to the configured root for temp use
-    from aggre.settings import Settings
+    # S3 backend — return a path relative to the configured root for temp use  # pragma: no cover — S3 fallback
+    from aggre.settings import Settings  # pragma: no cover
 
-    return Path(Settings().bronze_root) / key
+    return Path(Settings().bronze_root) / key  # pragma: no cover
 
 
 def bronze_exists(

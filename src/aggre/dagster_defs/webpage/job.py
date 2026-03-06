@@ -14,7 +14,7 @@ import httpx
 import sqlalchemy as sa
 import sqlalchemy.orm
 import trafilatura
-from dagster import OpExecutionContext
+from dagster import OpExecutionContext, Output
 
 from aggre.config import AppConfig
 from aggre.db import SilverContent, update_content
@@ -230,7 +230,7 @@ def download_content(
     config: AppConfig,
     batch_limit: int = 50,
     max_workers: int = 5,
-) -> int:
+) -> dict[str, int]:
     """Download raw HTML for unprocessed SilverContent rows (parallel HTTP fetches)."""
     with engine.connect() as conn:
         rows = conn.execute(
@@ -261,7 +261,7 @@ def download_content(
 
     if not rows:
         logger.info("webpage_downloader.no_pending")
-        return 0
+        return {"downloaded": 0, "cached": 0, "failed": 0, "skipped": 0}
 
     browserless_url = config.settings.browserless_url or ""
     logger.info("webpage_downloader.download_starting batch_size=%d browserless=%s", len(rows), bool(browserless_url))
@@ -297,7 +297,7 @@ def download_content(
         counts["failed"],
         counts["skipped"],
     )
-    return counts["downloaded"] + counts["cached"] + counts["failed"] + counts["skipped"]
+    return counts
 
 
 # -- Extraction ----------------------------------------------------------------
@@ -307,7 +307,7 @@ def extract_html_text(
     engine: sa.engine.Engine,
     config: AppConfig,
     batch_limit: int = 50,
-) -> int:
+) -> dict[str, int]:
     """Extract text from downloaded HTML using trafilatura (single-threaded, CPU-bound)."""
     with engine.connect() as conn:
         # Subquery: content URLs with download done
@@ -350,7 +350,7 @@ def extract_html_text(
 
     if not rows:
         logger.info("webpage_extractor.no_downloaded")
-        return 0
+        return {"extracted": 0, "failed": 0}
 
     logger.info("webpage_extractor.extract_starting batch_size=%d", len(rows))
     extracted = 0
@@ -382,8 +382,8 @@ def extract_html_text(
             if metadata:
                 extracted_title = metadata.title
 
-            upsert_done(engine, "webpage", url, Stage.EXTRACT)
             update_content(engine, content_id, text=result, title=extracted_title)
+            upsert_done(engine, "webpage", url, Stage.EXTRACT)
             extracted += 1
             logger.info("webpage_extractor.extracted url=%s", url)
 
@@ -393,26 +393,44 @@ def extract_html_text(
             failed += 1
 
     logger.info("webpage_extractor.extract_complete extracted=%d failed=%d", extracted, failed)
-    return extracted + failed
+    return {"extracted": extracted, "failed": failed}
 
 
 # -- Dagster ops and job -------------------------------------------------------
 
 
 @dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def download_webpage_op(context: OpExecutionContext) -> int:  # pragma: no cover — Dagster op wiring
+def download_webpage_op(context: OpExecutionContext) -> Output[int]:  # pragma: no cover — Dagster op wiring
     """Download raw HTML for pending content URLs."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
-    return download_content(engine, cfg)
+    stats = download_content(engine, cfg)
+    total = stats["downloaded"] + stats["cached"] + stats["failed"] + stats["skipped"]
+    return Output(
+        total,
+        metadata={
+            "downloaded": stats["downloaded"],
+            "cached": stats["cached"],
+            "failed": stats["failed"],
+            "skipped": stats["skipped"],
+        },
+    )
 
 
 @dg.op(required_resource_keys={"database", "app_config"})
-def extract_webpage_op(context: OpExecutionContext, download_count: int) -> int:  # pragma: no cover — Dagster op wiring
+def extract_webpage_op(context: OpExecutionContext, download_count: int) -> Output[int]:  # pragma: no cover — Dagster op wiring
     """Extract text from downloaded HTML."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
-    return extract_html_text(engine, cfg)
+    stats = extract_html_text(engine, cfg)
+    total = stats["extracted"] + stats["failed"]
+    return Output(
+        total,
+        metadata={
+            "extracted": stats["extracted"],
+            "failed": stats["failed"],
+        },
+    )
 
 
 @dg.job

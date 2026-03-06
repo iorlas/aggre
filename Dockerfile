@@ -9,7 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Deps first (cache layer)
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
 
 # Source + install project
 COPY src/ ./src/
@@ -17,7 +18,8 @@ COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY dagster.prod.yaml ./dagster.yaml
 COPY workspace.yaml ./
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 # Skip sync at runtime
 ENV UV_NO_SYNC=true

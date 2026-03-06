@@ -1,6 +1,6 @@
 x-app-env: &app-env
-  AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
-  DAGSTER_PG_URL: postgresql://aggre:aggre@postgres/aggre
+  AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
+  DAGSTER_PG_URL: postgresql+psycopg2://aggre:aggre@dagster-postgres/dagster
 
 services:
   postgres:
@@ -34,6 +34,20 @@ services:
       postgres:
         condition: service_healthy
 
+  dagster-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dagster
+      POSTGRES_USER: aggre
+      POSTGRES_PASSWORD: aggre
+    volumes:
+      - ./data/dagster-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggre"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   dagster-webserver:
     build: .
     command: uv run dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml
@@ -51,6 +65,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      dagster-postgres:
+        condition: service_healthy
 
   dagster-daemon:
     build: .
@@ -67,6 +83,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      dagster-postgres:
+        condition: service_healthy
 
   tor-proxy:
     image: peterdavehello/tor-socks-proxy:latest

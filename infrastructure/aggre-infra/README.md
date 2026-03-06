@@ -1,6 +1,6 @@
 # Aggre Infrastructure — Contabo VPS
 
-Remote infrastructure stack for Aggre: Tailscale mesh networking, PostgreSQL database, and Garage S3-compatible object storage.
+Remote infrastructure stack for Aggre: Tailscale mesh networking, PostgreSQL databases (app + Dagster), and Garage S3-compatible object storage.
 
 All services share the Tailscale network namespace, so they are only accessible from your tailnet — nothing is exposed to the public internet.
 
@@ -80,16 +80,21 @@ Install Tailscale on your dev machine (https://tailscale.com/download) and join 
 
 ### PostgreSQL
 
-The database listens on the Tailscale IP, default port 5432:
+Two PostgreSQL instances run on the Tailscale network:
+
+- **App database** — port 5432, database `aggre` (Alembic migrations, application data)
+- **Dagster database** — port 5433, database `dagster` (Dagster run storage, event log, schedule state)
 
 ```bash
-export AGGRE_DATABASE_URL="postgresql://aggre:<password>@aggre:5432/aggre"
+export AGGRE_DATABASE_URL="postgresql+psycopg://aggre:<password>@aggre-shen:5432/aggre"
+export DAGSTER_PG_URL="postgresql://aggre:<password>@aggre-shen:5433/dagster"
 ```
 
-Test the connection:
+Test the connections:
 
 ```bash
-psql "$AGGRE_DATABASE_URL"
+psql "postgresql://aggre:<password>@aggre-shen:5432/aggre"
+psql "postgresql://aggre:<password>@aggre-shen:5433/dagster"
 ```
 
 ### Garage S3

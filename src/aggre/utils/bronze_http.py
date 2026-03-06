@@ -10,10 +10,8 @@ import httpx
 
 from aggre.utils.bronze import (
     DEFAULT_BRONZE_ROOT,
-    bronze_exists,
-    bronze_exists_by_url,
-    read_bronze,
-    read_bronze_by_url,
+    read_bronze_or_none,
+    read_bronze_or_none_by_url,
     write_bronze_by_url,
     write_bronze_json,
 )
@@ -33,9 +31,9 @@ def fetch_item_json(
 
     Check bronze → if hit, return cached. If miss → fetch, write bronze, return.
     """
-    if bronze_exists(source_type, external_id, "raw", "json", bronze_root=bronze_root):
-        text = read_bronze(source_type, external_id, "raw", "json", bronze_root=bronze_root)
-        return json.loads(text)
+    cached = read_bronze_or_none(source_type, external_id, "raw", "json", bronze_root=bronze_root)
+    if cached is not None:
+        return json.loads(cached)
 
     resp = client.get(url)
     resp.raise_for_status()
@@ -59,8 +57,9 @@ def fetch_url_text(
 
     Check bronze → if hit, return cached. If miss → fetch, write bronze, return.
     """
-    if bronze_exists_by_url(source_type, url, artifact_type, ext, bronze_root=bronze_root):
-        return read_bronze_by_url(source_type, url, artifact_type, ext, bronze_root=bronze_root)
+    cached = read_bronze_or_none_by_url(source_type, url, artifact_type, ext, bronze_root=bronze_root)
+    if cached is not None:
+        return cached
 
     resp = client.get(url)
     resp.raise_for_status()

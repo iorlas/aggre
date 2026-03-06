@@ -27,7 +27,7 @@ class TestSettings:
 
         s = Settings()
 
-        assert s.database_url == "postgresql+psycopg2://localhost/aggre"
+        assert s.database_url == "postgresql+psycopg://localhost/aggre"
         assert s.log_dir == "./data/logs"
         assert s.whisper_model == "large-v3-turbo"
         assert s.telegram_api_id == 0
@@ -36,11 +36,11 @@ class TestSettings:
     def test_env_prefix(self, tmp_path, monkeypatch):
         """AGGRE_DATABASE_URL=x -> Settings().database_url == x."""
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("AGGRE_DATABASE_URL", "postgresql+psycopg2://test/mydb")
+        monkeypatch.setenv("AGGRE_DATABASE_URL", "postgresql+psycopg://test/mydb")
 
         s = Settings()
 
-        assert s.database_url == "postgresql+psycopg2://test/mydb"
+        assert s.database_url == "postgresql+psycopg://test/mydb"
 
     def test_ignores_extra_env_vars(self, tmp_path, monkeypatch):
         """AGGRE_UNKNOWN=x -> no error (extra='ignore')."""
@@ -52,7 +52,7 @@ class TestSettings:
 
         assert not hasattr(s, "unknown")
         # Should still work with defaults
-        assert s.database_url == "postgresql+psycopg2://localhost/aggre"
+        assert s.database_url == "postgresql+psycopg://localhost/aggre"
 
     def test_telegram_api_id_rejects_str(self, tmp_path, monkeypatch):
         """AGGRE_TELEGRAM_API_ID=abc -> ValidationError (int field)."""

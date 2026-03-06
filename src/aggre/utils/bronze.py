@@ -213,7 +213,7 @@ def get_store() -> BronzeStore:
     global _store  # noqa: PLW0603
     if _store is None:
         with _store_lock:
-            if _store is None:
+            if _store is None:  # pragma: no branch — double-checked locking; race path untestable without thread contention
                 from aggre.settings import Settings
 
                 settings = Settings()

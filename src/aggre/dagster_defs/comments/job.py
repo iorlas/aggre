@@ -8,7 +8,7 @@ cannot resolve deferred (stringified) annotations.
 import logging
 
 import dagster as dg
-from dagster import OpExecutionContext
+from dagster import OpExecutionContext, Output
 
 from aggre.collectors import COLLECTORS
 
@@ -19,7 +19,7 @@ _COMMENT_SOURCES = ("reddit", "hackernews", "lobsters")
 
 
 @dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def fetch_comments(context: OpExecutionContext) -> int:
+def fetch_comments(context: OpExecutionContext) -> Output[int]:
     """Fetch comments for discussions with comments_json=NULL."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
@@ -41,7 +41,12 @@ def fetch_comments(context: OpExecutionContext) -> int:
             error_sources.append(src_name)
 
     logger.info("comments.complete fetched=%d sources=%s errors=%s", total, source_results, error_sources)
-    return total
+    metadata: dict[str, object] = {"total_fetched": total}
+    for src, count in source_results.items():
+        metadata[src] = count
+    if error_sources:
+        metadata["errors"] = ", ".join(error_sources)
+    return Output(total, metadata=metadata)
 
 
 @dg.job(tags={"job_type": "comments"})

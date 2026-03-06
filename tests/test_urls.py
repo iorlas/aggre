@@ -79,6 +79,16 @@ class TestNormalizeUrl:
     def test_domain_specific_normalization(self, input_url, expected):
         assert normalize_url(input_url) == expected
 
+    def test_youtube_url_without_v_param(self):
+        """YouTube URL without v param (channel URL) → query cleared."""
+        result = normalize_url("https://www.youtube.com/channel/UCxxx123")
+        assert result == "https://youtube.com/channel/UCxxx123"
+
+    def test_reddit_url_not_matching_comments_pattern(self):
+        """Reddit URL not matching /r/*/comments/*/ → cleaned but path preserved."""
+        result = normalize_url("https://www.reddit.com/user/testuser")
+        assert result == "https://reddit.com/user/testuser"
+
 
 class TestExtractDomain:
     @pytest.mark.parametrize(

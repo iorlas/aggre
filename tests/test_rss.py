@@ -137,6 +137,52 @@ class TestRssCollector:
             row = conn.execute(sa.select(SilverDiscussion.external_id)).fetchone()
             assert row[0] == "https://example.com/post-42"
 
+    def test_bozo_feed_continues(self, engine):
+        """Bozo feed with entries → warning logged, entries still processed."""
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Bad Feed", url="https://example.com/bad.xml")]))
+
+        entry = rss_entry(id="bozo-1", title="Bozo Post")
+        feed = rss_feed([entry])
+        feed.bozo = True
+        feed.bozo_exception = Exception("malformed XML")
+
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+            collector = RssCollector()
+            count = collect(collector, engine, config.rss, config.settings)
+
+        assert count == 1
+        assert len(get_discussions(engine)) == 1
+
+    def test_entry_no_id_no_link_skipped(self, engine):
+        """Entry with no id and no link → skipped."""
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
+
+        entry = rss_entry(id=None, link=None)
+        feed = rss_feed([entry])
+
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+            collector = RssCollector()
+            count = collect(collector, engine, config.rss, config.settings)
+
+        assert count == 0
+        assert len(get_discussions(engine)) == 0
+
+    def test_content_fallback_to_content_field(self, engine):
+        """Entry with no summary but has content[0]["value"] → uses that for content_text."""
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Blog", url="https://example.com/feed")]))
+
+        entry = rss_entry(id="content-1", summary=None)
+        entry["content"] = [{"value": "Full article body from content field"}]
+        feed = rss_feed([entry])
+
+        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+            collector = RssCollector()
+            count = collect(collector, engine, config.rss, config.settings)
+
+        assert count == 1
+        rows = get_discussions(engine)
+        assert rows[0].content_text == "Full article body from content field"
+
     def test_multiple_feeds(self, engine):
         config = make_config(
             rss=RssConfig(

@@ -15,7 +15,7 @@ from pathlib import Path
 import dagster as dg
 import sqlalchemy as sa
 import yt_dlp
-from dagster import OpExecutionContext
+from dagster import OpExecutionContext, Output
 from faster_whisper import WhisperModel
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -79,8 +79,8 @@ def _transcribe_one(
             cached = json.loads(cached_whisper)
             transcript = cached["transcript"] if isinstance(cached, dict) else ""
             language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
-            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
             update_content(engine, content_id, text=transcript, detected_language=language)
+            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
             return 1
         # Resolve audio location — filesystem store uses local path, S3 uses temp dir
         store = get_store()
@@ -164,8 +164,8 @@ def _transcribe_one(
         write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
 
         # Store result on SilverContent
-        upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
         update_content(engine, content_id, text=transcript, detected_language=info.language)
+        upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
 
         logger.info("transcription.transcribed external_id=%s", external_id)
         return 1
@@ -192,7 +192,7 @@ def transcribe(
     *,
     model: WhisperModel | None = None,
     max_workers: int = 1,
-) -> int:
+) -> dict[str, int]:
     # Query SilverContent needing transcription: text IS NULL, YouTube domain, stage not done
     query = (
         sa.select(
@@ -235,7 +235,7 @@ def transcribe(
 
     if not pending:
         logger.info("transcription.no_pending")
-        return 0
+        return {"succeeded": 0, "failed": 0, "total": 0}
 
     logger.info("transcription.starting pending=%d", len(pending))
 
@@ -255,19 +255,28 @@ def transcribe(
                     logger.exception("transcription.worker_exception external_id=%s", ext_id)
                     upsert_failed(engine, "youtube", ext_id, Stage.TRANSCRIBE, traceback.format_exc())
 
-    logger.info("transcription.complete succeeded=%d failed=%d total=%d", processed, len(pending) - processed, len(pending))
-    return processed
+    failed = len(pending) - processed
+    logger.info("transcription.complete succeeded=%d failed=%d total=%d", processed, failed, len(pending))
+    return {"succeeded": processed, "failed": failed, "total": len(pending)}
 
 
 # -- Dagster ops and job -------------------------------------------------------
 
 
 @dg.op(required_resource_keys={"database", "app_config"})
-def transcribe_videos_op(context: OpExecutionContext) -> int:  # pragma: no cover — Dagster op wiring
+def transcribe_videos_op(context: OpExecutionContext) -> Output[int]:  # pragma: no cover — Dagster op wiring
     """Download and transcribe pending YouTube videos."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
-    return transcribe(engine, cfg, batch_limit=30, max_workers=3)
+    stats = transcribe(engine, cfg, batch_limit=30, max_workers=2)
+    return Output(
+        stats["total"],
+        metadata={
+            "succeeded": stats["succeeded"],
+            "failed": stats["failed"],
+            "total": stats["total"],
+        },
+    )
 
 
 @dg.job

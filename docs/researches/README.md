@@ -1,5 +1,19 @@
 # Research Index
 
+## Stage Tracking: From Passive Toolkit to Active Framework
+
+Analysis of the completeness invariant violation in per-item stage processing. Multiple stages had code outside try/except blocks — when that code raised (S3 unreachable, malformed JSON, DB error), the entire batch crashed with no tracking record.
+
+### Documents
+
+1. **[stage-tracking-framework.md](stage-tracking-framework.md)** — Problem statement, bug inventory across all stages, tactical fixes applied, and three framework options (custom `run_stage` helper, Dagster DynamicOutput, Dagster dynamic partitions) with scale analysis.
+
+### Key Finding
+
+A passive toolkit (helpers you must remember to call) cannot guarantee the completeness invariant. The recommended path is a `run_stage` helper that inverts control — the framework calls your function, wrapping it in guaranteed tracking.
+
+---
+
 ## Formal Verification for Concurrent System Design
 
 Research into using formal methods to catch concurrency/integration bugs that AI coding agents miss. Motivated by the observation that Claude Code lacks context to systematically enumerate concurrent interleavings.

@@ -127,6 +127,42 @@ class TestHackernewsCollectorDiscussions:
         collector = HackernewsCollector()
         assert collect(collector, engine, config.hackernews, config.settings) == 0
 
+    def test_http_fetch_failure_continues(self, engine, mock_http):
+        """API fetch fails → logs exception, continues to next source."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").mock(
+            side_effect=Exception("Connection refused"),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            count = collect(collector, engine, config.hackernews, config.settings)
+
+        assert count == 0
+
+    def test_empty_object_id_skipped(self, engine, mock_http):
+        """Hit with empty objectID → skipped."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        hit = hn_hit(object_id="")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            count = collect(collector, engine, config.hackernews, config.settings)
+
+        assert count == 0
+        assert len(get_discussions(engine)) == 0
+
 
 class TestHackernewsCollectorComments:
     def test_fetches_comments_and_marks_done(self, engine, mock_http):
@@ -252,6 +288,37 @@ class TestHackernewsCollectorComments:
         assert len(done) == 2
         assert len(pending) == 1
 
+    def test_comments_fetch_failure_marks_failed(self, engine, mock_http):
+        """Comments API fails → _mark_comments_failed records tracking error."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        # First, collect a story
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings)
+
+        # Comments fetch fails
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").mock(
+            side_effect=Exception("Timeout"),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            fetched = collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
+
+        assert fetched == 0
+
+        # Discussion should still have no comments_json
+        items = get_discussions(engine)
+        assert items[0].comments_json is None
+
 
 class TestHackernewsSearchByUrl:
     def test_search_finds_and_stores(self, engine, mock_http):
@@ -293,6 +360,23 @@ class TestHackernewsSearchByUrl:
 
         assert found1 == 1
         assert found2 == 1  # search_by_url always returns hit count, dedup is in upsert
+
+    def test_search_404_returns_zero(self, engine, mock_http):
+        """search API returns 404 → returns 0."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search?query=").respond(
+            status_code=404,
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            found = collector.search_by_url("https://example.com/gone", engine, config.hackernews, config.settings)
+
+        assert found == 0
 
     def test_search_no_results(self, engine, mock_http):
         config = make_config(
@@ -347,3 +431,97 @@ class TestHackernewsSource:
             collect(collector, engine, config.hackernews, config.settings)
 
         assert len(get_sources(engine)) == 1
+
+
+class TestBaseCollectorEdgeCases:
+    """Test BaseCollector helper methods via HackernewsCollector."""
+
+    def test_is_source_recent_returns_true(self, engine, mock_http):
+        """Source fetched recently → _is_source_recent returns True."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings)
+
+        source_id = get_sources(engine)[0].id
+        assert collector._is_source_recent(engine, source_id, ttl_minutes=60) is True
+
+    def test_is_source_recent_returns_false_when_disabled(self, engine, mock_http):
+        """ttl_minutes=0 → always returns False (TTL disabled)."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings)
+
+        source_id = get_sources(engine)[0].id
+        assert collector._is_source_recent(engine, source_id, ttl_minutes=0) is False
+
+    def test_upsert_discussion_do_nothing_on_conflict(self, engine, mock_http):
+        """_upsert_discussion with update_columns=None → on_conflict_do_nothing."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        hit = hn_hit(object_id="99", title="Original Title")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings)
+
+        # Now manually upsert with update_columns=None — should NOT update title
+        with engine.begin() as conn:
+            collector._upsert_discussion(
+                conn,
+                dict(
+                    source_type="hackernews",
+                    external_id="99",
+                    title="Updated Title",
+                    source_id=get_sources(engine)[0].id,
+                ),
+                update_columns=None,
+            )
+
+        items = get_discussions(engine)
+        assert items[0].title == "Original Title"  # on_conflict_do_nothing
+
+    def test_ensure_self_post_content_existing(self, engine):
+        """_ensure_self_post_content when content already exists → returns existing id."""
+        collector = HackernewsCollector()
+
+        hn_url = "https://news.ycombinator.com/item?id=12345"
+
+        with engine.begin() as conn:
+            id1 = collector._ensure_self_post_content(conn, hn_url, "First text")
+            id2 = collector._ensure_self_post_content(conn, hn_url, "Different text")
+
+        assert id1 is not None
+        assert id1 == id2  # Returns existing content id
+
+    def test_ensure_self_post_content_empty_text(self, engine):
+        """_ensure_self_post_content with empty text → returns None."""
+        collector = HackernewsCollector()
+
+        with engine.begin() as conn:
+            result = collector._ensure_self_post_content(conn, "https://news.ycombinator.com/item?id=12345", "")
+
+        assert result is None

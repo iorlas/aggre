@@ -16,7 +16,7 @@ from aggre.utils.db import get_engine
 @pytest.fixture(scope="session")
 def engine():
     """Session-scoped PostgreSQL test engine."""
-    url = os.environ.get("AGGRE_TEST_DATABASE_URL", "postgresql+psycopg2://aggre:aggre@localhost/aggre_test")
+    url = os.environ.get("AGGRE_TEST_DATABASE_URL", "postgresql+psycopg://aggre:aggre@localhost/aggre_test")
     eng = get_engine(url)
     Base.metadata.create_all(eng)
     yield eng

@@ -177,6 +177,38 @@ class TestS3StoreOperations:
         s3_store.write("rss/feed1/raw.txt", text)
         assert s3_store.read("rss/feed1/raw.txt") == text
 
+    def test_read_or_none_returns_none_when_missing(self, s3_store: S3Store) -> None:
+        assert s3_store.read_or_none("hackernews/missing/raw.json") is None
+
+    def test_read_or_none_returns_text_after_write(self, s3_store: S3Store) -> None:
+        s3_store.write("hackernews/12345/raw.json", '{"title": "hello"}')
+        result = s3_store.read_or_none("hackernews/12345/raw.json")
+        assert result == '{"title": "hello"}'
+
+    def test_write_bytes_and_read_bytes_roundtrip(self, s3_store: S3Store) -> None:
+        data = b"\x00\x01\x02\xff audio data"
+        s3_store.write_bytes("youtube/vid01/audio.opus", data)
+        assert s3_store.read_bytes("youtube/vid01/audio.opus") == data
+
+    def test_read_bytes_raises_file_not_found(self, s3_store: S3Store) -> None:
+        with pytest.raises(FileNotFoundError):
+            s3_store.read_bytes("youtube/missing/audio.opus")
+
+    def test_list_keys_empty_prefix(self, s3_store: S3Store) -> None:
+        assert s3_store.list_keys("hackernews/") == []
+
+    def test_list_keys_returns_matching_keys(self, s3_store: S3Store) -> None:
+        s3_store.write("hackernews/111/raw.json", "{}")
+        s3_store.write("hackernews/222/raw.json", "{}")
+        keys = s3_store.list_keys("hackernews/")
+        assert keys == ["hackernews/111/raw.json", "hackernews/222/raw.json"]
+
+    def test_list_keys_filters_by_prefix(self, s3_store: S3Store) -> None:
+        s3_store.write("hackernews/111/raw.json", "{}")
+        s3_store.write("reddit/222/raw.json", "{}")
+        assert s3_store.list_keys("hackernews/") == ["hackernews/111/raw.json"]
+        assert s3_store.list_keys("reddit/") == ["reddit/222/raw.json"]
+
 
 class TestFilesystemStoreOperations:
     @pytest.fixture()
@@ -208,3 +240,35 @@ class TestFilesystemStoreOperations:
         parent = tmp_path / "hackernews" / "12345"
         tmp_files = list(parent.glob("*.tmp"))
         assert tmp_files == []
+
+    def test_read_or_none_returns_none_when_missing(self, fs_store: FilesystemStore) -> None:
+        assert fs_store.read_or_none("hackernews/missing/raw.json") is None
+
+    def test_read_or_none_returns_text_after_write(self, fs_store: FilesystemStore) -> None:
+        fs_store.write("hackernews/12345/raw.json", '{"title": "hello"}')
+        result = fs_store.read_or_none("hackernews/12345/raw.json")
+        assert result == '{"title": "hello"}'
+
+    def test_write_bytes_and_read_bytes_roundtrip(self, fs_store: FilesystemStore) -> None:
+        data = b"\x00\x01\x02\xff audio data"
+        fs_store.write_bytes("youtube/vid01/audio.opus", data)
+        assert fs_store.read_bytes("youtube/vid01/audio.opus") == data
+
+    def test_read_bytes_raises_file_not_found(self, fs_store: FilesystemStore) -> None:
+        with pytest.raises(FileNotFoundError):
+            fs_store.read_bytes("youtube/missing/audio.opus")
+
+    def test_list_keys_empty_prefix(self, fs_store: FilesystemStore) -> None:
+        assert fs_store.list_keys("hackernews/") == []
+
+    def test_list_keys_returns_matching_keys(self, fs_store: FilesystemStore) -> None:
+        fs_store.write("hackernews/111/raw.json", "{}")
+        fs_store.write("hackernews/222/raw.json", "{}")
+        keys = fs_store.list_keys("hackernews/")
+        assert keys == ["hackernews/111/raw.json", "hackernews/222/raw.json"]
+
+    def test_list_keys_filters_by_prefix(self, fs_store: FilesystemStore) -> None:
+        fs_store.write("hackernews/111/raw.json", "{}")
+        fs_store.write("reddit/222/raw.json", "{}")
+        assert fs_store.list_keys("hackernews/") == ["hackernews/111/raw.json"]
+        assert fs_store.list_keys("reddit/") == ["reddit/222/raw.json"]

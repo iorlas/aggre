@@ -35,7 +35,7 @@ def _run_alembic(database_url: str, target: str):
 
 class TestAlembicMigration:
     def _get_db_url(self):
-        return os.environ.get("AGGRE_TEST_DATABASE_URL", "postgresql+psycopg2://aggre:aggre@localhost/aggre_test")
+        return os.environ.get("AGGRE_TEST_DATABASE_URL", "postgresql+psycopg://aggre:aggre@localhost/aggre_test")
 
     def _clean_db(self, database_url: str):
         """Drop all tables so we can test alembic from scratch."""

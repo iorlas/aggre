@@ -222,9 +222,9 @@ class TestFullPipelineFlow:
             headers={"content-type": "text/html"},
         )
 
-        downloaded = download_content(engine, config)
+        download_stats = download_content(engine, config)
 
-        assert downloaded == 1
+        assert sum(download_stats.values()) == 1
 
         # Verify intermediate state: downloaded but not yet extracted
         content = get_contents(engine)[0]
@@ -241,9 +241,9 @@ class TestFullPipelineFlow:
             mock_meta_obj.title = "Great Article - Full"
             mock_meta.return_value = mock_meta_obj
 
-            extracted = extract_html_text(engine, config)
+            extract_stats = extract_html_text(engine, config)
 
-        assert extracted == 1
+        assert sum(extract_stats.values()) == 1
 
         # Verify full chain: SilverDiscussion -> SilverContent
         with engine.connect() as conn:
@@ -312,9 +312,9 @@ class TestContentFetcherIntegration:
             headers={"content-type": "text/html"},
         )
 
-        count = download_content(engine, config)
+        stats = download_content(engine, config)
 
-        assert count == 2
+        assert sum(stats.values()) == 2
 
         # Verify intermediate state
         with engine.connect() as conn:
@@ -339,9 +339,9 @@ class TestContentFetcherIntegration:
             meta_obj.title = "Article Title"
             mock_meta.return_value = meta_obj
 
-            count = extract_html_text(engine, config)
+            stats = extract_html_text(engine, config)
 
-        assert count == 2
+        assert sum(stats.values()) == 2
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
@@ -355,8 +355,8 @@ class TestContentFetcherIntegration:
         seed_content(engine, "https://youtube.com/watch?v=abc", domain="youtube.com")
         seed_content(engine, "https://youtu.be/xyz", domain="youtu.be")
 
-        count = download_content(engine, config)
-        assert count == 0  # YouTube URLs excluded from download query (handled by transcription)
+        stats = download_content(engine, config)
+        assert sum(stats.values()) == 0  # YouTube URLs excluded from download query (handled by transcription)
 
     def test_failed_download_stores_error(self, engine, mock_http):
         config = make_config()
@@ -365,9 +365,9 @@ class TestContentFetcherIntegration:
 
         mock_http.get("https://broken.example.com/page").mock(side_effect=Exception("Connection timeout"))
 
-        count = download_content(engine, config)
+        stats = download_content(engine, config)
 
-        assert count == 1
+        assert sum(stats.values()) == 1
 
         assert_tracking(
             engine,
@@ -392,10 +392,10 @@ class TestContentFetcherIntegration:
         )
         mock_http.get("https://bad.example.com/broken").mock(side_effect=Exception("DNS failure"))
 
-        count = download_content(engine, config)
+        stats = download_content(engine, config)
 
         # YouTube excluded from download query (handled by transcription), so only 2 processed
-        assert count == 2
+        assert sum(stats.values()) == 2
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
@@ -427,9 +427,9 @@ class TestContentFetcherIntegration:
             meta_obj.title = "Good Title"
             mock_meta.return_value = meta_obj
 
-            count = extract_html_text(engine, config)
+            stats = extract_html_text(engine, config)
 
-        assert count == 1
+        assert sum(stats.values()) == 1
 
         with engine.connect() as conn:
             rows = conn.execute(sa.select(SilverContent).order_by(SilverContent.id)).fetchall()
@@ -442,5 +442,5 @@ class TestContentFetcherIntegration:
 
         seed_content(engine, "https://example.com/done", domain="example.com", text="already done")
 
-        count = download_content(engine, config)
-        assert count == 0
+        stats = download_content(engine, config)
+        assert sum(stats.values()) == 0

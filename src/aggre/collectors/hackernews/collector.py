@@ -163,17 +163,17 @@ class HackernewsCollector(BaseCollector):
                     resp = client.get(url)
                     resp.raise_for_status()
                     data = resp.json()
+
+                    # Write raw API response to bronze before storing in silver
+                    write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+
+                    children = data.get("children", [])
+                    self._mark_comments_done(engine, discussion_id, ext_id, json.dumps(children), len(children))
+                    fetched += 1
                 except Exception:
                     logger.exception("hackernews.comments_fetch_failed story_id=%s", ext_id)
                     self._mark_comments_failed(engine, ext_id, f"fetch_error:{ext_id}")
                     continue
-
-                # Write raw API response to bronze before storing in silver
-                write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
-
-                children = data.get("children", [])
-                self._mark_comments_done(engine, discussion_id, ext_id, json.dumps(children), len(children))
-                fetched += 1
 
             logger.info("hackernews.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 

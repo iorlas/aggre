@@ -9,7 +9,7 @@ import logging
 
 import dagster as dg
 import sqlalchemy as sa
-from dagster import OpExecutionContext
+from dagster import OpExecutionContext, Output
 
 from aggre.collectors.base import SearchableCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
@@ -125,16 +125,24 @@ def search_content_discussions(
 
 
 @dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def discussion_search_op(context: OpExecutionContext) -> dict[str, int]:  # pragma: no cover — Dagster op wiring
+def discussion_search_op(context: OpExecutionContext) -> Output[dict[str, int]]:  # pragma: no cover — Dagster op wiring
     """Search HN and Lobsters for discussions about content URLs."""
     cfg = context.resources.app_config.get_config()
     engine = context.resources.database.get_engine()
 
-    return search_content_discussions(
+    stats = search_content_discussions(
         engine,
         cfg,
         hn_collector=HackernewsCollector(),
         lobsters_collector=LobstersCollector(),
+    )
+    return Output(
+        stats,
+        metadata={
+            "processed": stats["processed"],
+            "hackernews_found": stats["hackernews"],
+            "lobsters_found": stats["lobsters"],
+        },
     )
 
 

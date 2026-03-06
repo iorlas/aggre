@@ -86,7 +86,7 @@ class TestLoadConfig:
 
         # The YAML settings block must be stripped; Settings uses env vars / defaults
         assert cfg.settings.database_url != "postgresql://yaml-should-be-ignored/db"
-        assert cfg.settings.database_url == "postgresql+psycopg2://localhost/aggre"
+        assert cfg.settings.database_url == "postgresql+psycopg://localhost/aggre"
         # The rest of the config should still load
         assert cfg.hackernews.fetch_limit == 7
 

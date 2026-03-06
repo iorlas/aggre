@@ -26,6 +26,7 @@ def upsert_done(engine: sa.engine.Engine, source: str, external_id: str, stage: 
             "last_ran_at": ts,
             "completed_at": ts,
             "error": None,
+            "retries": 0,
         },
     )
     with engine.begin() as conn:

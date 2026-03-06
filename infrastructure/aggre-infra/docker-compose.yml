@@ -25,6 +25,19 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-aggre}
     restart: unless-stopped
 
+  dagster-postgres:
+    image: postgres:17-alpine
+    network_mode: service:tailscale
+    depends_on: [tailscale]
+    volumes:
+      - ./data/dagster-postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aggre}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: dagster
+      PGPORT: "5433"
+    restart: unless-stopped
+
   garage:
     image: dxflrs/garage:v2.2.0
     network_mode: service:tailscale

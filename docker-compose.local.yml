@@ -6,8 +6,9 @@
 # Data persists in ./data/postgres/ between runs.
 
 x-app-env: &app-env
-  AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
+  AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
   AGGRE_BROWSERLESS_URL: http://browserless:3000
+  DAGSTER_PG_URL: postgresql+psycopg2://aggre:aggre@dagster-postgres/dagster
 
 services:
   browserless:
@@ -36,6 +37,20 @@ services:
       - ./data/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aggre"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  dagster-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dagster
+      POSTGRES_USER: aggre
+      POSTGRES_PASSWORD: aggre
+    volumes:
+      - ./data/dagster-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aggre"]
       interval: 5s
@@ -91,6 +106,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      dagster-postgres:
+        condition: service_healthy
       browserless:
         condition: service_healthy
 

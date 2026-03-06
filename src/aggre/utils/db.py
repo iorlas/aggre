@@ -14,4 +14,4 @@ def now_iso() -> str:
 
 def get_engine(database_url: str) -> sa.engine.Engine:
     """Create a SQLAlchemy engine for the given database URL."""
-    return sa.create_engine(database_url, echo=False)
+    return sa.create_engine(database_url, echo=False, pool_pre_ping=True, pool_recycle=300)

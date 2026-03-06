@@ -136,7 +136,7 @@ class TestFetchComments:
         ctx = _mock_context(MagicMock(), config=make_config())
         result = fetch_comments(ctx)
 
-        assert result == 10
+        assert result.value == 10
         mock_reddit_cls.return_value.collect_comments.assert_called_once()
         mock_hn_cls.return_value.collect_comments.assert_called_once()
         mock_lobsters_cls.return_value.collect_comments.assert_called_once()
@@ -163,7 +163,7 @@ class TestFetchComments:
         result = fetch_comments(ctx)
 
         # Reddit failed, HN + Lobsters succeeded
-        assert result == 5
+        assert result.value == 5
         mock_hn_cls.return_value.collect_comments.assert_called_once()
         mock_lobsters_cls.return_value.collect_comments.assert_called_once()
 
@@ -188,7 +188,7 @@ class TestFetchComments:
         ctx = _mock_context(MagicMock(), config=make_config())
         result = fetch_comments(ctx)
 
-        assert result == 10
+        assert result.value == 10
 
     @patch("aggre.dagster_defs.comments.job.COLLECTORS")
     def test_skips_missing_collector(self, mock_collectors: MagicMock) -> None:
@@ -204,5 +204,5 @@ class TestFetchComments:
         ctx = _mock_context(MagicMock(), config=make_config())
         result = fetch_comments(ctx)
 
-        assert result == 2
+        assert result.value == 2
         mock_hn_cls.return_value.collect_comments.assert_called_once()

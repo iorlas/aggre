@@ -314,6 +314,7 @@ class FakeFeed:
     def __init__(self, entries: list, feed_title: str = "Test Feed"):
         self.entries = entries
         self.bozo = False
+        self.bozo_exception: Exception | None = None
         feed_meta = {"title": feed_title}
 
         class FeedMeta:
@@ -416,6 +417,65 @@ def telegram_mock_client(messages_by_username: dict[str, list]) -> AsyncMock:
 
     client.get_messages = AsyncMock(side_effect=get_messages)
     return client
+
+
+# ===========================================================================
+# ArXiv response builders
+# ===========================================================================
+
+
+def arxiv_entry(**kwargs) -> FakeEntry:
+    """Build a fake feedparser entry for ArXiv."""
+    defaults = {
+        "link": "https://arxiv.org/abs/2602.23360v1",
+        "title": "Test Paper: A Novel Approach",
+        "author": "Alice Researcher",
+        "summary": "We present a novel approach to testing.",
+        "published": "2025-02-15T00:00:00Z",
+        "tags": [{"term": "cs.AI"}, {"term": "cs.CL"}],
+    }
+    defaults.update(kwargs)
+    data = {k: v for k, v in defaults.items() if v is not None}
+    return FakeEntry(data)
+
+
+# ===========================================================================
+# LessWrong response builders
+# ===========================================================================
+
+
+def lesswrong_post(
+    post_id: str = "abc123lw",
+    title: str = "Test LW Post",
+    slug: str = "test-lw-post",
+    base_score: int = 42,
+    vote_count: int = 50,
+    comment_count: int = 5,
+    af: bool = False,
+    url: str | None = None,
+    page_url: str | None = None,
+    posted_at: str = "2025-01-15T00:00:00.000Z",
+    tags: list[dict] | None = None,
+    user: dict | None = None,
+) -> dict:
+    return {
+        "_id": post_id,
+        "title": title,
+        "slug": slug,
+        "pageUrl": page_url or f"https://www.lesswrong.com/posts/{post_id}/{slug}",
+        "postedAt": posted_at,
+        "baseScore": base_score,
+        "voteCount": vote_count,
+        "commentCount": comment_count,
+        "af": af,
+        "url": url,
+        "user": user or {"displayName": "Test Author"},
+        "tags": tags if tags is not None else [{"name": "rationality"}, {"name": "AI"}],
+    }
+
+
+def lesswrong_graphql_response(*posts: dict) -> dict:
+    return {"data": {"posts": {"results": list(posts)}}}
 
 
 # ===========================================================================

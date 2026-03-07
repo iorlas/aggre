@@ -26,8 +26,8 @@ lint:
 	uv run ruff format --check src tests
 	uv run ty check src tests
 
-validate:
-	uv run dagster definitions validate
+worker:
+	uv run python -m aggre.workflows
 
 grafana:
 	docker compose -f docker-compose.local.yml up grafana -d

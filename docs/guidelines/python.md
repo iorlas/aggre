@@ -28,11 +28,11 @@ Why not split by technical layer (`core/`, `pipeline/`): current flat structure 
 
 ### Framework-First Architecture
 
-When using an orchestration framework (Dagster, Airflow), business logic goes directly in framework primitives (ops/jobs). No separate "service layer" or `pipeline/` directory.
+When using an orchestration framework (Hatchet, Dagster, Airflow), business logic goes directly in framework primitives (workflows/tasks). No separate "service layer" or `pipeline/` directory.
 
-Why: single caller (the framework), integration tests more valuable than unit tests of extracted functions, AI agents handle framework migrations when needed. A separate service layer adds indirection without adding testability — the Dagster ops are already testable by calling the functions directly.
+Why: single caller (the framework), integration tests more valuable than unit tests of extracted functions, AI agents handle framework migrations when needed. A separate service layer adds indirection without adding testability — the workflow functions are already testable by calling them directly.
 
-Pattern: each dagster_defs sub-package (e.g., `content/job.py`) contains both the business logic functions and the Dagster ops that call them. Functions are importable for testing without Dagster.
+Pattern: each `workflows/*.py` module contains both the business logic functions and the Hatchet workflow/task wrappers that call them. Functions are importable for testing without Hatchet.
 
 When the framework provides a standard for a concern (logging, config injection), use the framework's approach. Framework conventions override general Python patterns in this project.
 
@@ -43,7 +43,7 @@ Imports form a DAG with three layers:
 ```
 Layer 3 (composition root): cli.py, config.py
   ↓ imports from
-Layer 2 (business modules): collectors/*, dagster_defs/content/, dagster_defs/transcription/, dagster_defs/discussion_search/
+Layer 2 (business modules): collectors/*, workflows/webpage, workflows/transcription, workflows/discussion_search
   ↓ imports from
 Layer 1 (infrastructure): db.py, urls.py, utils/http.py, settings.py
 ```
@@ -301,7 +301,7 @@ Why: context managers guarantee cleanup on exceptions. Manual `try/finally` is e
 
 Pass all dependencies as parameters. No global state, no module-level singletons.
 
-Exception: logging. Use module-level `logging.getLogger(__name__)`. Dagster captures these automatically via `managed_python_loggers`. Do not pass loggers as function parameters.
+Exception: logging. Use module-level `logging.getLogger(__name__)`. Do not pass loggers as function parameters.
 
 Standard signature for DB operations: `(engine: sa.engine.Engine, ...)`.
 

@@ -63,7 +63,7 @@ def s3_backend(s3_store, monkeypatch):
 class TestReprocessViaS3:
     def test_reprocess_reads_from_s3(self, engine, s3_backend):
         """Write raw.json to S3, reprocess without bronze_root override — uses S3."""
-        from aggre.dagster_defs.reprocess.job import reprocess_from_bronze
+        from aggre.workflows.reprocess import reprocess_from_bronze
 
         raw_data = hn_hit(object_id="12345", title="S3 Story", url="https://example.com/s3")
         s3_backend.write("hackernews/12345/raw.json", json.dumps(raw_data))
@@ -80,7 +80,7 @@ class TestReprocessViaS3:
 
     def test_reprocess_list_keys_on_s3(self, engine, s3_backend):
         """Verify list_keys finds multiple raw.json files on S3."""
-        from aggre.dagster_defs.reprocess.job import reprocess_from_bronze
+        from aggre.workflows.reprocess import reprocess_from_bronze
 
         for eid in ("aaa", "bbb"):
             raw = hn_hit(object_id=eid, title=f"Story {eid}")
@@ -127,7 +127,7 @@ def _make_mock_model(transcript_text="This is the transcript", language="en"):
 class TestTranscriptionViaS3:
     def test_whisper_cache_from_s3(self, engine, s3_backend):
         """When whisper.json exists in S3, transcription uses it without download."""
-        from aggre.dagster_defs.transcription.job import transcribe
+        from aggre.workflows.transcription import transcribe
 
         content_id = _seed_youtube(engine, external_id="cached01")
         config = make_config()
@@ -143,10 +143,10 @@ class TestTranscriptionViaS3:
             assert row.text == "S3 cached transcript"
             assert row.detected_language == "fr"
 
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_audio_uploaded_to_s3_after_download(self, mock_ydl_cls, engine, s3_backend, tmp_path):
         """After downloading audio, it's uploaded to S3 for persistence."""
-        from aggre.dagster_defs.transcription.job import transcribe
+        from aggre.workflows.transcription import transcribe
 
         _seed_youtube(engine, external_id="up01")
         config = make_config(proxy_url="")
@@ -175,7 +175,7 @@ class TestTranscriptionViaS3:
 
     def test_audio_downloaded_from_s3_skips_yt_dlp(self, engine, s3_backend, tmp_path):
         """When audio exists in S3, yt_dlp is NOT called."""
-        from aggre.dagster_defs.transcription.job import transcribe
+        from aggre.workflows.transcription import transcribe
 
         _seed_youtube(engine, external_id="s3aud01")
         config = make_config()
@@ -185,7 +185,7 @@ class TestTranscriptionViaS3:
         # Pre-upload audio to S3
         s3_backend.write_bytes("youtube/s3aud01/audio.opus", b"s3 cached audio")
 
-        with patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL") as mock_ydl_cls:
+        with patch("aggre.workflows.transcription.yt_dlp.YoutubeDL") as mock_ydl_cls:
             result = transcribe(engine, config, model=mock_model)
 
         assert result["succeeded"] == 1

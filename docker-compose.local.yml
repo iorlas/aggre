@@ -1,14 +1,15 @@
-# Local dev setup: Dagster UI with autoreload on source changes.
+# Local dev setup: Hatchet worker with autoreload on source changes.
 # Usage: make dev  (or: docker compose -f docker-compose.local.yml up --build --watch)
 #
-# Dagster UI at http://localhost:3000
-# Grafana  at http://localhost:3002 (anonymous access, no login)
+# Hatchet UI at http://localhost:8888
+# Grafana   at http://localhost:3002 (anonymous access, no login)
 # Data persists in ./data/postgres/ between runs.
 
 x-app-env: &app-env
   AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
   AGGRE_BROWSERLESS_URL: http://browserless:3000
-  DAGSTER_PG_URL: postgresql+psycopg2://aggre:aggre@dagster-postgres/dagster
+  HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+  HATCHET_CLIENT_TLS_STRATEGY: none
 
 services:
   browserless:
@@ -43,20 +44,6 @@ services:
       timeout: 5s
       retries: 5
 
-  dagster-postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: dagster
-      POSTGRES_USER: aggre
-      POSTGRES_PASSWORD: aggre
-    volumes:
-      - ./data/dagster-postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aggre"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   garage:
     image: dxflrs/garage:v2.2.0
     ports:
@@ -84,9 +71,18 @@ services:
       postgres:
         condition: service_healthy
 
-  dagster-dev:
+  hatchet-lite:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    ports:
+      - "8888:8888"
+      - "7077:7077"
+    environment:
+      HATCHET_CLIENT_TLS_STRATEGY: none
+    restart: unless-stopped
+
+  hatchet-worker:
     build: .
-    command: uv run dagster dev -h 0.0.0.0 -p 3000
+    command: uv run python -m aggre.workflows
     develop:
       watch:
         - action: sync
@@ -95,9 +91,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
-      - ./dagster.yaml:/app/dagster.yaml:ro  # dev config (no postgres storage)
-    ports:
-      - "3000:3000"
     environment:
       <<: *app-env
     env_file:
@@ -106,8 +99,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      dagster-postgres:
-        condition: service_healthy
+      hatchet-lite:
+        condition: service_started
       browserless:
         condition: service_healthy
 

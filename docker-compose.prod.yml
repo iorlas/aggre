@@ -1,6 +1,9 @@
+# Production setup: requires an external Hatchet server.
+# Set HATCHET_CLIENT_TOKEN in .env to connect.
 x-app-env: &app-env
   AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
-  DAGSTER_PG_URL: postgresql+psycopg2://aggre:aggre@dagster-postgres/dagster
+  HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+  HATCHET_CLIENT_TLS_STRATEGY: none
 
 services:
   postgres:
@@ -33,44 +36,9 @@ services:
       postgres:
         condition: service_healthy
 
-  dagster-postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: dagster
-      POSTGRES_USER: aggre
-      POSTGRES_PASSWORD: aggre
-    volumes:
-      - ./data/dagster-postgres:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aggre"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  dagster-webserver:
+  hatchet-worker:
     image: ghcr.io/iorlas/aggre:latest
-    command: uv run dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    ports:
-      - "3000:3000"
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      dagster-postgres:
-        condition: service_healthy
-
-  dagster-daemon:
-    image: ghcr.io/iorlas/aggre:latest
-    command: uv run dagster-daemon run -w workspace.yaml
+    command: uv run python -m aggre.workflows
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
@@ -83,8 +51,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      dagster-postgres:
-        condition: service_healthy
 
   tor-proxy:
     image: peterdavehello/tor-socks-proxy:latest

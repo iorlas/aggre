@@ -1,9 +1,9 @@
-# Remote data layer: Dagster UI with autoreload connecting to remote PG + S3 via Tailscale.
+# Remote data layer: Hatchet worker with autoreload connecting to remote PG + S3 via Tailscale.
 # Requires: Tailscale connected to aggre-shen
 # Usage: make dev-remote
 #
-# Dagster UI at http://localhost:3000
-# Grafana  at http://localhost:3002 (anonymous access, no login)
+# Hatchet UI at http://localhost:8888
+# Grafana   at http://localhost:3002 (anonymous access, no login)
 #
 # Docker Desktop on macOS runs containers in a Linux VM that can't resolve
 # Tailscale MagicDNS names. extra_hosts maps aggre-shen to its Tailscale IP,
@@ -43,9 +43,18 @@ services:
       browserless:
         condition: service_healthy
 
-  dagster-dev:
+  hatchet-lite:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    ports:
+      - "8888:8888"
+      - "7077:7077"
+    environment:
+      HATCHET_CLIENT_TLS_STRATEGY: none
+    restart: unless-stopped
+
+  hatchet-worker:
     build: .
-    command: uv run dagster dev -h 0.0.0.0 -p 3000
+    command: uv run python -m aggre.workflows
     develop:
       watch:
         - action: sync
@@ -54,13 +63,12 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
-      - ./dagster.yaml:/app/dagster.yaml:ro
     tmpfs:
       - /app/data/tmp:size=8G
-    ports:
-      - "3000:3000"
     environment:
       AGGRE_BROWSERLESS_URL: http://browserless:3000
+      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+      HATCHET_CLIENT_TLS_STRATEGY: none
     env_file:
       - path: .env
         required: true
@@ -69,6 +77,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      hatchet-lite:
+        condition: service_started
       browserless:
         condition: service_healthy
 

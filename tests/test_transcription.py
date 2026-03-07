@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import sqlalchemy as sa
 
-from aggre.dagster_defs.transcription.job import transcribe
 from aggre.db import SilverContent
 from aggre.tracking.status import Stage, StageStatus
+from aggre.workflows.transcription import transcribe
 from tests.factories import make_config, seed_content, seed_discussion
 from tests.helpers import assert_tracking
 
@@ -65,10 +65,10 @@ class TestTranscribe:
         result = transcribe(engine, config)
         assert result == {"succeeded": 0, "failed": 0, "total": 0}
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_transcribes_and_stores_text(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """Downloads audio, transcribes, stores text + detected_language on SilverContent."""
         content_id = _seed_youtube(engine, external_id="vid001")
@@ -96,8 +96,8 @@ class TestTranscribe:
 
         assert_tracking(engine, "youtube", "vid001", Stage.TRANSCRIBE, StageStatus.DONE)
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.read_bronze_or_none")
     def test_uses_cached_whisper_json(self, mock_read_or_none, mock_write, engine, tmp_path):
         """When whisper.json exists in bronze, skip download + transcription."""
         content_id = _seed_youtube(engine, external_id="cached01")
@@ -115,9 +115,9 @@ class TestTranscribe:
 
         assert_tracking(engine, "youtube", "cached01", Stage.TRANSCRIBE, StageStatus.DONE)
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
     def test_uses_cached_audio(self, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """When audio file exists in bronze, skip download but still transcribe."""
         content_id = _seed_youtube(engine, external_id="audio01")
@@ -141,10 +141,10 @@ class TestTranscribe:
 
         assert_tracking(engine, "youtube", "audio01", Stage.TRANSCRIBE, StageStatus.DONE)
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_handles_download_error(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """yt-dlp fails -> tracking set to failed."""
         _seed_youtube(engine, external_id="fail01")
@@ -167,10 +167,10 @@ class TestTranscribe:
 
         assert_tracking(engine, "youtube", "fail01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="Video unavailable")
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_handles_transcription_error(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """WhisperModel fails -> tracking set to failed."""
         _seed_youtube(engine, external_id="terr01")
@@ -197,10 +197,10 @@ class TestTranscribe:
 
         assert_tracking(engine, "youtube", "terr01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="CUDA out of memory")
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_skips_large_audio_file(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """Audio >500MB -> tracking set to failed."""
         _seed_youtube(engine, external_id="big01")
@@ -226,10 +226,10 @@ class TestTranscribe:
 
         assert_tracking(engine, "youtube", "big01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="500MB")
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_respects_batch_limit(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """batch_limit=1 with 2 pending -> only 1 processed."""
         _seed_youtube(engine, external_id="batch01", title="Video 1")
@@ -264,10 +264,10 @@ class TestTranscribe:
             ).fetchall()
             assert len(pending) == 1
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_writes_whisper_output_to_bronze(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """Verify whisper.json is written to bronze after transcription."""
         _seed_youtube(engine, external_id="bronze01")
@@ -322,7 +322,7 @@ class TestTranscribe:
 
         # Use cached whisper.json to avoid download
         cached_data = json.dumps({"transcript": "Short transcript", "language": "en"})
-        with patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=cached_data):
+        with patch("aggre.workflows.transcription.read_bronze_or_none", return_value=cached_data):
             result = transcribe(engine, config)
 
         assert result["succeeded"] == 1
@@ -335,16 +335,16 @@ class TestTranscribe:
         config = make_config()
 
         cached_data = json.dumps({"transcript": "Transcript", "language": "en"})
-        with patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=cached_data):
+        with patch("aggre.workflows.transcription.read_bronze_or_none", return_value=cached_data):
             result = transcribe(engine, config)
 
         assert result["succeeded"] == 1
         assert_tracking(engine, "youtube", "nodur01", Stage.TRANSCRIBE, StageStatus.DONE)
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.get_store")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none", return_value=None)
-    @patch("aggre.dagster_defs.transcription.job.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_parallel_transcription(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """max_workers=2 processes multiple videos in parallel."""
         _seed_youtube(engine, external_id="par01", title="Parallel 1")
@@ -374,7 +374,7 @@ class TestTranscribe:
 
         assert mock_model.transcribe.call_count == 2
 
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none")
+    @patch("aggre.workflows.transcription.read_bronze_or_none")
     def test_cache_check_exception_doesnt_crash_batch(self, mock_read_or_none, engine):
         """If read_bronze_or_none raises (e.g. S3 unreachable), the item fails gracefully and batch continues."""
         _seed_youtube(engine, external_id="crash01", title="Crash Video")
@@ -396,8 +396,8 @@ class TestTranscribe:
         assert_tracking(engine, "youtube", "crash01", Stage.TRANSCRIBE, StageStatus.FAILED, error_contains="S3 unreachable")
         assert_tracking(engine, "youtube", "ok01", Stage.TRANSCRIBE, StageStatus.DONE)
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.read_bronze_or_none")
     def test_processes_shorter_videos_first(self, mock_read_or_none, mock_write, engine):
         """Duration-based ordering: shorter videos are processed before longer ones."""
         # Seed 3 videos with different durations
@@ -423,8 +423,8 @@ class TestTranscribe:
             disc = conn.execute(sa.select(SilverDiscussion.external_id).where(SilverDiscussion.content_id == rows[0].id)).fetchone()
             assert disc.external_id == "short01"
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.read_bronze_or_none")
     def test_update_content_failure_leaves_item_retriable(self, mock_read_or_none, mock_write, engine):
         """When update_content fails, item should be FAILED (not DONE), and retriable."""
         from aggre.tracking.model import StageTracking
@@ -434,7 +434,7 @@ class TestTranscribe:
         cached_data = json.dumps({"transcript": "text", "language": "en"})
         mock_read_or_none.return_value = cached_data
 
-        with patch("aggre.dagster_defs.transcription.job.update_content", side_effect=Exception("DB write error")):
+        with patch("aggre.workflows.transcription.update_content", side_effect=Exception("DB write error")):
             result = transcribe(engine, config)
 
         assert result["succeeded"] == 0
@@ -458,8 +458,8 @@ class TestTranscribe:
             ).fetchone()
             assert tracking.retries == 1
 
-    @patch("aggre.dagster_defs.transcription.job.write_bronze")
-    @patch("aggre.dagster_defs.transcription.job.read_bronze_or_none")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.read_bronze_or_none")
     def test_upsert_done_resets_retries_after_previous_failure(self, mock_read_or_none, mock_write, engine):
         """After a failure + successful retry, retries counter resets to 0."""
         from aggre.tracking.model import StageTracking

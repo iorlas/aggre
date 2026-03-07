@@ -1,27 +1,26 @@
-"""Webpage download and extraction job.
+"""Webpage download and extraction workflow.
 
-Note: ``from __future__ import annotations`` is omitted because Dagster's
-``@op`` decorator inspects context-parameter type hints at decoration time and
-cannot resolve deferred (stringified) annotations.
+Two-task DAG: download → extract. Triggered by content.new events.
 """
+
+from __future__ import annotations
 
 import concurrent.futures
 import logging
 import traceback
 
-import dagster as dg
 import httpx
 import sqlalchemy as sa
 import sqlalchemy.orm
 import trafilatura
-from dagster import OpExecutionContext, Output
 
-from aggre.config import AppConfig
+from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, update_content
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
 from aggre.tracking.status import Stage, StageStatus
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
+from aggre.utils.db import get_engine
 from aggre.utils.http import create_http_client
 
 logger = logging.getLogger(__name__)
@@ -396,43 +395,27 @@ def extract_html_text(
     return {"extracted": extracted, "failed": failed}
 
 
-# -- Dagster ops and job -------------------------------------------------------
+# -- Hatchet workflow ----------------------------------------------------------
 
 
-@dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def download_webpage_op(context: OpExecutionContext) -> Output[int]:  # pragma: no cover — Dagster op wiring
-    """Download raw HTML for pending content URLs."""
-    cfg = context.resources.app_config.get_config()
-    engine = context.resources.database.get_engine()
-    stats = download_content(engine, cfg)
-    total = stats["downloaded"] + stats["cached"] + stats["failed"] + stats["skipped"]
-    return Output(
-        total,
-        metadata={
-            "downloaded": stats["downloaded"],
-            "cached": stats["cached"],
-            "failed": stats["failed"],
-            "skipped": stats["skipped"],
-        },
-    )
+def register(h) -> None:  # pragma: no cover — Hatchet wiring
+    """Register the webpage workflow with the Hatchet instance."""
+    wf = h.workflow(name="webpage", on_events=["content.new"])
 
+    @wf.task()
+    def download_task(input, ctx):  # noqa: A002
+        ctx.log("Starting webpage download")
+        cfg = load_config()
+        engine = get_engine(cfg.settings.database_url)
+        stats = download_content(engine, cfg)
+        ctx.log(f"Download complete: {stats}")
+        return stats
 
-@dg.op(required_resource_keys={"database", "app_config"})
-def extract_webpage_op(context: OpExecutionContext, download_count: int) -> Output[int]:  # pragma: no cover — Dagster op wiring
-    """Extract text from downloaded HTML."""
-    cfg = context.resources.app_config.get_config()
-    engine = context.resources.database.get_engine()
-    stats = extract_html_text(engine, cfg)
-    total = stats["extracted"] + stats["failed"]
-    return Output(
-        total,
-        metadata={
-            "extracted": stats["extracted"],
-            "failed": stats["failed"],
-        },
-    )
-
-
-@dg.job
-def webpage_job() -> None:
-    extract_webpage_op(download_webpage_op())
+    @wf.task(parents=[download_task])
+    def extract_task(input, ctx):  # noqa: A002
+        ctx.log("Starting text extraction")
+        cfg = load_config()
+        engine = get_engine(cfg.settings.database_url)
+        stats = extract_html_text(engine, cfg)
+        ctx.log(f"Extraction complete: {stats}")
+        return stats

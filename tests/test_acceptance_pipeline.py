@@ -16,10 +16,10 @@ from aggre.collectors.reddit.collector import RedditCollector
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
-from aggre.dagster_defs.webpage.job import download_content, extract_html_text
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.tracking.model import StageTracking
 from aggre.tracking.status import Stage, StageStatus
+from aggre.workflows.webpage import download_content, extract_html_text
 from tests.factories import (
     hn_comment_child,
     hn_hit,
@@ -234,8 +234,8 @@ class TestFullPipelineFlow:
 
         # Step 4: Extract text from downloaded HTML
         with (
-            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Full article body here"),
-            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.workflows.webpage.trafilatura.extract", return_value="Full article body here"),
+            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Great Article - Full"
@@ -332,8 +332,8 @@ class TestContentFetcherIntegration:
             assert len(tracking_rows) == 2
 
         with (
-            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Extracted text"),
-            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.workflows.webpage.trafilatura.extract", return_value="Extracted text"),
+            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Article Title"
@@ -420,8 +420,8 @@ class TestContentFetcherIntegration:
 
         # Now extract the downloaded one
         with (
-            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Good body"),
-            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.workflows.webpage.trafilatura.extract", return_value="Good body"),
+            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             meta_obj = MagicMock()
             meta_obj.title = "Good Title"

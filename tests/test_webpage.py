@@ -8,11 +8,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 import sqlalchemy as sa
 
-from aggre.dagster_defs.webpage.job import download_content, extract_html_text
 from aggre.db import SilverContent
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import upsert_done
 from aggre.tracking.status import Stage, StageStatus
+from aggre.workflows.webpage import download_content, extract_html_text
 from tests.factories import make_config, seed_content
 from tests.helpers import assert_tracking
 
@@ -121,7 +121,7 @@ class TestDownloadContent:
 
         mock_http.get("https://example.com/gone").respond(status_code=404)
 
-        with caplog.at_level(logging.WARNING, logger="aggre.dagster_defs.webpage.job"):
+        with caplog.at_level(logging.WARNING, logger="aggre.workflows.webpage"):
             stats = download_content(engine, config)
         assert sum(stats.values()) == 1
 
@@ -196,7 +196,7 @@ class TestDownloadContent:
             headers={"content-type": "text/html"},
         )
 
-        with patch("aggre.dagster_defs.webpage.job.bronze_exists_by_url") as mock_bronze:
+        with patch("aggre.workflows.webpage.bronze_exists_by_url") as mock_bronze:
 
             def bronze_exists_side_effect(source, url, *args):
                 if url == "https://example.com/s3-broken":
@@ -326,8 +326,8 @@ class TestExtractHtmlText:
         write_bronze_by_url("webpage", "https://example.com/article", "response", html, "html")
 
         with (
-            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="Article content here"),
-            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata") as mock_meta,
+            patch("aggre.workflows.webpage.trafilatura.extract", return_value="Article content here"),
+            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata") as mock_meta,
         ):
             mock_meta_obj = MagicMock()
             mock_meta_obj.title = "Test Article"
@@ -356,8 +356,8 @@ class TestExtractHtmlText:
         write_bronze_by_url("webpage", "https://example.com/empty-page", "response", html, "html")
 
         with (
-            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value=None),
-            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata", return_value=None),
+            patch("aggre.workflows.webpage.trafilatura.extract", return_value=None),
+            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata", return_value=None),
         ):
             stats = extract_html_text(engine, config)
 
@@ -387,7 +387,7 @@ class TestExtractHtmlText:
 
         write_bronze_by_url("webpage", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
 
-        with patch("aggre.dagster_defs.webpage.job.trafilatura.extract", side_effect=Exception("Parse error")):
+        with patch("aggre.workflows.webpage.trafilatura.extract", side_effect=Exception("Parse error")):
             stats = extract_html_text(engine, config)
 
         assert sum(stats.values()) == 1
@@ -415,8 +415,8 @@ class TestExtractHtmlText:
             write_bronze_by_url("webpage", url, "response", f"<html>content {i}</html>", "html")
 
         with (
-            patch("aggre.dagster_defs.webpage.job.trafilatura.extract", return_value="text"),
-            patch("aggre.dagster_defs.webpage.job.trafilatura.metadata.extract_metadata", return_value=None),
+            patch("aggre.workflows.webpage.trafilatura.extract", return_value="text"),
+            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata", return_value=None),
         ):
             stats = extract_html_text(engine, config, batch_limit=3)
 

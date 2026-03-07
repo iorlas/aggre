@@ -1,5 +1,7 @@
 # Plan: Code File Audit & Status Column Analysis
 
+> **Note:** This plan predates the Dagster → Hatchet migration. References to `dagster_defs/` and Dagster concepts are historical. Orchestration now uses Hatchet (`src/aggre/workflows/`).
+
 ## Problem
 1. Every code file needs its location and purpose challenged
 2. Question: are state machines and status columns necessary when Dagster handles orchestration?

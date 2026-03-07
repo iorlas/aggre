@@ -70,7 +70,7 @@ def _backdate_last_ran(engine: sa.engine.Engine, external_id: str, stage: Stage)
 
 def _download_query():
     """Build the download sensor query (content needing download)."""
-    from aggre.dagster_defs.webpage.job import SKIP_DOMAINS
+    from aggre.workflows.webpage import SKIP_DOMAINS
 
     return (
         sa.select(SilverContent.id, SilverContent.canonical_url)

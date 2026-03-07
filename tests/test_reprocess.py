@@ -8,8 +8,8 @@ import logging
 import pytest
 import sqlalchemy as sa
 
-from aggre.dagster_defs.reprocess.job import reprocess_from_bronze
 from aggre.db import SilverDiscussion, Source
+from aggre.workflows.reprocess import reprocess_from_bronze
 from tests.factories import hn_hit, lobsters_story
 
 pytestmark = pytest.mark.integration

@@ -1,9 +1,9 @@
-"""Transcription job -- download and transcribe YouTube videos.
+"""Transcription workflow -- download and transcribe YouTube videos.
 
-Note: ``from __future__ import annotations`` is omitted because Dagster's
-``@op`` decorator inspects context-parameter type hints at decoration time and
-cannot resolve deferred (stringified) annotations.
+Single-task workflow triggered by content.new events.
 """
+
+from __future__ import annotations
 
 import concurrent.futures
 import json
@@ -12,19 +12,18 @@ import threading
 import traceback
 from pathlib import Path
 
-import dagster as dg
 import sqlalchemy as sa
 import yt_dlp
-from dagster import OpExecutionContext, Output
 from faster_whisper import WhisperModel
 from sqlalchemy.dialects.postgresql import JSONB
 
-from aggre.config import AppConfig
+from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
 from aggre.tracking.status import Stage
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
+from aggre.utils.db import get_engine
 
 logger = logging.getLogger(__name__)
 
@@ -260,25 +259,18 @@ def transcribe(
     return {"succeeded": processed, "failed": failed, "total": len(pending)}
 
 
-# -- Dagster ops and job -------------------------------------------------------
+# -- Hatchet workflow ----------------------------------------------------------
 
 
-@dg.op(required_resource_keys={"database", "app_config"})
-def transcribe_videos_op(context: OpExecutionContext) -> Output[int]:  # pragma: no cover — Dagster op wiring
-    """Download and transcribe pending YouTube videos."""
-    cfg = context.resources.app_config.get_config()
-    engine = context.resources.database.get_engine()
-    stats = transcribe(engine, cfg, batch_limit=30, max_workers=2)
-    return Output(
-        stats["total"],
-        metadata={
-            "succeeded": stats["succeeded"],
-            "failed": stats["failed"],
-            "total": stats["total"],
-        },
-    )
+def register(h) -> None:  # pragma: no cover — Hatchet wiring
+    """Register the transcription workflow with the Hatchet instance."""
+    wf = h.workflow(name="transcription", on_events=["content.new"])
 
-
-@dg.job
-def transcribe_job() -> None:
-    transcribe_videos_op()
+    @wf.task()
+    def transcribe_task(input, ctx):  # noqa: A002
+        ctx.log("Starting transcription")
+        cfg = load_config()
+        engine = get_engine(cfg.settings.database_url)
+        stats = transcribe(engine, cfg, batch_limit=30, max_workers=2)
+        ctx.log(f"Transcription complete: {stats}")
+        return stats

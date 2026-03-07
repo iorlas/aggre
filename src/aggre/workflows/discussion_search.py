@@ -1,24 +1,20 @@
-"""Discussion search job -- discover cross-source discussions.
+"""Discussion search workflow -- discover cross-source discussions."""
 
-Note: ``from __future__ import annotations`` is omitted because Dagster's
-``@op`` decorator inspects context-parameter type hints at decoration time and
-cannot resolve deferred (stringified) annotations.
-"""
+from __future__ import annotations
 
 import logging
 
-import dagster as dg
 import sqlalchemy as sa
-from dagster import OpExecutionContext, Output
 
 from aggre.collectors.base import SearchableCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.lobsters.collector import LobstersCollector
-from aggre.config import AppConfig
+from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
 from aggre.tracking.status import Stage
+from aggre.utils.db import get_engine
 
 logger = logging.getLogger(__name__)
 
@@ -121,31 +117,23 @@ def search_content_discussions(
     return totals
 
 
-# -- Dagster ops and job -------------------------------------------------------
+# -- Hatchet workflow ----------------------------------------------------------
 
 
-@dg.op(required_resource_keys={"database", "app_config"}, retry_policy=dg.RetryPolicy(max_retries=2, delay=10))
-def discussion_search_op(context: OpExecutionContext) -> Output[dict[str, int]]:  # pragma: no cover — Dagster op wiring
-    """Search HN and Lobsters for discussions about content URLs."""
-    cfg = context.resources.app_config.get_config()
-    engine = context.resources.database.get_engine()
+def register(h) -> None:  # pragma: no cover — Hatchet wiring
+    """Register the discussion search workflow with the Hatchet instance."""
+    wf = h.workflow(name="discussion-search", on_events=["content.new"])
 
-    stats = search_content_discussions(
-        engine,
-        cfg,
-        hn_collector=HackernewsCollector(),
-        lobsters_collector=LobstersCollector(),
-    )
-    return Output(
-        stats,
-        metadata={
-            "processed": stats["processed"],
-            "hackernews_found": stats["hackernews"],
-            "lobsters_found": stats["lobsters"],
-        },
-    )
-
-
-@dg.job
-def discussion_search_job() -> None:
-    discussion_search_op()
+    @wf.task()
+    def discussion_search_task(input, ctx):  # noqa: A002
+        ctx.log("Starting discussion search")
+        cfg = load_config()
+        engine = get_engine(cfg.settings.database_url)
+        stats = search_content_discussions(
+            engine,
+            cfg,
+            hn_collector=HackernewsCollector(),
+            lobsters_collector=LobstersCollector(),
+        )
+        ctx.log(f"Discussion search complete: {stats}")
+        return stats

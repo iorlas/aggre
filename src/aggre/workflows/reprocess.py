@@ -1,20 +1,20 @@
-"""Reprocess job -- rebuild silver from bronze without hitting external APIs.
+"""Reprocess workflow -- rebuild silver from bronze without hitting external APIs.
 
-Note: ``from __future__ import annotations`` is omitted because Dagster's
-``@op`` decorator inspects context-parameter type hints at decoration time and
-cannot resolve deferred (stringified) annotations.
+Manual trigger only — no cron or event trigger.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
 
-import dagster as dg
 import sqlalchemy as sa
-from dagster import OpExecutionContext
 
 from aggre.collectors import COLLECTORS
+from aggre.config import load_config
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, _store_for
+from aggre.utils.db import get_engine
 
 logger = logging.getLogger(__name__)
 
@@ -64,15 +64,18 @@ def reprocess_from_bronze(
     return total
 
 
-@dg.op(required_resource_keys={"database"})
-def reprocess_bronze_op(context: OpExecutionContext) -> int:  # pragma: no cover — Dagster op wiring
-    """Rebuild silver from bronze ref.json files."""
-    engine = context.resources.database.get_engine()
-    count = reprocess_from_bronze(engine)
-    logger.info("reprocess.complete discussions=%d", count)
-    return count
+# -- Hatchet workflow ----------------------------------------------------------
 
 
-@dg.job
-def reprocess_job() -> None:
-    reprocess_bronze_op()
+def register(h) -> None:  # pragma: no cover — Hatchet wiring
+    """Register the reprocess workflow with the Hatchet instance."""
+    wf = h.workflow(name="reprocess")
+
+    @wf.task()
+    def reprocess_task(input, ctx):  # noqa: A002
+        ctx.log("Starting reprocess from bronze")
+        cfg = load_config()
+        engine = get_engine(cfg.settings.database_url)
+        count = reprocess_from_bronze(engine)
+        ctx.log(f"Reprocess complete: discussions={count}")
+        return {"count": count}

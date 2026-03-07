@@ -8,9 +8,9 @@ import pytest
 
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
-from aggre.dagster_defs.discussion_search.job import search_content_discussions
 from aggre.tracking.ops import upsert_done
 from aggre.tracking.status import Stage, StageStatus
+from aggre.workflows.discussion_search import search_content_discussions
 from tests.factories import make_config, seed_content
 from tests.helpers import assert_tracking
 

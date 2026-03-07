@@ -1,5 +1,7 @@
 # S3/Garage Remote Performance — Review Findings
 
+> **Note:** Path references below use pre-migration `dagster_defs/` paths. Business logic now lives in `src/aggre/workflows/`.
+
 ## Critical (Must Fix Before Remote Deployment)
 
 - [x] **C1: Reprocess job broken on S3** — `src/aggre/dagster_defs/reprocess/job.py` uses `Path.glob()` to scan bronze directory. Completely non-functional with S3 backend (silently returns 0). Fix: add `list_keys(prefix)` to `BronzeStore`, implement with `list_objects_v2` for S3, rewrite reprocess to use it.

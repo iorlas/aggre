@@ -28,6 +28,6 @@ Read the relevant docs first:
 - Check diff coverage: `make coverage-diff` — shows coverage of changed lines vs main. Fails below 95%. Run after writing tests to verify new code is covered.
 - Run migrations: `alembic upgrade head`
 - Lint: `make lint` (runs ruff check, ruff format --check, ty check)
-- Dagster dev: `uv run dagster dev` (starts Dagster UI at http://localhost:3000)
-- Dagster validate: `uv run dagster definitions validate`
+- Hatchet worker: `uv run python -m aggre.workflows` (or `make worker`)
+- Hatchet UI: http://localhost:8888 (via docker-compose)
 - Verify TLA+ specs: `make verify` (requires Java)

@@ -262,11 +262,11 @@ def transcribe(
 # -- Hatchet workflow ----------------------------------------------------------
 
 
-def register(h) -> None:  # pragma: no cover — Hatchet wiring
+def register(h):  # pragma: no cover — Hatchet wiring
     """Register the transcription workflow with the Hatchet instance."""
     wf = h.workflow(name="transcription", on_events=["content.new"])
 
-    @wf.task()
+    @wf.task(execution_timeout="30m")
     def transcribe_task(input, ctx):  # noqa: A002
         ctx.log("Starting transcription")
         cfg = load_config()
@@ -274,3 +274,5 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
         stats = transcribe(engine, cfg, batch_limit=30, max_workers=2)
         ctx.log(f"Transcription complete: {stats}")
         return stats
+
+    return wf

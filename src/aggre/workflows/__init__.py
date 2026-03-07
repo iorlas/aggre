@@ -25,12 +25,13 @@ def start_worker() -> None:  # pragma: no cover — entry point
     from aggre.workflows.webpage import register as reg_webpage
 
     h = get_hatchet()
-    reg_collection(h)
-    reg_comments(h)
-    reg_discussion_search(h)
-    reg_reprocess(h)
-    reg_transcription(h)
-    reg_webpage(h)
+    workflows = []
+    workflows.extend(reg_collection(h))
+    workflows.append(reg_comments(h))
+    workflows.append(reg_discussion_search(h))
+    workflows.append(reg_reprocess(h))
+    workflows.append(reg_transcription(h))
+    workflows.append(reg_webpage(h))
 
-    worker = h.worker("aggre-worker", slots=20)
+    worker = h.worker("aggre-worker", slots=20, workflows=workflows)
     worker.start()

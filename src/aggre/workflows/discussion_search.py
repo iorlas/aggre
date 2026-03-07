@@ -120,11 +120,11 @@ def search_content_discussions(
 # -- Hatchet workflow ----------------------------------------------------------
 
 
-def register(h) -> None:  # pragma: no cover — Hatchet wiring
+def register(h):  # pragma: no cover — Hatchet wiring
     """Register the discussion search workflow with the Hatchet instance."""
     wf = h.workflow(name="discussion-search", on_events=["content.new"])
 
-    @wf.task()
+    @wf.task(execution_timeout="10m")
     def discussion_search_task(input, ctx):  # noqa: A002
         ctx.log("Starting discussion search")
         cfg = load_config()
@@ -137,3 +137,5 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
         )
         ctx.log(f"Discussion search complete: {stats}")
         return stats
+
+    return wf

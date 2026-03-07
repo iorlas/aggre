@@ -56,8 +56,9 @@ _SOURCES = [
 ]
 
 
-def register(h) -> None:  # pragma: no cover — Hatchet wiring
+def register(h) -> list:  # pragma: no cover — Hatchet wiring
     """Register all collection workflows with the Hatchet instance."""
+    workflows = []
     for source_name, collector_cls, cron in _SOURCES:
         wf = h.workflow(name=f"collect-{source_name}", on_crons=[cron])
 
@@ -65,7 +66,7 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
         _name = source_name
         _cls = collector_cls
 
-        @wf.task()
+        @wf.task(execution_timeout="30m")
         def collect(input, ctx, _name=_name, _cls=_cls):  # noqa: A002
             ctx.log(f"Collecting {_name}")
             cfg = load_config()
@@ -75,3 +76,6 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
             if count > 0:
                 h.event.push("content.new", {"source": _name, "count": count})
             return {"source": _name, "count": count}
+
+        workflows.append(wf)
+    return workflows

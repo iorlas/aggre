@@ -67,11 +67,11 @@ def reprocess_from_bronze(
 # -- Hatchet workflow ----------------------------------------------------------
 
 
-def register(h) -> None:  # pragma: no cover — Hatchet wiring
+def register(h):  # pragma: no cover — Hatchet wiring
     """Register the reprocess workflow with the Hatchet instance."""
     wf = h.workflow(name="reprocess")
 
-    @wf.task()
+    @wf.task(execution_timeout="30m")
     def reprocess_task(input, ctx):  # noqa: A002
         ctx.log("Starting reprocess from bronze")
         cfg = load_config()
@@ -79,3 +79,5 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
         count = reprocess_from_bronze(engine)
         ctx.log(f"Reprocess complete: discussions={count}")
         return {"count": count}
+
+    return wf

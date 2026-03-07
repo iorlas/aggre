@@ -398,11 +398,11 @@ def extract_html_text(
 # -- Hatchet workflow ----------------------------------------------------------
 
 
-def register(h) -> None:  # pragma: no cover — Hatchet wiring
+def register(h):  # pragma: no cover — Hatchet wiring
     """Register the webpage workflow with the Hatchet instance."""
     wf = h.workflow(name="webpage", on_events=["content.new"])
 
-    @wf.task()
+    @wf.task(execution_timeout="10m")
     def download_task(input, ctx):  # noqa: A002
         ctx.log("Starting webpage download")
         cfg = load_config()
@@ -411,7 +411,7 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
         ctx.log(f"Download complete: {stats}")
         return stats
 
-    @wf.task(parents=[download_task])
+    @wf.task(parents=[download_task], execution_timeout="10m")
     def extract_task(input, ctx):  # noqa: A002
         ctx.log("Starting text extraction")
         cfg = load_config()
@@ -419,3 +419,5 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
         stats = extract_html_text(engine, cfg)
         ctx.log(f"Extraction complete: {stats}")
         return stats
+
+    return wf

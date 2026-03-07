@@ -41,11 +41,11 @@ def fetch_comments(engine: sa.engine.Engine, config: AppConfig) -> int:
 # -- Hatchet workflow ----------------------------------------------------------
 
 
-def register(h) -> None:  # pragma: no cover — Hatchet wiring
+def register(h):  # pragma: no cover — Hatchet wiring
     """Register the comments workflow with the Hatchet instance."""
     wf = h.workflow(name="comments", on_events=["content.new"])
 
-    @wf.task()
+    @wf.task(execution_timeout="10m")
     def comments_task(input, ctx):  # noqa: A002
         ctx.log("Starting comment fetching")
         cfg = load_config()
@@ -53,3 +53,5 @@ def register(h) -> None:  # pragma: no cover — Hatchet wiring
         total = fetch_comments(engine, cfg)
         ctx.log(f"Comments complete: fetched={total}")
         return {"total": total}
+
+    return wf

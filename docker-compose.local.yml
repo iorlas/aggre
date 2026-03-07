@@ -10,6 +10,7 @@ x-app-env: &app-env
   AGGRE_BROWSERLESS_URL: http://browserless:3000
   HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
   HATCHET_CLIENT_TLS_STRATEGY: none
+  HATCHET_CLIENT_HOST_PORT: hatchet-lite:7077
 
 services:
   browserless:
@@ -71,13 +72,40 @@ services:
       postgres:
         condition: service_healthy
 
+  hatchet-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hatchet
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: hatchet
+    volumes:
+      - ./data/hatchet-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   hatchet-lite:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
     ports:
       - "8888:8888"
       - "7077:7077"
     environment:
-      HATCHET_CLIENT_TLS_STRATEGY: none
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
+      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
+      SERVER_GRPC_PORT: "7077"
+      SERVER_URL: http://localhost:8888
+      SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+    volumes:
+      - ./data/hatchet-config:/config
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   hatchet-worker:
@@ -119,3 +147,4 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+

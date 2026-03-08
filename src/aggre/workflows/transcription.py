@@ -12,33 +12,22 @@ from pathlib import Path
 
 import sqlalchemy as sa
 import yt_dlp
-from faster_whisper import WhisperModel
 from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
+from aggre.utils.whisper_client import transcribe_audio
 from aggre.workflows.models import ItemEvent
 
 logger = logging.getLogger(__name__)
-
-
-def create_whisper_model(config: AppConfig) -> WhisperModel:
-    """Create a WhisperModel from app config settings."""
-    return WhisperModel(
-        config.settings.whisper_model,
-        device="cpu",
-        download_root=config.settings.whisper_model_cache,
-    )
 
 
 def _transcribe_one(
     engine: sa.engine.Engine,
     config: AppConfig,
     item: sa.engine.Row,
-    *,
-    model: WhisperModel | None = None,
 ) -> str:
     """Transcribe a single video. Returns status string.
 
@@ -137,22 +126,22 @@ def _transcribe_one(
             logger.warning("transcription.audio_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
             raise ValueError(f"Audio file exceeds 500MB limit ({file_size / (1024 * 1024):.0f}MB)")
 
-        # Transcribe
-        if model is None:
-            model = create_whisper_model(config)
-        segments, info = model.transcribe(str(audio_dest))
-        transcript = " ".join(seg.text for seg in segments)
+        # Transcribe via whisper.cpp server
+        result = transcribe_audio(
+            audio_dest,
+            server_url=config.settings.whisper_server_url,
+            model=config.settings.whisper_model,
+            timeout=config.settings.whisper_server_timeout,
+        )
+        transcript = result.text
+        language = result.language
 
         # Write full whisper output to bronze
-        whisper_output = {
-            "transcript": transcript,
-            "language": info.language,
-            "language_probability": info.language_probability,
-        }
+        whisper_output = {"transcript": transcript, "language": language}
         write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
 
         # Store result on SilverContent
-        update_content(engine, content_id, text=transcript, detected_language=info.language)
+        update_content(engine, content_id, text=transcript, detected_language=language)
 
         logger.info("transcription.transcribed external_id=%s", external_id)
         return "transcribed"
@@ -174,10 +163,12 @@ def transcribe_one(
     engine: sa.engine.Engine,
     config: AppConfig,
     content_id: int,
-    *,
-    model: WhisperModel | None = None,
 ) -> str:
     """Transcribe a single YouTube video by content_id. Returns status string."""
+    if not config.settings.whisper_server_url:
+        logger.warning("transcription.no_server_url")
+        return "skipped"
+
     with engine.connect() as conn:
         row = conn.execute(
             sa.select(
@@ -198,7 +189,7 @@ def transcribe_one(
     if row.text is not None:
         return "already_done"
 
-    return _transcribe_one(engine, config, row, model=model)
+    return _transcribe_one(engine, config, row)
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -206,8 +197,6 @@ def transcribe_one(
 
 def register(h):  # pragma: no cover — Hatchet wiring
     """Register the transcription workflow with the Hatchet instance."""
-    _model = None
-
     wf = h.workflow(
         name="process-transcription",
         on_events=["item.new"],
@@ -223,12 +212,9 @@ def register(h):  # pragma: no cover — Hatchet wiring
     def transcribe_task(input: ItemEvent, ctx):
         if input.source != "youtube":
             return {"status": "skipped"}
-        nonlocal _model
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        if _model is None:
-            _model = create_whisper_model(cfg)
-        status = transcribe_one(engine, cfg, input.content_id, model=_model)
+        status = transcribe_one(engine, cfg, input.content_id)
         ctx.log(f"Transcription: {status} for content_id={input.content_id}")
         return {"status": status}
 

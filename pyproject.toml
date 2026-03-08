@@ -12,7 +12,6 @@ dependencies = [
     "feedparser>=6.0",
     "httpx[socks]>=0.28",
     "yt-dlp>=2024.0",
-    "faster-whisper>=1.0",
     "click>=8.1",
     "pyyaml>=6.0",
     "sqlalchemy>=2.0",

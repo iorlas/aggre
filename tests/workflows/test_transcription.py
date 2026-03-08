@@ -1,6 +1,6 @@
 """Tests for per-item YouTube transcription (transcribe_one).
 
-Uses real PostgreSQL engine for DB queries, mocks whisper model and audio pipeline.
+Uses real PostgreSQL engine for DB queries, mocks whisper.cpp server via transcribe_audio.
 """
 
 from __future__ import annotations
@@ -8,10 +8,12 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 import sqlalchemy as sa
 
 from aggre.db import SilverContent
+from aggre.utils.whisper_client import TranscriptionResult
 from aggre.workflows.transcription import transcribe_one
 from tests.factories import make_config, seed_content, seed_discussion
 
@@ -47,18 +49,6 @@ def _seed_youtube(
         meta=meta,
     )
     return content_id
-
-
-def _make_mock_model(transcript_text: str = "This is the transcript", language: str = "en") -> MagicMock:
-    """Build a mock WhisperModel that returns a single segment."""
-    mock_model = MagicMock()
-    mock_segment = MagicMock()
-    mock_segment.text = transcript_text
-    mock_info = MagicMock()
-    mock_info.language = language
-    mock_info.language_probability = 0.95
-    mock_model.transcribe.return_value = ([mock_segment], mock_info)
-    return mock_model
 
 
 class TestTranscribeOne:
@@ -109,15 +99,26 @@ class TestTranscribeOne:
         assert row.text == "Cached transcript"
         assert row.detected_language == "fr"
 
+    @patch("aggre.workflows.transcription.transcribe_audio")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
     @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
-    def test_transcribes_and_stores_text(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
+    def test_transcribes_and_stores_text(
+        self,
+        mock_ydl_cls,
+        mock_read_or_none,
+        mock_get_store,
+        mock_write,
+        mock_transcribe,
+        engine,
+        tmp_path,
+    ):
         """Downloads audio, transcribes, stores text + detected_language on SilverContent."""
         content_id = _seed_youtube(engine, external_id="vid001")
         config = make_config()
-        mock_model = _make_mock_model()
+
+        mock_transcribe.return_value = TranscriptionResult(text="This is the transcript", language="en")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio data")
@@ -129,21 +130,23 @@ class TestTranscribeOne:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = transcribe_one(engine, config, content_id, model=mock_model)
+        result = transcribe_one(engine, config, content_id)
         assert result == "transcribed"
 
         row = _get_content(engine, content_id)
         assert row.text == "This is the transcript"
         assert row.detected_language == "en"
 
+    @patch("aggre.workflows.transcription.transcribe_audio")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
-    def test_uses_cached_audio(self, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
+    def test_uses_cached_audio(self, mock_read_or_none, mock_get_store, mock_write, mock_transcribe, engine, tmp_path):
         """When audio file exists in bronze, skip download but still transcribe."""
         content_id = _seed_youtube(engine, external_id="audio01")
         config = make_config()
-        mock_model = _make_mock_model(transcript_text="Transcribed from cache")
+
+        mock_transcribe.return_value = TranscriptionResult(text="Transcribed from cache", language="en")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake cached audio")
@@ -151,12 +154,12 @@ class TestTranscribeOne:
         mock_store.local_path.return_value = audio_file
         mock_get_store.return_value = mock_store
 
-        result = transcribe_one(engine, config, content_id, model=mock_model)
+        result = transcribe_one(engine, config, content_id)
         assert result == "transcribed"
 
         row = _get_content(engine, content_id)
         assert row.text == "Transcribed from cache"
-        mock_model.transcribe.assert_called_once()
+        mock_transcribe.assert_called_once()
 
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
@@ -221,15 +224,26 @@ class TestTranscribeOne:
         result = transcribe_one(engine, config, content_id)
         assert result == "cached"
 
+    @patch("aggre.workflows.transcription.transcribe_audio")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
     @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
-    def test_writes_whisper_output_to_bronze(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
+    def test_writes_whisper_output_to_bronze(
+        self,
+        mock_ydl_cls,
+        mock_read_or_none,
+        mock_get_store,
+        mock_write,
+        mock_transcribe,
+        engine,
+        tmp_path,
+    ):
         """Verify whisper.json is written to bronze after transcription."""
         content_id = _seed_youtube(engine, external_id="bronze01")
         config = make_config()
-        mock_model = _make_mock_model(transcript_text="Hello world", language="de")
+
+        mock_transcribe.return_value = TranscriptionResult(text="Hello world", language="de")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio")
@@ -241,7 +255,7 @@ class TestTranscribeOne:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        transcribe_one(engine, config, content_id, model=mock_model)
+        transcribe_one(engine, config, content_id)
 
         mock_write.assert_called_once()
         call_args = mock_write.call_args
@@ -252,7 +266,7 @@ class TestTranscribeOne:
         written_json = json.loads(call_args[0][3])
         assert written_json["transcript"] == "Hello world"
         assert written_json["language"] == "de"
-        assert written_json["language_probability"] == 0.95
+        assert "language_probability" not in written_json
 
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
@@ -288,12 +302,22 @@ class TestTranscribeOne:
         with pytest.raises(ConnectionError, match="S3 unreachable"):
             transcribe_one(engine, config, content_id)
 
+    @patch("aggre.workflows.transcription.transcribe_audio")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
     @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
-    def test_transcription_model_error_propagates(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
-        """WhisperModel failure propagates for Hatchet retry."""
+    def test_transcription_server_error_propagates(
+        self,
+        mock_ydl_cls,
+        mock_read_or_none,
+        mock_get_store,
+        mock_write,
+        mock_transcribe,
+        engine,
+        tmp_path,
+    ):
+        """whisper.cpp server failure propagates for Hatchet retry."""
         content_id = _seed_youtube(engine, external_id="terr01")
         config = make_config()
 
@@ -307,8 +331,15 @@ class TestTranscribeOne:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_model = MagicMock()
-        mock_model.transcribe.side_effect = RuntimeError("CUDA out of memory")
+        mock_transcribe.side_effect = httpx.ConnectError("server down")
 
-        with pytest.raises(RuntimeError, match="CUDA out of memory"):
-            transcribe_one(engine, config, content_id, model=mock_model)
+        with pytest.raises(httpx.ConnectError, match="server down"):
+            transcribe_one(engine, config, content_id)
+
+    def test_empty_whisper_server_url_returns_skipped(self, engine):
+        """When whisper_server_url is empty, transcription is skipped."""
+        content_id = _seed_youtube(engine, external_id="nourl01")
+        config = make_config(whisper_server_url="")
+
+        result = transcribe_one(engine, config, content_id)
+        assert result == "skipped"

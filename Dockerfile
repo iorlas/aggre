@@ -2,9 +2,9 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
 
-# ffmpeg needed by yt-dlp, build-essential for native deps (ctranslate2 etc.)
+# ffmpeg needed by yt-dlp for audio extraction
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg build-essential \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Deps first (cache layer)

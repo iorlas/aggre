@@ -8,6 +8,7 @@
 x-app-env: &app-env
   AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
   AGGRE_BROWSERLESS_URL: http://browserless:3000
+  AGGRE_WHISPER_SERVER_URL: http://host.docker.internal:8090
   HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
   HATCHET_CLIENT_TLS_STRATEGY: none
   HATCHET_CLIENT_HOST_PORT: hatchet-lite:7077
@@ -126,6 +127,8 @@ services:
     env_file:
       - path: .env
         required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       migrate:
         condition: service_completed_successfully

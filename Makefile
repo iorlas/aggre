@@ -34,3 +34,13 @@ grafana:
 
 verify:
 	bash .planning/verification/run.sh all
+
+whisper-server:
+	whisper-server \
+		--model $(HOME)/Models/whisper/ggml-large-v3-turbo.bin \
+		--host 0.0.0.0 --port 8090
+
+whisper-health:
+	@curl -sf http://localhost:8090/health > /dev/null \
+		&& echo "whisper.cpp server: healthy" \
+		|| echo "whisper.cpp server: NOT running"

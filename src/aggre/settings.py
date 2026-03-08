@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     log_dir: str = "./data/logs"
     youtube_temp_dir: str = "./data/tmp/videos"
     whisper_model: str = "large-v3-turbo"
-    whisper_model_cache: str = "./data/models"
+    whisper_server_url: str = ""
+    whisper_server_timeout: float = 300.0
     proxy_url: str = ""
     browserless_url: str = ""
     # Bronze storage backend

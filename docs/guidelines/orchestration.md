@@ -39,47 +39,119 @@ This mismatch forced building a custom `StageTracking` system with per-item retr
 
 **Rule of thumb:** If you're asking "is my table up to date?" — use an asset orchestrator (Dagster/dbt). If you're asking "did my task succeed?" — use a task orchestrator (Hatchet).
 
-## Architecture Pattern: Hybrid DAG + Events
+## Architecture Pattern: Event-Driven Per-Item Processing
 
-### Within a Pipeline: Explicit DAG
+### Collection → Event → Processing
 
-Steps within a single pipeline are connected via explicit parent-child relationships. Clear dependencies, easy debugging.
+Collectors run on cron, discover new items, write them to DB, and emit `item.new` events. All downstream workflows subscribe to this event and self-filter based on the event payload.
+
+```
+collect-{source}  (cron) --> writes discussions + content to DB
+                         --> emits "item.new" per item
+                                |
+                    +-----------+-----------+-----------+
+                    |           |           |           |
+              process-webpage  process-   process-    process-
+                             transcription comments  discussion-search
+```
+
+### Event Payload (Outbox Pattern)
+
+Events carry only IDs and concurrency grouping keys. Data stays in DB.
 
 ```python
-wf = hatchet.workflow(name="webpage-pipeline")
+class ItemEvent(BaseModel):
+    content_id: int
+    discussion_id: int
+    source: str                # "hackernews", "reddit", etc.
+    domain: str | None = None  # content domain
+```
+
+Subscribers query DB for full data (URL, title, etc.) at execution time.
+
+### Self-Filtering
+
+Each workflow checks the event payload and returns `{"status": "skipped"}` if the item doesn't apply:
+
+- `process-webpage` — skips items in `SKIP_DOMAINS`
+- `process-transcription` — skips non-YouTube items (`source != "youtube"`)
+- `process-comments` — skips sources without comment support
+- `process-discussion-search` — skips items in `DISCUSSION_SEARCH_SKIP_DOMAINS`
+
+### Concurrency Control
+
+Hatchet `ConcurrencyExpression` with `max_runs=1` per grouping key. Excess runs queue (`GROUP_ROUND_ROBIN`), never rejected.
+
+| Workflow | Expression | max_runs | Effect |
+|----------|-----------|----------|--------|
+| `process-webpage` | `input.domain` | 1 | 1 download per domain. 50 domains = 50 parallel. |
+| `process-transcription` | `'youtube'` | 1 | 1 YouTube download at a time. |
+| `process-comments` | `input.source` | 1 | 1 comment fetch per source (HN, Reddit, Lobsters parallel). |
+| `process-discussion-search` | `'search'` | 1 | 1 search at a time (each hits both HN + Lobsters APIs). |
+
+### Within a Workflow: Explicit DAG
+
+Steps within a single workflow are connected via explicit parent-child relationships:
+
+```python
+wf = hatchet.workflow(name="process-webpage", on_events=["item.new"])
 
 @wf.task()
-async def download(input):
+def download(input):
     # Fetch webpage content
     ...
 
 @wf.task(parents=[download])
-async def extract(input):
+def extract(input):
     # Extract text from HTML
     ...
 ```
 
-### Between Pipelines: Domain Events
-
-Pipelines communicate via domain events. Extensible fan-out — adding a new pipeline means subscribing to an existing event.
-
-```
-collect (cron) --> emits "content.new" per item
-  |
-content pipeline (DAG): download --> extract --> [emits "content.ready"]
-  |
-embed pipeline (subscribes to "content.ready")
-similarity pipeline (subscribes to "content.ready")
-categorize pipeline (subscribes to "content.ready")
-```
-
 ### Rules
 
-1. **Within a pipeline**: explicit DAG. Clear dependencies, easy debugging.
-2. **Between pipelines**: domain events. Extensible fan-out.
-3. **Normal flow**: events trigger all subscribers automatically.
-4. **Partial reruns**: trigger specific workflows directly — don't re-emit events.
-5. **New pipeline catch-up**: replay events for existing items (one-time backfill script).
+1. **Within a workflow**: explicit DAG. Clear dependencies, easy debugging.
+2. **Between workflows**: event-driven via `item.new`. Each workflow self-filters.
+3. **Partial reruns**: emit `item.new` events for specific items via backfill CLI.
+4. **Concurrency**: Hatchet manages queuing per domain/source — no custom ThreadPoolExecutor.
+5. **Backfills**: emit `item.new` events — same pipeline, same concurrency controls. Business functions don't self-filter; routing is the Hatchet task layer's job.
+
+## Operational Constraints
+
+| Resource | Limit | Why |
+|----------|-------|-----|
+| YouTube downloads | max 1 concurrent | IP ban risk (Hatchet concurrency) |
+| Reddit API | max 1 req/sec | Rate limit headers, 429s |
+| HN API | max 1 req/sec | Observed throttling |
+| Lobsters | max 1 req/sec | Small site, be polite |
+| Webpage downloads | max 1 per domain | Hatchet concurrency on `input.domain` |
+| Whisper CPU | max 1 concurrent | Hatchet concurrency on `'youtube'` |
+| Hatchet worker slots | 20 total | Current config |
+
+## Worker Scaling
+
+**Current setup:** 1 worker, 20 slots. Parallelism comes from Hatchet's concurrency model — 20 tasks can run simultaneously, constrained by per-workflow `max_runs` limits.
+
+**How parallelism works with 1 worker:**
+- `slots=20` means up to 20 tasks execute concurrently in one process
+- `max_runs=1` per concurrency group means 1 per domain/source, but many groups run in parallel (e.g. 15 different domains = 15 parallel webpage downloads)
+- Collection crons, comment fetches, transcription, and search all share the 20 slots
+
+**Horizontal scaling:**
+- Hatchet SDK natively supports multiple workers with the same name
+- Run N instances of `python -m aggre.workflows` — Hatchet server distributes tasks automatically
+- Each instance gets its own `slots=20`, so 2 workers = 40 total concurrent tasks
+- Concurrency limits (`max_runs`) are enforced server-side, not per-worker — still 1 per domain even with 10 workers
+- No code changes needed — just `docker compose up --scale hatchet-worker=N`
+
+**When to scale:**
+- Queue depth growing (events backing up) → add workers
+- CPU-bound tasks (Whisper transcription) bottlenecking → dedicated worker with higher slots
+- Currently unnecessary — 20 slots handles the load from 8 sources
+
+**Backfills:**
+- Backfills emit `item.new` events for existing unprocessed content (E4)
+- Events go through the same Hatchet queue → same concurrency controls apply
+- Domain filtering lives at the Hatchet task level, not in business functions — by design. Business functions process whatever they're given; the routing layer decides what to send.
 
 ## Workflow Patterns
 
@@ -88,27 +160,26 @@ categorize pipeline (subscribes to "content.ready")
 Each source has a collection workflow triggered on cron schedule:
 
 ```python
-@hatchet.workflow(name="collect-hackernews", on_crons=["0 */2 * * *"])
+@hatchet.workflow(name="collect-hackernews", on_crons=["0 * * * *"])
 ```
 
-The collection workflow calls the pure collector function, then emits `content.new` events for each new item.
+The collection workflow calls the pure collector function, writes results to DB, and emits `item.new` events.
 
 ### Event-Driven Processing
 
-Processing pipelines subscribe to events:
+Processing workflows subscribe to `item.new` events:
 
 ```python
-@hatchet.workflow(name="webpage-pipeline", on_events=["content.new"])
-```
-
-### Partial Reruns
-
-To reprocess specific items without re-triggering the full pipeline:
-
-```python
-# Rerun only extraction for specific items
-for item_id in items_to_reprocess:
-    await hatchet.workflows["webpage-pipeline"].run({"id": item_id})
+wf = hatchet.workflow(
+    name="process-webpage",
+    on_events=["item.new"],
+    concurrency=ConcurrencyExpression(
+        expression="input.domain",
+        max_runs=1,
+        limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+    ),
+    input_validator=ItemEvent,
+)
 ```
 
 ### Resource Injection
@@ -116,7 +187,6 @@ for item_id in items_to_reprocess:
 No framework-specific resource wrappers. Direct function calls:
 
 ```python
-# Instead of Dagster's ConfigurableResource + context.resources
 from aggre.utils.db import get_engine
 from aggre.config import load_config
 
@@ -132,13 +202,13 @@ Business logic lives in pure functions. Tests call these functions directly — 
 
 ```python
 # Business logic is framework-free
-def download_webpage(url: str, engine: Engine) -> ...:
+def download_one(engine: Engine, config: AppConfig, content_id: int) -> str:
     ...
 
 # Test calls the function directly
-def test_download_webpage(db_engine):
-    result = download_webpage("https://example.com", db_engine)
-    assert result.status == "ok"
+def test_download_one(engine):
+    result = download_one(engine, config, content_id)
+    assert result == "downloaded"
 ```
 
 ### E2E Tests (workflow wiring)
@@ -147,12 +217,21 @@ Verify that workflows are correctly wired — tasks execute in order, events tri
 
 Keep E2E tests minimal — they verify wiring, not business logic.
 
+## Naming Conventions
+
+| Pattern | Purpose | Example |
+|---------|---------|---------|
+| `collect-{source}` | Cron collector (parent) | `collect-hackernews` |
+| `collect-{source}-feed` | Per-feed child (fan-out) | `collect-rss-feed` |
+| `process-{stage}` | Per-item processing (event-driven) | `process-webpage`, `process-transcription` |
+
 ## Adding a New Pipeline
 
 1. Create `src/aggre/workflows/{name}.py`
-2. Define workflow with `hatchet.workflow()`
-3. Add tasks with `@wf.task()` and parent dependencies
-4. Subscribe to relevant events (or add cron trigger)
-5. Register in `src/aggre/workflows/__init__.py`
-6. Write unit tests for business logic functions
-7. Add E2E test for workflow wiring
+2. Add a `register(h)` function that creates the workflow
+3. Define workflow with `h.workflow(name=..., on_events=["item.new"], input_validator=ItemEvent, concurrency=...)`
+4. Add self-filtering logic in the task (skip irrelevant items)
+5. Extract business logic into a testable function (e.g. `process_one(engine, config, content_id)`)
+6. Auto-discovered via `register(h)` function — no manual registration needed
+7. Write unit tests for the business logic function
+8. Add E2E test for workflow wiring

@@ -14,6 +14,11 @@
   - Options: `-v --strict-markers` (verbose, enforce marker registration)
   - Python path: current directory (`.`)
 
+**HTTP Mocking Stack:**
+- **respx** (`respx>=0.22`) — transport-layer httpx mock for integration tests (130+ tests)
+- **VCR.py** (`pytest-recording>=0.13.4`, wraps `vcrpy`) — records/replays real HTTP for contract tests (10 tests). Cassettes at `tests/collectors/cassettes/{module_name}/`
+- **moto** (`moto[s3]>=5.0`) — AWS service mock for S3/bronze storage tests
+
 **Assertion Library:**
 - pytest built-in assertions (no separate assertion library)
 - Simple equality checks: `assert count == 1`, `assert row.external_id == "12345"`
@@ -45,17 +50,42 @@ tests/
 ├── conftest.py                        # Shared fixtures (session-scoped engine, autouse clean_tables)
 ├── factories.py                       # Centralized test data factories (DB seeders, API response builders, config)
 ├── helpers.py                         # Shared test helpers (collect, DB query/assertion utilities)
+├── collectors/                        # Collector tests (mirrors src/aggre/collectors/)
+│   ├── test_hackernews.py             # Hacker News collector tests (integration)
+│   ├── test_reddit.py                 # Reddit collector tests (integration)
+│   ├── test_lobsters.py               # Lobsters collector tests (integration)
+│   ├── test_rss.py                    # RSS collector tests (integration)
+│   ├── test_youtube.py                # YouTube collector tests (integration)
+│   ├── test_huggingface.py            # HuggingFace collector tests (integration)
+│   ├── test_telegram.py               # Telegram collector tests (integration)
+│   ├── test_arxiv.py                  # ArXiv collector tests (integration)
+│   ├── test_lesswrong.py              # LessWrong collector tests (integration)
+│   ├── test_contract_hackernews.py    # HN API contract tests (VCR)
+│   ├── test_contract_reddit.py        # Reddit API contract tests (VCR)
+│   ├── test_contract_lobsters.py      # Lobsters API contract tests (VCR)
+│   └── cassettes/                     # VCR cassettes (YAML, auto-discovered by pytest-recording)
+│       ├── test_contract_hackernews/  # 4 cassettes
+│       ├── test_contract_reddit/      # 3 cassettes
+│       └── test_contract_lobsters/    # 3 cassettes
+├── workflows/                         # Workflow tests (mirrors src/aggre/workflows/)
+│   ├── test_collection.py             # collect_source orchestration tests
+│   ├── test_comments.py               # fetch_comments orchestration tests
+│   ├── test_webpage.py                # Webpage download/extract pipeline tests
+│   ├── test_transcription.py          # YouTube transcription pipeline tests
+│   ├── test_discussion_search.py      # Cross-source discussion search tests
+│   └── test_reprocess.py              # Reprocess workflow tests
 ├── tracking/                          # Stage tracking module tests
 │   ├── test_ops.py                    # Unit tests for upsert_done/failed/skipped, retry_filter
 │   └── test_invariants.py             # Invariant tests: state machine queries, collector constraints
+├── utils/                             # Utility tests (mirrors src/aggre/utils/)
+│   ├── test_bronze.py                 # Bronze storage tests
+│   └── test_bronze_http.py            # Bronze HTTP fetching tests
+├── test_config.py                     # Config loading tests
+├── test_settings.py                   # Settings tests
 ├── test_urls.py                       # URL normalization tests (unit)
-├── test_content.py                    # Content download/extraction pipeline tests
-├── test_hackernews.py                 # Hacker News collector tests (unit + integration)
-├── test_reddit.py                     # Reddit collector tests
-├── test_enrichment.py                 # Enrichment module tests
-├── test_transcription.py              # YouTube transcription pipeline tests
-├── test_sensors.py                    # Dagster sensor tests
-├── test_acceptance_pipeline.py        # Full pipeline acceptance tests
+├── test_urls_hypothesis.py            # URL property-based tests (hypothesis)
+├── test_s3_integration.py             # S3 integration tests
+├── test_acceptance_pipeline.py        # Full pipeline acceptance tests (cross-workflow)
 ├── test_acceptance_cli.py             # CLI acceptance tests
 └── test_acceptance_content_linking.py # Content linking acceptance tests
 ```
@@ -227,7 +257,7 @@ class TestNormalizeUrl:
 
 ## Coverage
 
-**Requirements:** Not enforced in CI (no coverage threshold set)
+**Requirements:** 95% global threshold (`--cov-fail-under=95`) + 95% diff coverage (`make coverage-diff`).
 
 **View Coverage:**
 ```bash
@@ -237,9 +267,10 @@ pytest tests/ --cov=aggre --cov-report=term
 
 **Current Coverage Areas:**
 - Unit tests for URL normalization and extraction (`test_urls.py`)
-- Collector unit tests with mocked HTTP (`test_hackernews.py`, `test_reddit.py`, etc.)
-- Integration tests with real database
-- Acceptance/pipeline tests for full workflows
+- Collector integration tests with mocked HTTP (`tests/collectors/`)
+- Workflow integration tests (`tests/workflows/`)
+- Stage tracking tests (`tests/tracking/`)
+- Acceptance tests for cross-workflow flows (`test_acceptance_*.py`)
 
 ## Test Types
 
@@ -353,4 +384,4 @@ def clean_tables(engine):
 
 ---
 
-*Testing analysis: 2026-02-20*
+*Testing analysis: 2026-03-07*

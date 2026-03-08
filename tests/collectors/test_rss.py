@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 import sqlalchemy as sa
 
 from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.db import SilverDiscussion, Source
+from tests.conftest import dummy_http_client as _dummy_http_client
 from tests.factories import make_config, rss_entry, rss_feed
 from tests.helpers import collect, get_discussions, get_sources
 
@@ -30,12 +33,14 @@ class TestRssCollector:
         )
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed) as mock_parse:
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             count = collect(collector, engine, config.rss, config.settings)
 
         assert count == 1
-        mock_parse.assert_called_once_with("https://example.com/feed.xml")
 
         # Check silver_discussions
         rows = get_discussions(engine)
@@ -54,7 +59,10 @@ class TestRssCollector:
         entry = rss_entry(id="post-1", title="First Post")
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             count1 = collect(collector, engine, config.rss, config.settings)
             count2 = collect(collector, engine, config.rss, config.settings)
@@ -69,7 +77,10 @@ class TestRssCollector:
 
         feed = rss_feed([])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             collect(collector, engine, config.rss, config.settings)
 
@@ -83,7 +94,10 @@ class TestRssCollector:
 
         feed = rss_feed([])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             collect(collector, engine, config.rss, config.settings)
             collect(collector, engine, config.rss, config.settings)
@@ -95,7 +109,10 @@ class TestRssCollector:
 
         feed = rss_feed([rss_entry()])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             collect(collector, engine, config.rss, config.settings)
 
@@ -113,7 +130,10 @@ class TestRssCollector:
         ]
         feed = rss_feed(entries)
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             count = collect(collector, engine, config.rss, config.settings)
 
@@ -127,7 +147,10 @@ class TestRssCollector:
         entry = rss_entry(id=None, link="https://example.com/post-42")
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             count = collect(collector, engine, config.rss, config.settings)
 
@@ -146,7 +169,10 @@ class TestRssCollector:
         feed.bozo = True
         feed.bozo_exception = Exception("malformed XML")
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             count = collect(collector, engine, config.rss, config.settings)
 
@@ -160,7 +186,10 @@ class TestRssCollector:
         entry = rss_entry(id=None, link=None)
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             count = collect(collector, engine, config.rss, config.settings)
 
@@ -175,7 +204,10 @@ class TestRssCollector:
         entry["content"] = [{"value": "Full article body from content field"}]
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collector = RssCollector()
             count = collect(collector, engine, config.rss, config.settings)
 
@@ -201,10 +233,55 @@ class TestRssCollector:
                 return feed_a
             return feed_b
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", side_effect=mock_parse):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", side_effect=mock_parse),
+        ):
             collector = RssCollector()
             count = collect(collector, engine, config.rss, config.settings)
 
         assert count == 2
 
         assert len(get_sources(engine)) == 2
+
+    def test_http_timeout_skips_feed_continues(self, engine):
+        """When HTTP fetch times out, that feed is skipped and the next feed proceeds."""
+        config = make_config(
+            rss=RssConfig(
+                sources=[
+                    RssSource(name="Slow Feed", url="https://slow.example.com/feed"),
+                    RssSource(name="Good Feed", url="https://good.example.com/feed"),
+                ]
+            )
+        )
+
+        good_feed = rss_feed([rss_entry(id="g1", title="Good Post")])
+
+        @contextmanager
+        def _timeout_http_client(**kwargs):
+            client = MagicMock(spec=httpx.Client)
+
+            def get_side_effect(url, **kw):
+                if "slow.example.com" in url:
+                    raise httpx.ReadTimeout("timed out")
+                resp = MagicMock(spec=httpx.Response)
+                resp.status_code = 200
+                resp.text = ""
+                resp.raise_for_status = MagicMock()
+                return resp
+
+            client.get.side_effect = get_side_effect
+            yield client
+
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", _timeout_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=good_feed),
+        ):
+            collector = RssCollector()
+            count = collect(collector, engine, config.rss, config.settings)
+
+        # Only the good feed's entry should be collected
+        assert count == 1
+        rows = get_discussions(engine)
+        assert len(rows) == 1
+        assert rows[0].title == "Good Post"

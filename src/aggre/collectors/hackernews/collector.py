@@ -179,6 +179,26 @@ class HackernewsCollector(BaseCollector):
 
         return fetched
 
+    def fetch_discussion_comments(
+        self,
+        engine: sa.engine.Engine,
+        discussion_id: int,
+        external_id: str,
+        meta_json: str | None,
+        settings: Settings,
+    ) -> None:
+        """Fetch and store comments for a single discussion."""
+        rate_limit = settings.hn_rate_limit
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+            time.sleep(rate_limit)
+            url = f"{HN_ALGOLIA_BASE}/items/{external_id}"
+            resp = client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+            children = data.get("children", [])
+            self._mark_comments_done(engine, discussion_id, external_id, json.dumps(children), len(children))
+
     def search_by_url(
         self,
         url: str,

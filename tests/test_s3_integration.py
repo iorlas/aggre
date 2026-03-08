@@ -127,7 +127,7 @@ def _make_mock_model(transcript_text="This is the transcript", language="en"):
 class TestTranscriptionViaS3:
     def test_whisper_cache_from_s3(self, engine, s3_backend):
         """When whisper.json exists in S3, transcription uses it without download."""
-        from aggre.workflows.transcription import transcribe
+        from aggre.workflows.transcription import transcribe_one
 
         content_id = _seed_youtube(engine, external_id="cached01")
         config = make_config()
@@ -135,8 +135,8 @@ class TestTranscriptionViaS3:
         whisper_data = json.dumps({"transcript": "S3 cached transcript", "language": "fr"})
         s3_backend.write("youtube/cached01/whisper.json", whisper_data)
 
-        result = transcribe(engine, config)
-        assert result["succeeded"] == 1
+        result = transcribe_one(engine, config, content_id)
+        assert result == "cached"
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.id == content_id)).fetchone()
@@ -146,9 +146,9 @@ class TestTranscriptionViaS3:
     @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
     def test_audio_uploaded_to_s3_after_download(self, mock_ydl_cls, engine, s3_backend, tmp_path):
         """After downloading audio, it's uploaded to S3 for persistence."""
-        from aggre.workflows.transcription import transcribe
+        from aggre.workflows.transcription import transcribe_one
 
-        _seed_youtube(engine, external_id="up01")
+        content_id = _seed_youtube(engine, external_id="up01")
         config = make_config(proxy_url="")
         # Point youtube_temp_dir to a real tmp directory
         config.settings.youtube_temp_dir = str(tmp_path / "videos")
@@ -166,8 +166,8 @@ class TestTranscriptionViaS3:
         mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = transcribe(engine, config, model=mock_model)
-        assert result["succeeded"] == 1
+        result = transcribe_one(engine, config, content_id, model=mock_model)
+        assert result == "transcribed"
 
         # Audio should have been uploaded to S3
         audio_bytes = s3_backend.read_bytes("youtube/up01/audio.opus")
@@ -175,9 +175,9 @@ class TestTranscriptionViaS3:
 
     def test_audio_downloaded_from_s3_skips_yt_dlp(self, engine, s3_backend, tmp_path):
         """When audio exists in S3, yt_dlp is NOT called."""
-        from aggre.workflows.transcription import transcribe
+        from aggre.workflows.transcription import transcribe_one
 
-        _seed_youtube(engine, external_id="s3aud01")
+        content_id = _seed_youtube(engine, external_id="s3aud01")
         config = make_config()
         config.settings.youtube_temp_dir = str(tmp_path / "videos")
         mock_model = _make_mock_model(transcript_text="From S3 audio")
@@ -186,9 +186,9 @@ class TestTranscriptionViaS3:
         s3_backend.write_bytes("youtube/s3aud01/audio.opus", b"s3 cached audio")
 
         with patch("aggre.workflows.transcription.yt_dlp.YoutubeDL") as mock_ydl_cls:
-            result = transcribe(engine, config, model=mock_model)
+            result = transcribe_one(engine, config, content_id, model=mock_model)
 
-        assert result["succeeded"] == 1
+        assert result == "transcribed"
         # yt_dlp should never have been instantiated
         mock_ydl_cls.assert_not_called()
 

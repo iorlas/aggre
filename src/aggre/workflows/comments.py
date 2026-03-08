@@ -1,14 +1,22 @@
-"""Comments workflow -- fetch comments for discussions that need them."""
+"""Comments workflow -- fetch comments for individual discussions.
+
+Triggered per-item via "item.new" event. Self-filters to comment-supporting sources.
+Hatchet manages concurrency (max 1 per source) and retry.
+"""
 
 from __future__ import annotations
 
 import logging
 
 import sqlalchemy as sa
+from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
 
 from aggre.collectors import COLLECTORS
-from aggre.config import AppConfig, load_config
+from aggre.config import load_config
+from aggre.db import SilverDiscussion
+from aggre.settings import Settings
 from aggre.utils.db import get_engine
+from aggre.workflows.models import ItemEvent
 
 logger = logging.getLogger(__name__)
 
@@ -16,26 +24,34 @@ logger = logging.getLogger(__name__)
 _COMMENT_SOURCES = ("reddit", "hackernews", "lobsters")
 
 
-def fetch_comments(engine: sa.engine.Engine, config: AppConfig) -> int:
-    """Fetch comments for discussions with comments_json=NULL. Returns total count."""
-    total = 0
-    source_results: dict[str, int] = {}
-    error_sources: list[str] = []
-    for src_name in _COMMENT_SOURCES:
-        cls = COLLECTORS.get(src_name)
-        if not cls:
-            continue
-        collector = cls()
-        try:
-            count = collector.collect_comments(engine, getattr(config, src_name), config.settings, batch_limit=10)
-            total += count
-            source_results[src_name] = count
-        except Exception:
-            logger.exception("comments.source_error source=%s", src_name)
-            error_sources.append(src_name)
+def fetch_one_comments(
+    engine: sa.engine.Engine,
+    discussion_id: int,
+    source: str,
+    settings: Settings,
+) -> str:
+    """Fetch comments for a single discussion. Returns status string."""
+    cls = COLLECTORS.get(source)
+    if not cls:
+        return "no_collector"
 
-    logger.info("comments.complete fetched=%d sources=%s errors=%s", total, source_results, error_sources)
-    return total
+    with engine.connect() as conn:
+        row = conn.execute(
+            sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta, SilverDiscussion.comments_json).where(
+                SilverDiscussion.id == discussion_id
+            )
+        ).first()
+
+    if not row:
+        return "not_found"
+
+    if row.comments_json is not None:
+        return "already_done"
+
+    collector = cls()
+    collector.fetch_discussion_comments(engine, row.id, row.external_id, row.meta, settings)
+    logger.info("comments.fetched source=%s discussion_id=%d external_id=%s", source, discussion_id, row.external_id)
+    return "fetched"
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -43,15 +59,25 @@ def fetch_comments(engine: sa.engine.Engine, config: AppConfig) -> int:
 
 def register(h):  # pragma: no cover — Hatchet wiring
     """Register the comments workflow with the Hatchet instance."""
-    wf = h.workflow(name="comments", on_events=["content.new"])
+    wf = h.workflow(
+        name="process-comments",
+        on_events=["item.new"],
+        concurrency=ConcurrencyExpression(
+            expression="input.source",
+            max_runs=1,
+            limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+        ),
+        input_validator=ItemEvent,
+    )
 
-    @wf.task(execution_timeout="10m")
-    def comments_task(input, ctx):  # noqa: A002
-        ctx.log("Starting comment fetching")
+    @wf.task(execution_timeout="5m")
+    def comments_task(input: ItemEvent, ctx):
+        if input.source not in _COMMENT_SOURCES:
+            return {"status": "skipped"}
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        total = fetch_comments(engine, cfg)
-        ctx.log(f"Comments complete: fetched={total}")
-        return {"total": total}
+        status = fetch_one_comments(engine, input.discussion_id, input.source, cfg.settings)
+        ctx.log(f"Comments: {status} for discussion_id={input.discussion_id}")
+        return {"status": status}
 
     return wf

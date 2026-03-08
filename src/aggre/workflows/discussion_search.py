@@ -1,20 +1,23 @@
-"""Discussion search workflow -- discover cross-source discussions."""
+"""Discussion search workflow -- discover cross-source discussions.
+
+Triggered per-item via "item.new" event. Self-filters to searchable domains.
+Hatchet manages concurrency (max 1 search at a time) and retry.
+"""
 
 from __future__ import annotations
 
 import logging
 
 import sqlalchemy as sa
+from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
 
 from aggre.collectors.base import SearchableCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent
-from aggre.tracking.model import StageTracking
-from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
-from aggre.tracking.status import Stage
 from aggre.utils.db import get_engine
+from aggre.workflows.models import ItemEvent
 
 logger = logging.getLogger(__name__)
 
@@ -32,89 +35,54 @@ DISCUSSION_SEARCH_SKIP_DOMAINS = frozenset(
 )
 
 
-def search_content_discussions(
+def search_one(
     engine: sa.engine.Engine,
     config: AppConfig,
-    batch_limit: int = 50,
+    content_id: int,
     *,
-    hn_collector: SearchableCollector,
-    lobsters_collector: SearchableCollector,
-) -> dict[str, int]:
-    """Search HN and Lobsters for discussions about URLs from SilverContent.
+    hn_collector: SearchableCollector | None = None,
+    lobsters_collector: SearchableCollector | None = None,
+) -> str:
+    """Search HN and Lobsters for discussions about a single content URL.
 
-    Returns aggregate counts of new discussions found per platform.
+    Returns status: searched/skipped/partial. Raises if both searches fail.
     """
-    # Find content that hasn't been searched yet
     with engine.connect() as conn:
-        rows = conn.execute(
-            sa.select(SilverContent.id, SilverContent.canonical_url)
-            .outerjoin(
-                StageTracking,
-                sa.and_(
-                    StageTracking.source == "webpage",
-                    StageTracking.external_id == SilverContent.canonical_url,
-                    StageTracking.stage == Stage.DISCUSSION_SEARCH,
-                ),
-            )
-            .where(
-                SilverContent.canonical_url.isnot(None),
-                SilverContent.domain.notin_(DISCUSSION_SEARCH_SKIP_DOMAINS),
-                sa.or_(
-                    StageTracking.id.is_(None),
-                    retry_filter(StageTracking, Stage.DISCUSSION_SEARCH),
-                ),
-            )
-            .order_by(SilverContent.created_at.asc())
-            .limit(batch_limit)
-        ).fetchall()
+        row = conn.execute(sa.select(SilverContent.canonical_url).where(SilverContent.id == content_id)).first()
 
-    if not rows:
-        logger.info("discussion_search.no_pending")
-        return {"hackernews": 0, "lobsters": 0, "processed": 0}
+    if not row or not row.canonical_url:
+        return "skipped"
 
-    logger.info("discussion_search.starting batch_size=%d", len(rows))
+    content_url = row.canonical_url
 
-    totals: dict[str, int] = {"hackernews": 0, "lobsters": 0, "processed": 0}
+    if hn_collector is None:
+        hn_collector = HackernewsCollector()
+    if lobsters_collector is None:
+        lobsters_collector = LobstersCollector()
 
-    for row in rows:
-        content_url = row.canonical_url
-        try:
-            logger.info("discussion_search.searching url=%s", content_url)
+    hn_found = 0
+    lobsters_found = 0
+    hn_error = None
+    lobsters_error = None
 
-            failed = False
-            hn_found = 0
-            lobsters_found = 0
+    try:
+        hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings)
+    except Exception as e:
+        logger.exception("discussion_search.hn_search_failed url=%s", content_url)
+        hn_error = e
 
-            try:
-                hn_found = hn_collector.search_by_url(content_url, engine, config.hackernews, config.settings)
-                totals["hackernews"] += hn_found
-            except Exception:
-                logger.exception("discussion_search.hn_search_failed url=%s", content_url)
-                failed = True
+    try:
+        lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings)
+    except Exception as e:  # pragma: no cover — external API error
+        logger.exception("discussion_search.lobsters_search_failed url=%s", content_url)
+        lobsters_error = e
 
-            try:
-                lobsters_found = lobsters_collector.search_by_url(content_url, engine, config.lobsters, config.settings)
-                totals["lobsters"] += lobsters_found
-            except Exception:  # pragma: no cover — external API error
-                logger.exception("discussion_search.lobsters_search_failed url=%s", content_url)
-                failed = True
+    # If both failed, raise so Hatchet retries
+    if hn_error and lobsters_error:
+        raise hn_error  # pragma: no cover — both APIs down
 
-            logger.info("discussion_search.searched url=%s hackernews=%d lobsters=%d", content_url, hn_found, lobsters_found)
-
-            if not failed:
-                upsert_done(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH)
-            else:
-                upsert_failed(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH, "partial failure")
-        except Exception:  # pragma: no cover — unexpected item-level failure
-            logger.exception("discussion_search.item_failed url=%s", content_url)
-            try:
-                upsert_failed(engine, "webpage", content_url, Stage.DISCUSSION_SEARCH, "item processing error")
-            except Exception:
-                pass  # DB is down — logged above
-        totals["processed"] += 1
-
-    logger.info("discussion_search.complete totals=%s", totals)
-    return totals
+    logger.info("discussion_search.searched url=%s hackernews=%d lobsters=%d", content_url, hn_found, lobsters_found)
+    return "searched"
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -122,20 +90,25 @@ def search_content_discussions(
 
 def register(h):  # pragma: no cover — Hatchet wiring
     """Register the discussion search workflow with the Hatchet instance."""
-    wf = h.workflow(name="discussion-search", on_events=["content.new"])
+    wf = h.workflow(
+        name="process-discussion-search",
+        on_events=["item.new"],
+        concurrency=ConcurrencyExpression(
+            expression="'search'",
+            max_runs=1,
+            limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+        ),
+        input_validator=ItemEvent,
+    )
 
-    @wf.task(execution_timeout="10m")
-    def discussion_search_task(input, ctx):  # noqa: A002
-        ctx.log("Starting discussion search")
+    @wf.task(execution_timeout="5m")
+    def discussion_search_task(input: ItemEvent, ctx):
+        if input.domain in DISCUSSION_SEARCH_SKIP_DOMAINS:
+            return {"status": "skipped"}
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        stats = search_content_discussions(
-            engine,
-            cfg,
-            hn_collector=HackernewsCollector(),
-            lobsters_collector=LobstersCollector(),
-        )
-        ctx.log(f"Discussion search complete: {stats}")
-        return stats
+        status = search_one(engine, cfg, input.content_id)
+        ctx.log(f"Discussion search: {status} for content_id={input.content_id}")
+        return {"status": status}
 
     return wf

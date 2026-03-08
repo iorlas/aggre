@@ -232,3 +232,31 @@ class RedditCollector(BaseCollector):
             logger.info("reddit.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 
         return fetched
+
+    def fetch_discussion_comments(
+        self,
+        engine: sa.engine.Engine,
+        discussion_id: int,
+        external_id: str,
+        meta_json: str | None,
+        settings: Settings,
+    ) -> None:
+        """Fetch and store comments for a single discussion."""
+        meta = json.loads(meta_json) if meta_json else {}
+        subreddit = meta.get("subreddit", "")
+        post_id = external_id.removeprefix("t3_")
+        url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json"
+
+        rate_limit = settings.reddit_rate_limit
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+            time.sleep(rate_limit)
+            data, resp = _fetch_json(client, url)
+            _rate_limit_sleep(resp, 0)
+            write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+            comments_json = None
+            comment_count = 0
+            if len(data) >= 2:
+                comment_children = data[1].get("data", {}).get("children", [])
+                comments_json = json.dumps(comment_children)
+                comment_count = len(comment_children)
+            self._mark_comments_done(engine, discussion_id, external_id, comments_json, comment_count)

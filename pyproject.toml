@@ -34,7 +34,6 @@ dev = [
     "respx>=0.22",
     "polyfactory>=2.18",
     "hypothesis>=6.120",
-    "inline-snapshot>=0.15",
     "moto[s3]>=5.0",
     "pytest-cov>=6.0",
     "diff-cover>=9.0",

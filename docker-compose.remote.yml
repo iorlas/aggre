@@ -50,7 +50,7 @@ services:
       POSTGRES_USER: hatchet
       POSTGRES_PASSWORD: hatchet
     volumes:
-      - ./data/hatchet-postgres:/var/lib/postgresql/data
+      - ./data/remote/hatchet-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hatchet"]
       interval: 5s
@@ -73,7 +73,7 @@ services:
       SERVER_URL: http://localhost:8888
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
     volumes:
-      - ./data/hatchet-config:/config
+      - ./data/remote/hatchet-config:/config
     depends_on:
       hatchet-postgres:
         condition: service_healthy

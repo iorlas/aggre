@@ -80,3 +80,54 @@ make lint              # ruff check + format + ty check
 ```
 
 Run `make test-e2e` first — it produces `coverage.xml` that `coverage-diff` reads. If coverage-diff fails, add tests for the uncovered lines before adding pragmas.
+
+## Test Layers
+
+| Layer | Marker | DB? | HTTP? | Purpose |
+|-------|--------|-----|-------|---------|
+| Unit | `@pytest.mark.unit` | No | No | Pure functions, data transforms |
+| Integration | `@pytest.mark.integration` | Real PG | Mocked (respx) | Single component: one collector or one workflow |
+| Invariant | `@pytest.mark.integration` | Real PG | Mocked | State machine queries, architectural constraints |
+| Acceptance | `@pytest.mark.acceptance` | Real PG | Mocked | Multi-component flows crossing workflow boundaries |
+| Contract | `@pytest.mark.contract` | No | VCR cassettes | External API response shape |
+
+## HTTP Mocking Stack
+
+| Tool | Package | Used by | Purpose |
+|------|---------|---------|---------|
+| **respx** | `respx>=0.22` | Integration tests (130+ tests) | Transport-layer httpx mock. Responses defined via factory functions. Tests code logic against controlled inputs. |
+| **VCR.py** | `pytest-recording>=0.13.4` (wraps `vcrpy`) | Contract tests (10 tests) | Records real HTTP to YAML cassettes, replays in CI. `@pytest.mark.vcr()` on test methods. Tests that external APIs haven't changed shape. |
+| **moto** | `moto[s3]>=5.0` | S3 tests (2 files) | AWS service mock for bronze storage tests. |
+
+Why both respx and VCR:
+- respx tests *your code* against *your factories* — catches logic bugs
+- VCR tests *your factories' assumptions* against *real API responses* — catches API drift
+
+Contract test maintenance:
+- Record: `pytest tests/collectors/test_contract_*.py --record-mode=once`
+- Cassettes: `tests/collectors/cassettes/{module_name}/`
+- Re-record when adding new contract tests or when API changes break existing ones
+
+### When NOT to add acceptance tests
+
+A test belongs at acceptance level ONLY if it:
+1. Exercises multiple components in sequence (e.g., collect -> download -> extract)
+2. Verifies cross-component properties (e.g., two collectors sharing one SilverContent)
+3. Cannot be expressed as a single-component integration test
+
+If the test calls one function and verifies its output, it's an integration test.
+
+## Directory Convention
+
+Test directories mirror code directories:
+
+| Code | Tests |
+|------|-------|
+| `src/aggre/collectors/{source}/` | `tests/collectors/test_{source}.py` |
+| `src/aggre/workflows/{name}.py` | `tests/workflows/test_{name}.py` |
+| `src/aggre/tracking/` | `tests/tracking/` |
+| `src/aggre/utils/` | `tests/utils/` |
+| `src/aggre/{module}.py` (root) | `tests/test_{module}.py` |
+| Cross-cutting acceptance | `tests/test_acceptance_*.py` |
+
+Shared infrastructure stays at `tests/` root: `conftest.py`, `factories.py`, `helpers.py`.

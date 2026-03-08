@@ -1,9 +1,9 @@
 # Local dev setup: Hatchet worker with autoreload on source changes.
 # Usage: make dev  (or: docker compose -f docker-compose.local.yml up --build --watch)
 #
-# Hatchet UI at http://localhost:8888
+# Hatchet UI at http://localhost:8888 (login: admin@example.com / Admin123!!)
 # Grafana   at http://localhost:3002 (anonymous access, no login)
-# Data persists in ./data/postgres/ between runs.
+# Data persists in ./data/local/postgres/ between runs.
 
 x-app-env: &app-env
   AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
@@ -36,7 +36,7 @@ services:
       POSTGRES_USER: aggre
       POSTGRES_PASSWORD: aggre
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ./data/local/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -79,7 +79,7 @@ services:
       POSTGRES_USER: hatchet
       POSTGRES_PASSWORD: hatchet
     volumes:
-      - ./data/hatchet-postgres:/var/lib/postgresql/data
+      - ./data/local/hatchet-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hatchet"]
       interval: 5s
@@ -101,8 +101,10 @@ services:
       SERVER_GRPC_PORT: "7077"
       SERVER_URL: http://localhost:8888
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+      SEED_DEFAULT_ADMIN_EMAIL: "admin@example.com"
+      SEED_DEFAULT_ADMIN_PASSWORD: "Admin123!!"
     volumes:
-      - ./data/hatchet-config:/config
+      - ./data/local/hatchet-config:/config
     depends_on:
       hatchet-postgres:
         condition: service_healthy

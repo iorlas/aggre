@@ -6,6 +6,7 @@ import json
 import logging
 
 import feedparser
+import httpx
 import sqlalchemy as sa
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
@@ -13,6 +14,7 @@ from aggre.collectors.rss.config import RssConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import url_hash
+from aggre.utils.http import create_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -34,42 +36,49 @@ class RssCollector(BaseCollector):
         """Fetch RSS/Atom feeds, write bronze, return references."""
         refs: list[DiscussionRef] = []
 
-        for rss_source in config.sources:
-            logger.info("rss.collecting name=%s url=%s", rss_source.name, rss_source.url)
+        with create_http_client(timeout=30.0) as client:
+            for rss_source in config.sources:
+                logger.info("rss.collecting name=%s url=%s", rss_source.name, rss_source.url)
 
-            source_id = self._ensure_source(engine, rss_source.name, {"url": rss_source.url})
+                source_id = self._ensure_source(engine, rss_source.name, {"url": rss_source.url})
 
-            feed = feedparser.parse(rss_source.url)
-
-            if feed.bozo:
-                logger.warning("rss_bozo_error name=%s error=%s", rss_source.name, str(feed.bozo_exception))
-
-            if not feed.entries:
-                logger.warning("rss_no_entries name=%s", rss_source.name)
-                self._update_last_fetched(engine, source_id)
-                continue
-
-            for entry in feed.entries:
-                external_id = entry.get("id") or entry.get("link")
-                if not external_id:
-                    logger.warning("skipping_entry_no_id feed=%s", rss_source.name)
+                try:
+                    resp = client.get(rss_source.url)
+                    resp.raise_for_status()
+                    feed = feedparser.parse(resp.text)
+                except (httpx.HTTPError, httpx.TimeoutException):
+                    logger.warning("rss.fetch_failed name=%s url=%s", rss_source.name, rss_source.url)
                     continue
 
-                raw_data = dict(entry)
-                # Attach feed-level metadata so process_discussion can use it
-                raw_data["_feed_title"] = feed.feed.get("title", rss_source.name)
+                if feed.bozo:
+                    logger.warning("rss_bozo_error name=%s error=%s", rss_source.name, str(feed.bozo_exception))
 
-                self._write_bronze(url_hash(external_id), raw_data)
-                refs.append(
-                    DiscussionRef(
-                        external_id=external_id,
-                        raw_data=raw_data,
-                        source_id=source_id,
+                if not feed.entries:
+                    logger.warning("rss_no_entries name=%s", rss_source.name)
+                    self._update_last_fetched(engine, source_id)
+                    continue
+
+                for entry in feed.entries:
+                    external_id = entry.get("id") or entry.get("link")
+                    if not external_id:
+                        logger.warning("skipping_entry_no_id feed=%s", rss_source.name)
+                        continue
+
+                    raw_data = dict(entry)
+                    # Attach feed-level metadata so process_discussion can use it
+                    raw_data["_feed_title"] = feed.feed.get("title", rss_source.name)
+
+                    self._write_bronze(url_hash(external_id), raw_data)
+                    refs.append(
+                        DiscussionRef(
+                            external_id=external_id,
+                            raw_data=raw_data,
+                            source_id=source_id,
+                        )
                     )
-                )
 
-            self._update_last_fetched(engine, source_id)
-            logger.info("rss.discussions_collected name=%s count=%d", rss_source.name, len(feed.entries))
+                self._update_last_fetched(engine, source_id)
+                logger.info("rss.discussions_collected name=%s count=%d", rss_source.name, len(feed.entries))
 
         return refs
 

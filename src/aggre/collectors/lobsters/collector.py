@@ -176,6 +176,26 @@ class LobstersCollector(BaseCollector):
 
         return fetched
 
+    def fetch_discussion_comments(
+        self,
+        engine: sa.engine.Engine,
+        discussion_id: int,
+        external_id: str,
+        meta_json: str | None,
+        settings: Settings,
+    ) -> None:
+        """Fetch and store comments for a single discussion."""
+        rate_limit = settings.lobsters_rate_limit
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+            time.sleep(rate_limit)
+            url = f"{LOBSTERS_BASE}/s/{external_id}.json"
+            resp = client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+            comments = data.get("comments", [])
+            self._mark_comments_done(engine, discussion_id, external_id, json.dumps(comments), len(comments))
+
     def search_by_url(
         self,
         url: str,

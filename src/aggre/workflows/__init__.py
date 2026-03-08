@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import importlib
+import logging
+import pkgutil
+
 from hatchet_sdk import Hatchet
 
 _hatchet: Hatchet | None = None
@@ -17,21 +21,29 @@ def get_hatchet() -> Hatchet:
 
 def start_worker() -> None:  # pragma: no cover — entry point
     """Start the Hatchet worker with all registered workflows."""
-    from aggre.workflows.collection import register as reg_collection
-    from aggre.workflows.comments import register as reg_comments
-    from aggre.workflows.discussion_search import register as reg_discussion_search
-    from aggre.workflows.reprocess import register as reg_reprocess
-    from aggre.workflows.transcription import register as reg_transcription
-    from aggre.workflows.webpage import register as reg_webpage
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+    import aggre.workflows as pkg
 
     h = get_hatchet()
-    workflows = []
-    workflows.extend(reg_collection(h))
-    workflows.append(reg_comments(h))
-    workflows.append(reg_discussion_search(h))
-    workflows.append(reg_reprocess(h))
-    workflows.append(reg_transcription(h))
-    workflows.append(reg_webpage(h))
+    workflows: list = []
+
+    # Auto-discover workflow modules — each exports register(h).
+    # Justified over explicit imports: failure is loud (Hatchet startup crash),
+    # no static typing concern for workflow objects.
+    for _, name, _ in pkgutil.iter_modules(pkg.__path__):
+        if name.startswith("_"):
+            continue
+        mod = importlib.import_module(f"aggre.workflows.{name}")
+        if hasattr(mod, "register"):
+            result = mod.register(h)
+            if isinstance(result, list):
+                workflows.extend(result)
+            else:
+                workflows.append(result)
 
     worker = h.worker("aggre-worker", slots=20, workflows=workflows)
     worker.start()

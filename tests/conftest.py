@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from unittest.mock import MagicMock
 
+import httpx
 import pytest
 import respx
 import sqlalchemy as sa
@@ -63,3 +66,15 @@ def tmp_bronze(tmp_path):
     bronze = tmp_path / "bronze"
     bronze.mkdir()
     return bronze
+
+
+@contextmanager
+def dummy_http_client(**kwargs):
+    """A mock HTTP client context manager that returns 200 for any GET."""
+    client = MagicMock(spec=httpx.Client)
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.text = ""
+    resp.raise_for_status = MagicMock()
+    client.get.return_value = resp
+    yield client

@@ -15,6 +15,7 @@ from aggre.collectors import COLLECTORS
 from aggre.config import load_config
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, _store_for
 from aggre.utils.db import get_engine
+from aggre.workflows.models import TaskResult
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,12 @@ def register(h):  # pragma: no cover — Hatchet wiring
     wf = h.workflow(name="reprocess")
 
     @wf.task(execution_timeout="30m")
-    def reprocess_task(input, ctx):  # noqa: A002
+    def reprocess_task(input, ctx):
         ctx.log("Starting reprocess from bronze")
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         count = reprocess_from_bronze(engine)
         ctx.log(f"Reprocess complete: discussions={count}")
-        return {"count": count}
+        return TaskResult(succeeded=count, total=count)
 
     return wf

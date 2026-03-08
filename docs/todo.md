@@ -27,3 +27,31 @@
 - [ ] **M2: `bronze_path()` misleading for S3** — `src/aggre/utils/bronze.py:160-182`. Returns local path that doesn't exist on S3 backend. Fix: deprecate or assert on S3 backend.
 
 - [ ] **M3: No S3 connection health check at startup** — If Tailscale/Garage down, first S3 op fails with opaque error. Fix: add health check in Dagster resource init.
+
+## Hatchet Smoke Test Issues (2026-03-07)
+
+- [x] **H1: Browserless 400 errors on all downloads** — All 50 webpage download attempts fail with `Client error '400 Bad Request'` from `http://browserless:3000/function`. Error includes "Navigation timeout of 55000 ms exceeded". Possibly API change in Browserless version or configuration issue. Investigate and fix.
+
+- [x] **H2: RSS collector hangs on slow feeds** — RSS collection with 27 feeds takes 15+ minutes. Some feeds appear to hang indefinitely (no HTTP timeout in feedparser/requests). Add HTTP timeouts (e.g., 30s per feed) to prevent single slow feed from blocking the entire collection.
+
+- [x] **H3: Pydantic serialization warnings in Hatchet tasks** — Tasks returning dict results trigger `PydanticSerializationUnexpectedValue(Expected EmptyModel)`. Cosmetic but noisy. Fix: either define proper input/output Pydantic models for each task, or suppress the warning.
+
+- [ ] **H4: Hatchet token lifecycle** — Token is manually generated and stored in `.env`. Expires after ~3 months (JWT exp). No automated rotation. Document the token generation process and consider automating it in `make dev-remote` setup.
+
+- [x] **H5: No application logging visible in Hatchet worker** — Python `logging` output from business logic doesn't appear in `docker compose logs`. Only Hatchet SDK `[INFO]` messages visible. Need to configure logging handler to output to stdout/stderr.
+
+## Event-Driven Migration (2026-03-08)
+
+- [ ] **E1: Router optimization** — If skip runs become noisy in Hatchet UI (e.g. `process-transcription` skipping non-YouTube items), add a router workflow that dispatches to the correct downstream workflow instead of broadcasting `item.new` to all subscribers.
+
+- [ ] **E2: Hatchet data retention** — Verify/configure retention on Hatchet server. Old workflow runs accumulate in Postgres. Check `HATCHET_RETENTION_PERIOD` env var or equivalent.
+
+- [ ] **E3: Remove StageTracking** — `src/aggre/tracking/` module is no longer used by workflows but kept for Grafana dashboards. After dashboards are migrated to Hatchet OLAP tables, remove the module, DB table, and related alembic migration. **Pre-requisites:** (a) set `SilverContent.enriched_at` in `search_one()` so discussion search coverage is queryable without StageTracking; (b) catch final-retry failures in Hatchet task wrappers and write `SilverContent.error` / `SilverDiscussion.error` so permanently-failed items don't stay in "pending" (`text IS NULL AND error IS NULL`) state; (c) migrate Grafana dashboards to Hatchet OLAP tables.
+
+- [ ] **E4: Backfill CLI** — Need a way to trigger per-item workflows for existing unprocessed content (replaces old batch functions). E.g. `python -m aggre.backfill webpage` queries DB for unprocessed content and emits `item.new` events.
+
+- [ ] **E5: Comment events for discussions without content** — `_emit_item_event` skips discussions without `content_id` (e.g. Ask HN, Telegram messages). These items never get comment-fetching via the event-driven path. Either emit a separate event for comment-only items or keep a lightweight cron-based comments fallback.
+
+- [ ] **E6: `_COMMENT_SOURCES` hardcoded** — If a new collector adds `fetch_discussion_comments()`, the tuple in `comments.py:24` must be manually updated. Consider a dynamic check or a test that verifies all collectors with that method are listed.
+
+- [ ] **E7: DB query failure path in `_emit_item_event` untested** — The `try/except` at `collection.py:93` catches both DB query and `hatchet.event.push` failures. Only the push failure path has a dedicated test. Same except clause, so functionally covered, but no explicit DB-failure test.

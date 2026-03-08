@@ -31,6 +31,7 @@ from aggre.db import SilverContent, SilverDiscussion
 from aggre.tracking.model import StageTracking
 from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
 from aggre.tracking.status import Stage, StageStatus
+from tests.conftest import dummy_http_client
 from tests.factories import (
     hf_paper,
     hn_hit,
@@ -528,7 +529,10 @@ class TestCollectorContentConstraints:
         )
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
             collect(RssCollector(), engine, config.rss, config.settings)
 
@@ -603,7 +607,10 @@ class TestCollectorContentConstraints:
         entry = rss_entry(id="rss-1", link="https://example.com/rss-article")
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             config = make_config(rss=RssConfig(sources=[RssSource(name="Feed", url="https://example.com/feed.xml")]))
             collect(RssCollector(), engine, config.rss, config.settings)
 

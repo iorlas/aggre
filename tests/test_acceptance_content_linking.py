@@ -18,6 +18,7 @@ from aggre.collectors.rss.collector import RssCollector
 from aggre.collectors.rss.config import RssConfig, RssSource
 from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
+from tests.conftest import dummy_http_client
 from tests.factories import (
     hf_paper,
     hn_hit,
@@ -45,7 +46,10 @@ class TestRssContentLinking:
         )
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collect(RssCollector(), engine, config.rss, config.settings)
 
         sc_rows = get_contents(engine)
@@ -293,7 +297,10 @@ class TestCrossSourceDedup:
         entry = rss_entry(id="rss-1", link=shared_url)
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collect(RssCollector(), engine, rss_config.rss, rss_config.settings)
 
         # 2. Run HackerNews collector
@@ -355,7 +362,10 @@ class TestCrossSourceDedup:
         entry = rss_entry(id="rss-norm", link="https://www.example.com/article/")
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.rss.collector.create_http_client", dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
             collect(RssCollector(), engine, rss_config.rss, rss_config.settings)
 
         # HN with "https://example.com/article" (no www, no trailing slash)

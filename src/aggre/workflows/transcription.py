@@ -1,42 +1,27 @@
 """Transcription workflow -- download and transcribe YouTube videos.
 
-Single-task workflow triggered by content.new events.
+Single-task workflow triggered per-item via "item.new" event.
+Hatchet manages concurrency (max 1 YouTube transcription at a time) and retry.
 """
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import logging
-import threading
-import traceback
 from pathlib import Path
 
 import sqlalchemy as sa
 import yt_dlp
 from faster_whisper import WhisperModel
-from sqlalchemy.dialects.postgresql import JSONB
+from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion, update_content
-from aggre.tracking.model import StageTracking
-from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed, upsert_skipped
-from aggre.tracking.status import Stage
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
+from aggre.workflows.models import ItemEvent
 
 logger = logging.getLogger(__name__)
-
-_thread_local = threading.local()
-
-
-def _get_model(config: AppConfig, provided_model: WhisperModel | None) -> WhisperModel:
-    """Return the provided model or a thread-local one (created lazily)."""
-    if provided_model is not None:
-        return provided_model
-    if not hasattr(_thread_local, "whisper_model"):
-        _thread_local.whisper_model = create_whisper_model(config)
-    return _thread_local.whisper_model
 
 
 def create_whisper_model(config: AppConfig) -> WhisperModel:
@@ -54,10 +39,15 @@ def _transcribe_one(
     item: sa.engine.Row,
     *,
     model: WhisperModel | None = None,
-) -> int:
-    """Transcribe a single video. Returns 1 on success, 0 on failure/skip."""
+) -> str:
+    """Transcribe a single video. Returns status string.
+
+    Raises on transient failure (Hatchet handles retry).
+    """
     content_id = item.id
     external_id = item.external_id
+    is_remote = False
+    audio_dest = None
 
     try:
         # Skip videos longer than 30 minutes
@@ -66,8 +56,7 @@ def _transcribe_one(
         if duration is not None and duration > 1800:
             duration_min = duration / 60
             logger.info("transcription.skipped_long external_id=%s duration_min=%.0f", external_id, duration_min)
-            upsert_skipped(engine, "youtube", external_id, Stage.TRANSCRIBE, f"video_too_long: {duration_min:.0f}min (limit 30min)")
-            return 0
+            return "skipped_long"
 
         logger.info("transcription.transcribing external_id=%s title=%s", external_id, item.title)
 
@@ -79,8 +68,8 @@ def _transcribe_one(
             transcript = cached["transcript"] if isinstance(cached, dict) else ""
             language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
             update_content(engine, content_id, text=transcript, detected_language=language)
-            upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
-            return 1
+            return "cached"
+
         # Resolve audio location — filesystem store uses local path, S3 uses temp dir
         store = get_store()
         audio_key = f"youtube/{external_id}/audio.opus"
@@ -146,12 +135,12 @@ def _transcribe_one(
         file_size = audio_dest.stat().st_size
         if file_size > 500 * 1024 * 1024:
             logger.warning("transcription.audio_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
-            upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, "Audio file exceeds 500MB limit")
-            return 0
+            raise ValueError(f"Audio file exceeds 500MB limit ({file_size / (1024 * 1024):.0f}MB)")
 
-        # Transcribe — get thread-local or provided model
-        whisper_model = _get_model(config, model)
-        segments, info = whisper_model.transcribe(str(audio_dest))
+        # Transcribe
+        if model is None:
+            model = create_whisper_model(config)
+        segments, info = model.transcribe(str(audio_dest))
         transcript = " ".join(seg.text for seg in segments)
 
         # Write full whisper output to bronze
@@ -164,99 +153,52 @@ def _transcribe_one(
 
         # Store result on SilverContent
         update_content(engine, content_id, text=transcript, detected_language=info.language)
-        upsert_done(engine, "youtube", external_id, Stage.TRANSCRIBE)
 
         logger.info("transcription.transcribed external_id=%s", external_id)
-        return 1
-
-    except Exception as exc:
-        logger.exception("transcription.failed external_id=%s", external_id)
-        upsert_failed(engine, "youtube", external_id, Stage.TRANSCRIBE, str(exc))
-        return 0
+        return "transcribed"
 
     finally:
         # Clean up temp audio when using remote storage (S3)
         try:
-            if is_remote and audio_dest.exists():
+            if is_remote and audio_dest and audio_dest.exists():
                 audio_dest.unlink()
                 logger.info("transcription.audio_cleaned external_id=%s", external_id)
         except NameError:  # pragma: no cover — only if early failure before variable assignment
             pass
 
 
-def transcribe(
+# -- Per-item function (tested directly) ------------------------------------
+
+
+def transcribe_one(
     engine: sa.engine.Engine,
     config: AppConfig,
-    batch_limit: int = 0,
+    content_id: int,
     *,
     model: WhisperModel | None = None,
-    max_workers: int = 1,
-) -> dict[str, int]:
-    # Query SilverContent needing transcription: text IS NULL, YouTube domain, stage not done
-    query = (
-        sa.select(
-            SilverContent.id,
-            SilverContent.canonical_url,
-            SilverDiscussion.external_id,
-            SilverDiscussion.title,
-            SilverDiscussion.meta,
-        )
-        .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
-        .outerjoin(
-            StageTracking,
-            sa.and_(
-                StageTracking.source == "youtube",
-                StageTracking.external_id == SilverDiscussion.external_id,
-                StageTracking.stage == Stage.TRANSCRIBE,
-            ),
-        )
-        .where(
-            SilverContent.text.is_(None),
-            SilverDiscussion.source_type == "youtube",
-            sa.or_(
-                StageTracking.id.is_(None),
-                retry_filter(StageTracking, Stage.TRANSCRIBE),
-            ),
-        )
-        .order_by(
-            sa.func.coalesce(
-                sa.cast(sa.cast(SilverDiscussion.meta, JSONB)["duration"].as_string(), sa.Integer),
-                999999,
-            ).asc(),
-            SilverContent.created_at.asc(),
-        )
-    )
-    if batch_limit > 0:
-        query = query.limit(batch_limit)
-
+) -> str:
+    """Transcribe a single YouTube video by content_id. Returns status string."""
     with engine.connect() as conn:
-        pending = conn.execute(query).fetchall()
+        row = conn.execute(
+            sa.select(
+                SilverContent.id,
+                SilverContent.canonical_url,
+                SilverContent.text,
+                SilverDiscussion.external_id,
+                SilverDiscussion.title,
+                SilverDiscussion.meta,
+            )
+            .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
+            .where(SilverContent.id == content_id, SilverDiscussion.source_type == "youtube")
+        ).first()
 
-    if not pending:
-        logger.info("transcription.no_pending")
-        return {"succeeded": 0, "failed": 0, "total": 0}
+    if not row:
+        return "skipped"
 
-    logger.info("transcription.starting pending=%d", len(pending))
+    if row.text is not None:
+        return "already_done"
 
-    if max_workers <= 1:
-        processed = 0
-        for item in pending:
-            processed += _transcribe_one(engine, config, item, model=model)
-    else:
-        processed = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_id = {executor.submit(_transcribe_one, engine, config, item, model=model): item.external_id for item in pending}
-            for future in concurrent.futures.as_completed(future_to_id):
-                ext_id = future_to_id[future]
-                try:
-                    processed += future.result()
-                except Exception:
-                    logger.exception("transcription.worker_exception external_id=%s", ext_id)
-                    upsert_failed(engine, "youtube", ext_id, Stage.TRANSCRIBE, traceback.format_exc())
-
-    failed = len(pending) - processed
-    logger.info("transcription.complete succeeded=%d failed=%d total=%d", processed, failed, len(pending))
-    return {"succeeded": processed, "failed": failed, "total": len(pending)}
+    return _transcribe_one(engine, config, row, model=model)
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -264,15 +206,30 @@ def transcribe(
 
 def register(h):  # pragma: no cover — Hatchet wiring
     """Register the transcription workflow with the Hatchet instance."""
-    wf = h.workflow(name="transcription", on_events=["content.new"])
+    _model = None
+
+    wf = h.workflow(
+        name="process-transcription",
+        on_events=["item.new"],
+        concurrency=ConcurrencyExpression(
+            expression="'youtube'",
+            max_runs=1,
+            limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+        ),
+        input_validator=ItemEvent,
+    )
 
     @wf.task(execution_timeout="30m")
-    def transcribe_task(input, ctx):  # noqa: A002
-        ctx.log("Starting transcription")
+    def transcribe_task(input: ItemEvent, ctx):
+        if input.source != "youtube":
+            return {"status": "skipped"}
+        nonlocal _model
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        stats = transcribe(engine, cfg, batch_limit=30, max_workers=2)
-        ctx.log(f"Transcription complete: {stats}")
-        return stats
+        if _model is None:
+            _model = create_whisper_model(cfg)
+        status = transcribe_one(engine, cfg, input.content_id, model=_model)
+        ctx.log(f"Transcription: {status} for content_id={input.content_id}")
+        return {"status": status}
 
     return wf

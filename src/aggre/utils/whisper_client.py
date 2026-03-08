@@ -1,4 +1,4 @@
-"""Thin HTTP client for whisper.cpp server (OpenAI-compatible API)."""
+"""Thin HTTP client for whisper.cpp server (/inference endpoint)."""
 
 from __future__ import annotations
 
@@ -24,14 +24,16 @@ def transcribe_audio(
     """POST audio to whisper.cpp server, return transcription result."""
     with audio_path.open("rb") as f:
         response = httpx.post(
-            f"{server_url}/v1/audio/transcriptions",
+            f"{server_url}/inference",
             files={"file": (audio_path.name, f, "audio/ogg")},
-            data={"model": model, "response_format": "verbose_json"},
+            data={"model": model, "response_format": "verbose_json", "temperature": "0.0"},
             timeout=timeout,
         )
     response.raise_for_status()
     body = response.json()
+    # whisper.cpp uses "detected_language" in verbose_json; fall back to "language" for compat
+    language = body.get("detected_language") or body.get("language") or "unknown"
     return TranscriptionResult(
         text=body["text"].strip(),
-        language=body.get("language", "unknown"),
+        language=language,
     )

@@ -38,7 +38,7 @@ verify:
 whisper-server:
 	whisper-server \
 		--model $(HOME)/Models/whisper/ggml-large-v3-turbo.bin \
-		--host 0.0.0.0 --port 8090
+		--host 0.0.0.0 --port 8090 --convert
 
 whisper-health:
 	@curl -sf http://localhost:8090/health > /dev/null \

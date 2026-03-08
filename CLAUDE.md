@@ -19,6 +19,7 @@ Read the relevant docs first:
 - **Before adding processing logic:** `docs/guidelines/component-contracts.md` — input accountability, disposition tracking
 - **Before changing concurrency/pipeline:** `docs/guidelines/formal-verification.md` — TLA+ specs, spec-first workflow
 - **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
+- **Before deploying:** `docs/guidelines/deployment.md` — Dokploy platform, Traefik routing, compose structure, CI/CD pipeline
 
 > **Note:** `.planning/codebase/` files are AI-generated snapshots of current codebase state, not human-authored guidelines. `docs/guidelines/` contains the human-authored standards.
 

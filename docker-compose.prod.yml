@@ -1,5 +1,7 @@
 # AGGRE data services — managed by Dokploy
 # PostgreSQL + Garage accessible via Tailscale (aggre-shen)
+# NOTE: In Dokploy (sourceType: raw), garage.toml bind mount uses absolute path
+# /etc/dokploy/compose/<appName>/garage.toml since code/ dir is wiped on deploy
 services:
   tailscale:
     image: tailscale/tailscale:latest

@@ -5,7 +5,6 @@ description = ""
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "structlog>=23.0.0",
     "pydantic>=2.12.2",
     "pydantic-settings>=2.0",
     "python-dotenv>=1.2.1",
@@ -13,14 +12,15 @@ dependencies = [
     "feedparser>=6.0",
     "httpx[socks]>=0.28",
     "yt-dlp>=2024.0",
-    "faster-whisper>=1.0",
     "click>=8.1",
     "pyyaml>=6.0",
     "sqlalchemy>=2.0",
     "alembic>=1.15",
     "trafilatura>=2.0",
-    "psycopg2-binary>=2.9",
+    "psycopg[binary]>=3.1",
     "telethon>=1.37",
+    "hatchet-sdk>=1.4",
+    "boto3>=1.35",
 ]
 
 [dependency-groups]
@@ -30,6 +30,12 @@ dev = [
     "pytest-recording>=0.13.4",
     "ruff>=0.14.0",
     "ty>=0.0.13",
+    "respx>=0.22",
+    "polyfactory>=2.18",
+    "hypothesis>=6.120",
+    "moto[s3]>=5.0",
+    "pytest-cov>=6.0",
+    "diff-cover>=9.0",
 ]
 
 [project.scripts]
@@ -74,10 +80,27 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --strict-markers"
+addopts = "-v --strict-markers --cov --cov-report=term:skip-covered --cov-report=xml --cov-fail-under=95"
 pythonpath = "."
 markers = [
     "contract: marks tests as contract tests (external API verification)",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "acceptance: marks tests as acceptance tests (end-to-end workflows)",
+]
+
+[tool.coverage.run]
+source = ["src/aggre"]
+branch = true
+omit = ["src/aggre/cli.py"]
+
+[tool.coverage.report]
+show_missing = false
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "\\.\\.\\.",       # Protocol method bodies (ellipsis)
 ]

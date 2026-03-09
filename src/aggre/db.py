@@ -1,17 +1,9 @@
-"""Database engine, ORM models, and connection management."""
+"""ORM models, indexes, and content update helper."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import Any
-
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-def now_iso() -> str:
-    """Current UTC time as ISO 8601 string."""
-    return datetime.now(UTC).isoformat()
 
 
 class Base(DeclarativeBase):
@@ -30,36 +22,17 @@ class Source(Base):
     last_fetched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
-class BronzeDiscussion(Base):
-    __tablename__ = "bronze_discussions"
-    __table_args__ = (sa.UniqueConstraint("source_type", "external_id"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    external_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    raw_data: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    fetched_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
-
-
 class SilverContent(Base):
     __tablename__ = "silver_content"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     canonical_url: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    original_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     domain: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     title: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    body_text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    raw_html: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    fetch_status: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="pending")
-    fetch_error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    fetched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     created_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
-    # Transcription fields (content-level concern)
-    transcription_status: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    transcription_error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     detected_language: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    # Enrichment tracking
-    enriched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SilverDiscussion(Base):
@@ -68,7 +41,6 @@ class SilverDiscussion(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     source_id: Mapped[int | None] = mapped_column(sa.ForeignKey("sources.id"), nullable=True)
-    bronze_discussion_id: Mapped[int | None] = mapped_column(sa.ForeignKey("bronze_discussions.id"), nullable=True)
     content_id: Mapped[int | None] = mapped_column(sa.ForeignKey("silver_content.id"), nullable=True)
     source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     external_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -79,50 +51,31 @@ class SilverDiscussion(Base):
     published_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     fetched_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
     meta: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    comments_status: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     comments_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     score: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     comment_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
 
-# Bronze indexes
-sa.Index("idx_bronze_discussions_source_type", BronzeDiscussion.source_type)
-sa.Index("idx_bronze_discussions_external", BronzeDiscussion.source_type, BronzeDiscussion.external_id)
-
 # SilverContent indexes
 sa.Index("idx_silver_content_domain", SilverContent.domain, postgresql_where=SilverContent.domain.isnot(None))
-sa.Index("idx_silver_content_fetch_status", SilverContent.fetch_status)
+sa.Index("idx_content_text_null", SilverContent.id, postgresql_where=SilverContent.text.is_(None))
 sa.Index(
-    "idx_silver_content_transcription",
-    SilverContent.transcription_status,
-    postgresql_where=SilverContent.transcription_status.isnot(None),
+    "idx_content_needs_discussion_search",
+    SilverContent.id,
+    postgresql_where=sa.and_(SilverContent.text.isnot(None), SilverContent.canonical_url.isnot(None)),
 )
-sa.Index("idx_silver_content_enriched_at", SilverContent.enriched_at, postgresql_where=SilverContent.enriched_at.is_(None))
 
 # SilverDiscussion indexes
 sa.Index("idx_silver_discussions_source_type", SilverDiscussion.source_type)
 sa.Index("idx_silver_discussions_published", SilverDiscussion.published_at)
 sa.Index("idx_silver_discussions_source_id", SilverDiscussion.source_id)
 sa.Index("idx_silver_discussions_external", SilverDiscussion.source_type, SilverDiscussion.external_id)
-sa.Index(
-    "idx_silver_discussions_comments_status",
-    SilverDiscussion.comments_status,
-    postgresql_where=SilverDiscussion.comments_status.isnot(None),
-)
+sa.Index("idx_discussions_comments_null", SilverDiscussion.id, postgresql_where=SilverDiscussion.comments_json.is_(None))
 sa.Index("idx_silver_discussions_url", SilverDiscussion.url, postgresql_where=SilverDiscussion.url.isnot(None))
 sa.Index("idx_silver_discussions_content_id", SilverDiscussion.content_id, postgresql_where=SilverDiscussion.content_id.isnot(None))
 
 
-def get_engine(database_url: str) -> sa.engine.Engine:
-    """Create a SQLAlchemy engine for the given database URL."""
-    return sa.create_engine(database_url, echo=False)
-
-
-def _update_content(engine: sa.engine.Engine, content_id: int, **values: Any) -> None:
-    """Internal: update a SilverContent row by id in its own transaction."""
+def update_content(engine: sa.engine.Engine, content_id: int, **values: str | int | None) -> None:
+    """Update a SilverContent row by id in its own transaction."""
     with engine.begin() as conn:
-        conn.execute(
-            sa.update(SilverContent)
-            .where(SilverContent.id == content_id)
-            .values(**values)
-        )
+        conn.execute(sa.update(SilverContent).where(SilverContent.id == content_id).values(**values))

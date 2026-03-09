@@ -1,3 +1,3 @@
-from aggre.collectors.telegram.collector import TelegramCollector
+from __future__ import annotations
 
 __all__ = ["TelegramCollector"]

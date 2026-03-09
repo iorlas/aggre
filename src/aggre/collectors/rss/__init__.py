@@ -1,3 +1,3 @@
-from aggre.collectors.rss.collector import RssCollector
+from __future__ import annotations
 
 __all__ = ["RssCollector"]

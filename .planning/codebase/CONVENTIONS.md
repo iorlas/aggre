@@ -6,7 +6,7 @@
 
 **Files:**
 - Lowercase with underscores: `content_fetcher.py`, `enrichment.py`
-- Module names match domain concepts: `collectors/`, `urls.py`, `statuses.py`
+- Module names match domain concepts: `collectors/`, `urls.py`, `db.py`
 - Collector classes: `{Source}Collector` (e.g., `HackernewsCollector`, `RedditCollector` in `src/aggre/collectors/`)
 
 **Functions:**
@@ -23,7 +23,7 @@
 
 **Types:**
 - Classes use PascalCase: `BronzeDiscussion`, `SilverDiscussion`, `SilverContent`, `Source` (database models in `src/aggre/db.py`)
-- Enums use PascalCase and derive from `StrEnum`: `FetchStatus`, `TranscriptionStatus`, `CommentsStatus` (see `src/aggre/statuses.py`)
+- Enums use PascalCase and derive from `StrEnum` when needed (processing state uses null-check pattern instead of enums)
 - Pydantic models use PascalCase: `Settings`, `AppConfig`, `RssSource`, `RedditSource` (see `src/aggre/config.py`)
 - Protocol classes use PascalCase: `Collector`, `SearchableCollector` (see `src/aggre/collectors/base.py`)
 
@@ -133,7 +133,7 @@ def normalize_url(url: str) -> str | None:
 **Size:** Functions typically 10-50 lines; long functions factored into helpers with leading underscore
 
 **Parameters:**
-- Explicit over implicit: use keyword-only arguments for clarity (`def func(*, raw_html: str)`)
+- Explicit over implicit: use keyword-only arguments for clarity (`def func(*, text: str)`)
 - Database operations always take `engine: sa.engine.Engine` and `log: structlog.stdlib.BoundLogger`
 - Collectors always take `(engine, config, log)`
 - Batch operations take `batch_limit: int = 50` parameter with sensible default
@@ -182,9 +182,10 @@ class SilverContent(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     canonical_url: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
     domain: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    body_text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 ```
 
 ---
 
-*Convention analysis: 2026-02-20*
+*Convention analysis: 2026-02-23*

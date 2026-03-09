@@ -1,3 +1,3 @@
-from aggre.collectors.hackernews.collector import HackernewsCollector
+from __future__ import annotations
 
 __all__ = ["HackernewsCollector"]

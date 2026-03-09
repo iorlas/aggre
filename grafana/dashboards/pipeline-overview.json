@@ -1,0 +1,637 @@
+{
+  "uid": "pipeline-overview",
+  "title": "Pipeline Overview",
+  "description": "Aggre pipeline health: throughput, failures, queues",
+  "tags": ["aggre", "pipeline"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "id": 100
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Completed Today",
+      "description": "Items successfully processed since midnight UTC",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT count(*) AS value FROM stage_tracking WHERE status = 'done' AND completed_at::date = current_date",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "green", "value": 50 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Failure Rate Today",
+      "description": "Percentage of items that failed since midnight UTC",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT CASE WHEN count(*) = 0 THEN 0 ELSE round(100.0 * count(*) FILTER (WHERE status = 'failed') / count(*), 1) END AS value FROM stage_tracking WHERE last_ran_at::date = current_date",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Pending Content",
+      "description": "Non-video content items waiting for text extraction",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT count(*) AS value FROM silver_content WHERE text IS NULL AND (domain NOT IN ('youtube.com','m.youtube.com','youtu.be','v.redd.it','i.redd.it') OR domain IS NULL)",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 200 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active Sources",
+      "description": "Sources that fetched data in the last 24 hours",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT count(*) AS value FROM sources WHERE last_fetched_at::timestamptz > now() - interval '24 hours'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "green", "value": 3 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Velocity",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false,
+      "id": 105
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Throughput / hr",
+      "description": "Items completed per hour (sparkline over last 24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 6 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', completed_at::timestamptz) AS time, count(*) AS value FROM stage_tracking WHERE status = 'done' AND completed_at::timestamptz > now() - interval '24 hours' GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "green", "value": 20 }
+            ]
+          },
+          "color": { "mode": "thresholds" },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Processing Latency",
+      "description": "Median time from content creation to download completion (last 24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 6 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM st.completed_at::timestamptz - sc.created_at::timestamptz)) / 3600.0 AS value FROM stage_tracking st JOIN silver_content sc ON st.external_id = sc.canonical_url WHERE st.source = 'webpage' AND st.stage = 'download' AND st.status = 'done' AND st.completed_at::timestamptz > now() - interval '24 hours'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 6 },
+              { "color": "red", "value": 24 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Ingestion Freshness",
+      "description": "Median time from publication to pipeline discovery (last 24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 6 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM sd.fetched_at::timestamptz - sd.published_at::timestamptz)) / 3600.0 AS value FROM silver_discussions sd WHERE sd.published_at IS NOT NULL AND sd.published_at::timestamptz > now() - interval '7 days' AND sd.fetched_at::timestamptz > now() - interval '24 hours'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 12 },
+              { "color": "red", "value": 48 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Queue Drain ETA",
+      "description": "Estimated hours to clear content backlog at current throughput",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 6 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "WITH backlog AS (SELECT count(*) AS cnt FROM silver_content WHERE text IS NULL), throughput AS (SELECT count(*) / GREATEST(extract(epoch FROM now() - min(completed_at::timestamptz)) / 3600.0, 1) AS items_per_hour FROM stage_tracking WHERE status = 'done' AND completed_at::timestamptz > now() - interval '6 hours') SELECT CASE WHEN t.items_per_hour > 0 THEN round((b.cnt / t.items_per_hour)::numeric, 1) ELSE NULL END AS value FROM backlog b, throughput t",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 12 },
+              { "color": "red", "value": 48 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Throughput",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 10 },
+      "collapsed": false,
+      "id": 101
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "New Items per Hour by Source",
+      "description": "New discussions ingested per hour, grouped by source type",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', fetched_at::timestamptz) AS time, source_type, count(*) AS value FROM silver_discussions WHERE $__timeFilter(fetched_at::timestamptz) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "mode": "normal", "group": "A" },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["sum"] }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Completed Items per Hour by Stage",
+      "description": "Throughput of successfully completed pipeline items",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', completed_at::timestamptz) AS time, stage, count(*) AS value FROM stage_tracking WHERE status = 'done' AND $__timeFilter(completed_at::timestamptz) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "mode": "normal", "group": "A" },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["sum"] }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Failures",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 },
+      "collapsed": false,
+      "id": 102
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Failures per Hour by Stage",
+      "description": "Failed items over time, grouped by pipeline stage",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', last_ran_at::timestamptz) AS time, stage, count(*) AS value FROM stage_tracking WHERE status = 'failed' AND $__timeFilter(last_ran_at::timestamptz) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "mode": "normal", "group": "A" },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["sum"] }
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Top Errors",
+      "description": "Most frequent errors across all stages",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT stage, left(error, 100) AS error_summary, count(*) AS occurrences FROM stage_tracking WHERE status = 'failed' AND error IS NOT NULL GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 20",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "occurrences" },
+            "properties": [
+              { "id": "custom.width", "value": 100 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "stage" },
+            "properties": [
+              { "id": "custom.width", "value": 140 }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "occurrences", "desc": true }],
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Pipeline Queues",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "collapsed": false,
+      "id": 103
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "Pending Items by Stage",
+      "description": "True queue depth: items needing processing that are not yet done or skipped",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 29 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT 'download' AS stage, count(*) AS value FROM silver_content sc LEFT JOIN stage_tracking st ON st.source = 'webpage' AND st.external_id = sc.canonical_url AND st.stage = 'download' WHERE sc.text IS NULL AND (sc.domain NOT IN ('youtube.com','youtu.be','m.youtube.com','v.redd.it','i.redd.it') OR sc.domain IS NULL) AND (st.id IS NULL OR st.status NOT IN ('done','skipped')) UNION ALL SELECT 'transcribe', count(*) FROM silver_content sc JOIN silver_discussions sd ON sd.content_id = sc.id LEFT JOIN stage_tracking st ON st.source = 'youtube' AND st.external_id = sd.external_id AND st.stage = 'transcribe' WHERE sc.text IS NULL AND sd.source_type = 'youtube' AND (st.id IS NULL OR st.status NOT IN ('done','skipped')) UNION ALL SELECT 'discussion_search', count(*) FROM silver_content sc LEFT JOIN stage_tracking st ON st.source = 'webpage' AND st.external_id = sc.canonical_url AND st.stage = 'discussion_search' WHERE sc.canonical_url IS NOT NULL AND (sc.domain NOT IN ('youtube.com','m.youtube.com','youtu.be','reddit.com','old.reddit.com','i.redd.it','v.redd.it','linkedin.com') OR sc.domain IS NULL) AND (st.id IS NULL OR st.status NOT IN ('done','skipped')) UNION ALL SELECT 'comments', count(*) FROM silver_discussions sd LEFT JOIN stage_tracking st ON st.source = sd.source_type AND st.external_id = sd.external_id AND st.stage = 'comments' WHERE sd.source_type IN ('reddit','hackernews','lobsters') AND sd.comments_json IS NULL AND (st.id IS NULL OR st.status NOT IN ('done','skipped'))",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 100 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "minVizWidth": 8,
+        "minVizHeight": 16,
+        "namePlacement": "auto",
+        "valueMode": "color"
+      },
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              { "fieldName": "stage", "handlerKey": "field.name" },
+              { "fieldName": "value", "handlerKey": "field.value" }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "download": 0,
+              "transcribe": 1,
+              "discussion_search": 2,
+              "comments": 3
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Transcription",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "collapsed": false,
+      "id": 104
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Transcription Backlog",
+      "description": "YouTube items awaiting transcription",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 36 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT count(*) AS value FROM silver_content sc JOIN silver_discussions sd ON sd.content_id = sc.id WHERE sc.domain = 'youtube.com' AND sc.text IS NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Transcription Throughput",
+      "description": "Completed transcriptions per hour",
+      "gridPos": { "h": 6, "w": 18, "x": 6, "y": 36 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('hour', completed_at::timestamptz) AS time, count(*) AS value FROM stage_tracking WHERE stage = 'transcribe' AND status = 'done' AND $__timeFilter(completed_at::timestamptz) GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "spanNulls": false,
+            "showPoints": "never"
+          },
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    }
+  ],
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": []
+}

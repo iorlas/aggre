@@ -14,6 +14,11 @@
   - Options: `-v --strict-markers` (verbose, enforce marker registration)
   - Python path: current directory (`.`)
 
+**HTTP Mocking Stack:**
+- **respx** (`respx>=0.22`) — transport-layer httpx mock for integration tests (130+ tests)
+- **VCR.py** (`pytest-recording>=0.13.4`, wraps `vcrpy`) — records/replays real HTTP for contract tests (10 tests). Cassettes at `tests/collectors/cassettes/{module_name}/`
+- **moto** (`moto[s3]>=5.0`) — AWS service mock for S3/bronze storage tests
+
 **Assertion Library:**
 - pytest built-in assertions (no separate assertion library)
 - Simple equality checks: `assert count == 1`, `assert row.external_id == "12345"`
@@ -43,12 +48,44 @@ pytest tests/ --recording-mode=once   # pytest-recording for VCR
 ```
 tests/
 ├── conftest.py                        # Shared fixtures (session-scoped engine, autouse clean_tables)
+├── factories.py                       # Centralized test data factories (DB seeders, API response builders, config)
+├── helpers.py                         # Shared test helpers (collect, DB query/assertion utilities)
+├── collectors/                        # Collector tests (mirrors src/aggre/collectors/)
+│   ├── test_hackernews.py             # Hacker News collector tests (integration)
+│   ├── test_reddit.py                 # Reddit collector tests (integration)
+│   ├── test_lobsters.py               # Lobsters collector tests (integration)
+│   ├── test_rss.py                    # RSS collector tests (integration)
+│   ├── test_youtube.py                # YouTube collector tests (integration)
+│   ├── test_huggingface.py            # HuggingFace collector tests (integration)
+│   ├── test_telegram.py               # Telegram collector tests (integration)
+│   ├── test_arxiv.py                  # ArXiv collector tests (integration)
+│   ├── test_lesswrong.py              # LessWrong collector tests (integration)
+│   ├── test_contract_hackernews.py    # HN API contract tests (VCR)
+│   ├── test_contract_reddit.py        # Reddit API contract tests (VCR)
+│   ├── test_contract_lobsters.py      # Lobsters API contract tests (VCR)
+│   └── cassettes/                     # VCR cassettes (YAML, auto-discovered by pytest-recording)
+│       ├── test_contract_hackernews/  # 4 cassettes
+│       ├── test_contract_reddit/      # 3 cassettes
+│       └── test_contract_lobsters/    # 3 cassettes
+├── workflows/                         # Workflow tests (mirrors src/aggre/workflows/)
+│   ├── test_collection.py             # collect_source orchestration tests
+│   ├── test_comments.py               # fetch_comments orchestration tests
+│   ├── test_webpage.py                # Webpage download/extract pipeline tests
+│   ├── test_transcription.py          # YouTube transcription pipeline tests
+│   ├── test_discussion_search.py      # Cross-source discussion search tests
+│   └── test_reprocess.py              # Reprocess workflow tests
+├── tracking/                          # Stage tracking module tests
+│   ├── test_ops.py                    # Unit tests for upsert_done/failed/skipped, retry_filter
+│   └── test_invariants.py             # Invariant tests: state machine queries, collector constraints
+├── utils/                             # Utility tests (mirrors src/aggre/utils/)
+│   ├── test_bronze.py                 # Bronze storage tests
+│   └── test_bronze_http.py            # Bronze HTTP fetching tests
+├── test_config.py                     # Config loading tests
+├── test_settings.py                   # Settings tests
 ├── test_urls.py                       # URL normalization tests (unit)
-├── test_content.py                    # Content fetcher tests (unit)
-├── test_hackernews.py                 # Hacker News collector tests (unit + integration)
-├── test_reddit.py                     # Reddit collector tests
-├── test_enrichment.py                 # Enrichment module tests
-├── test_acceptance_pipeline.py        # Full pipeline acceptance tests
+├── test_urls_hypothesis.py            # URL property-based tests (hypothesis)
+├── test_s3_integration.py             # S3 integration tests
+├── test_acceptance_pipeline.py        # Full pipeline acceptance tests (cross-workflow)
 ├── test_acceptance_cli.py             # CLI acceptance tests
 └── test_acceptance_content_linking.py # Content linking acceptance tests
 ```
@@ -191,13 +228,11 @@ class TestNormalizeUrl:
 
 3. **Database Seeders:** Insert test data using PostgreSQL INSERT helpers
    ```python
-   def _seed_content(engine, url: str, domain: str | None = None, fetch_status: str = "pending", raw_html: str | None = None):
+   def _seed_content(engine, url: str, domain: str | None = None):
        with engine.begin() as conn:
            stmt = pg_insert(SilverContent).values(
                canonical_url=url,
                domain=domain,
-               fetch_status=fetch_status,
-               raw_html=raw_html,
            )
            stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
            result = conn.execute(stmt)
@@ -206,13 +241,23 @@ class TestNormalizeUrl:
    (From `tests/test_content.py`)
 
 **Location:**
-- Helper functions defined in test modules themselves (NOT in fixtures)
-- Prefixed with `_` to indicate test-local scope: `_make_config()`, `_seed_content()`, `_mock_httpx_client()`
-- Shared fixtures (engine, clean_tables) in `tests/conftest.py`
+- **`tests/factories.py`** — centralized test data factories (replaces per-file `_make_*` helpers):
+  - DB seeders: `seed_content()`, `seed_discussion()`, `seed_source()`
+  - API response builders: `hn_hit()`, `hn_search_response()`, `reddit_post()`, `reddit_listing()`, `lobsters_story()`, `rss_entry()`, `rss_feed()`, `youtube_entry()`, `hf_paper()`, `telegram_message()`
+  - Config: `make_config()` — builds `AppConfig` with sensible defaults for any collector
+- **`tests/helpers.py`** — shared test utilities:
+  - `collect(collector, engine, config, settings)` — run collector end-to-end (collect_discussions + process_discussion)
+  - `get_discussions(engine, **filters)` — query SilverDiscussion rows with optional column filters
+  - `get_contents(engine, **filters)` — query SilverContent rows with optional column filters
+  - `get_sources(engine, **filters)` — query Source rows with optional column filters
+  - `assert_tracking(engine, source, external_id, stage, expected_status)` — assert a StageTracking row exists with expected status
+  - `assert_no_tracking(engine, source, external_id, stage)` — assert no StageTracking row exists
+- Module-local helpers prefixed with `_` for test-specific setup (e.g., `_insert_failed()` in tracking tests)
+- Shared fixtures (engine, clean_tables, mock_http) in `tests/conftest.py`
 
 ## Coverage
 
-**Requirements:** Not enforced in CI (no coverage threshold set)
+**Requirements:** 95% global threshold (`--cov-fail-under=95`) + 95% diff coverage (`make coverage-diff`).
 
 **View Coverage:**
 ```bash
@@ -222,9 +267,10 @@ pytest tests/ --cov=aggre --cov-report=term
 
 **Current Coverage Areas:**
 - Unit tests for URL normalization and extraction (`test_urls.py`)
-- Collector unit tests with mocked HTTP (`test_hackernews.py`, `test_reddit.py`, etc.)
-- Integration tests with real database
-- Acceptance/pipeline tests for full workflows
+- Collector integration tests with mocked HTTP (`tests/collectors/`)
+- Workflow integration tests (`tests/workflows/`)
+- Stage tracking tests (`tests/tracking/`)
+- Acceptance tests for cross-workflow flows (`test_acceptance_*.py`)
 
 ## Test Types
 
@@ -272,14 +318,14 @@ pytest tests/ --cov=aggre --cov-report=term
        mock_client = MagicMock()
        mock_client.get.side_effect = Exception("Connection refused")
 
-       with patch("aggre.content_fetcher.httpx.Client", return_value=mock_client):
+       with patch("aggre.dagster_defs.content.job.httpx.Client", return_value=mock_client):
            count = download_content(engine, config, log)
 
        assert count == 1
        with engine.connect() as conn:
            row = conn.execute(sa.select(SilverContent)).fetchone()
-           assert row.fetch_status == "failed"
-           assert "Connection refused" in row.fetch_error
+           assert row.error is not None
+           assert "Connection refused" in row.error
    ```
    (From `tests/test_content.py`)
 
@@ -294,7 +340,7 @@ with engine.connect() as conn:
     rows = conn.execute(sa.select(SilverDiscussion)).fetchall()
     assert len(rows) == 1
     assert rows[0].title == "Test Story"
-    assert rows[0].comments_status == "pending"
+    assert rows[0].comments_json is None  # needs comment fetching
 
     meta = json.loads(rows[0].meta)
     assert "hn_url" in meta
@@ -338,4 +384,4 @@ def clean_tables(engine):
 
 ---
 
-*Testing analysis: 2026-02-20*
+*Testing analysis: 2026-03-07*

@@ -1,21 +1,43 @@
-# One-shot local execution: start DB, migrate, run full pipeline, exit.
-# Usage: docker compose -f docker-compose.local.yml up --build
+# Local dev setup: Hatchet worker with autoreload on source changes.
+# Usage: make dev  (or: docker compose -f docker-compose.local.yml up --build --watch)
 #
-# Data persists in ./data/postgres/ between runs. Re-running skips
-# recently-fetched sources (--source-ttl) and already-processed content.
+# Hatchet UI at http://localhost:8888 (login: admin@example.com / Admin123!!)
+# Grafana   at http://localhost:3002 (anonymous access, no login)
+# Data persists in ./data/local/postgres/ between runs.
 
 x-app-env: &app-env
-  AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
+  AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
+  AGGRE_BROWSERLESS_URL: http://browserless:3000
+  AGGRE_WHISPER_SERVER_URL: http://host.docker.internal:8090
+  HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+  HATCHET_CLIENT_TLS_STRATEGY: none
+  HATCHET_CLIENT_HOST_PORT: hatchet-lite:7077
 
 services:
+  browserless:
+    image: ghcr.io/browserless/chromium
+    restart: unless-stopped
+    environment:
+      MAX_CONCURRENT_SESSIONS: 5
+      TIMEOUT: 60000
+      HEALTH: "true"
+      DEBUG: "browserless.io:*:info,browserless.io:*:warn,browserless.io:*:error"
+    ports:
+      - "3001:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/json/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: aggre
       POSTGRES_USER: aggre
       POSTGRES_PASSWORD: aggre
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ./data/local/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -24,11 +46,23 @@ services:
       timeout: 5s
       retries: 5
 
+  garage:
+    image: dxflrs/garage:v2.2.0
+    ports:
+      - "3900:3900"  # S3 API
+      - "3902:3902"  # Web
+      - "3903:3903"  # Admin
+    volumes:
+      - ./data/garage/meta:/var/lib/garage/meta
+      - ./data/garage/data:/var/lib/garage/data
+      - ./garage.local.toml:/etc/garage.toml:ro
+    restart: unless-stopped
+
   migrate:
     build: .
     command: uv run alembic upgrade head
     volumes:
-      - ./data/app:/app/data
+      - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
       <<: *app-env
@@ -39,18 +73,83 @@ services:
       postgres:
         condition: service_healthy
 
-  run-once:
-    build: .
-    # command: uv run aggre run-once --source-ttl 60 --skip-transcribe --enrich-batch 10000
-    command: uv run aggre run-once --source-ttl 60 --enrich-batch 10000
+  hatchet-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hatchet
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: hatchet
     volumes:
-      - ./data/app:/app/data
+      - ./data/local/hatchet-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  hatchet-lite:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    ports:
+      - "8888:8888"
+      - "7077:7077"
+    environment:
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
+      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
+      SERVER_GRPC_PORT: "7077"
+      SERVER_URL: http://localhost:8888
+      SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+      SEED_DEFAULT_ADMIN_EMAIL: "admin@example.com"
+      SEED_DEFAULT_ADMIN_PASSWORD: "Admin123!!"
+    volumes:
+      - ./data/local/hatchet-config:/config
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  hatchet-worker:
+    build: .
+    command: uv run python -m aggre.workflows
+    develop:
+      watch:
+        - action: sync
+          path: ./src/
+          target: /app/src/
+    volumes:
+      - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
     environment:
       <<: *app-env
     env_file:
       - path: .env
         required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      hatchet-lite:
+        condition: service_started
+      browserless:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana-oss:11.6.0
+    ports:
+      - "3002:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/pipeline-overview.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+

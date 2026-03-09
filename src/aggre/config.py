@@ -7,13 +7,13 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource  # noqa: F401
-from aggre.collectors.huggingface.config import HuggingfaceConfig, HuggingfaceSource  # noqa: F401
-from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource  # noqa: F401
-from aggre.collectors.reddit.config import RedditConfig, RedditSource  # noqa: F401
-from aggre.collectors.rss.config import RssConfig, RssSource  # noqa: F401
-from aggre.collectors.telegram.config import TelegramConfig, TelegramSource  # noqa: F401
-from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource  # noqa: F401
+from aggre.collectors.hackernews.config import HackernewsConfig
+from aggre.collectors.huggingface.config import HuggingfaceConfig
+from aggre.collectors.lobsters.config import LobstersConfig
+from aggre.collectors.reddit.config import RedditConfig
+from aggre.collectors.rss.config import RssConfig
+from aggre.collectors.telegram.config import TelegramConfig
+from aggre.collectors.youtube.config import YoutubeConfig
 from aggre.settings import Settings
 
 

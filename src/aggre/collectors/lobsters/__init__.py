@@ -1,3 +1,3 @@
-from aggre.collectors.lobsters.collector import LobstersCollector
+from __future__ import annotations
 
 __all__ = ["LobstersCollector"]

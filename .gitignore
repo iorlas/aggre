@@ -34,6 +34,7 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.xml
 *.cover
 
 # mypy
@@ -102,5 +103,19 @@ mlruns/
 chroma_db/
 tickets.jsonl
 .claude/settings.local.json
+.claude/mcp.json
 .langgraph_api
 data/
+.hypothesis/
+
+# Dagster backup
+.env.dagster
+
+# Temp directories
+.tmp_dagster_home_*/
+
+# TLA+ auto-generated and runtime artifacts
+.planning/verification/lib/
+.planning/verification/ConcurrentJobs.cfg
+.planning/verification/states/
+.planning/verification/*.old

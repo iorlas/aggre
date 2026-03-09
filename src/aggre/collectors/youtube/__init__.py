@@ -1,3 +1,3 @@
-from aggre.collectors.youtube.collector import YoutubeCollector
+from __future__ import annotations
 
 __all__ = ["YoutubeCollector"]

@@ -1,3 +1,3 @@
-from aggre.collectors.reddit.collector import RedditCollector
+from __future__ import annotations
 
 __all__ = ["RedditCollector"]

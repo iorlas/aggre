@@ -1,5 +1,7 @@
 """Collector registry."""
 
+from __future__ import annotations
+
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.huggingface.collector import HuggingfaceCollector
 from aggre.collectors.lobsters.collector import LobstersCollector

@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 import sqlalchemy as sa
-import structlog
 
-from aggre.collectors.base import BaseCollector
+from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.hackernews.config import HackernewsConfig
-from aggre.http import create_http_client
 from aggre.settings import Settings
-from aggre.statuses import CommentsStatus
 from aggre.urls import ensure_content
+from aggre.utils.bronze import write_bronze
+from aggre.utils.http import create_http_client
+
+logger = logging.getLogger(__name__)
 
 HN_ALGOLIA_BASE = "https://hn.algolia.com/api/v1"
 
@@ -26,55 +28,114 @@ class HackernewsCollector(BaseCollector):
 
     source_type = "hackernews"
 
-    def collect(self, engine: sa.engine.Engine, config: HackernewsConfig, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+    def collect_discussions(
+        self,
+        engine: sa.engine.Engine,
+        config: HackernewsConfig,
+        settings: Settings,
+    ) -> list[DiscussionRef]:
+        """Fetch HN front-page stories, write bronze, return references."""
         if not config.sources:
-            return 0
+            return []
 
-        total_new = 0
+        refs: list[DiscussionRef] = []
         rate_limit = settings.hn_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for hn_source in config.sources:
-                log.info("hackernews.collecting", name=hn_source.name)
+                logger.info("hackernews.collecting name=%s", hn_source.name)
                 source_id = self._ensure_source(engine, hn_source.name)
 
-                url = f"{HN_ALGOLIA_BASE}/search_by_date?tags=story,front_page&hitsPerPage={config.fetch_limit}"
                 time.sleep(rate_limit)
 
                 try:
-                    resp = client.get(url)
+                    resp = client.get(
+                        f"{HN_ALGOLIA_BASE}/search_by_date",
+                        params={
+                            "tags": "story,front_page",
+                            "hitsPerPage": config.fetch_limit,
+                        },
+                    )
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception:
-                    log.exception("hackernews.fetch_failed")
+                    logger.exception("hackernews.fetch_failed")
                     continue
 
                 hits = data.get("hits", [])
-                with engine.begin() as conn:
-                    for hit in hits:
-                        object_id = str(hit.get("objectID", ""))
-                        if not object_id:
-                            continue
+                for hit in hits:
+                    object_id = str(hit.get("objectID", ""))
+                    if not object_id:
+                        continue
 
-                        raw_id = self._store_raw_item(conn, object_id, hit)
-                        discussion_id = self._store_discussion(conn, source_id, raw_id, object_id, hit)
-                        if discussion_id is not None:
-                            total_new += 1
+                    self._write_bronze(object_id, hit)
+                    refs.append(
+                        DiscussionRef(
+                            external_id=object_id,
+                            raw_data=hit,
+                            source_id=source_id,
+                        )
+                    )
 
-                log.info("hackernews.discussions_stored", new=total_new, total_hits=len(hits))
+                logger.info("hackernews.discussions_collected count=%d", len(hits))
                 self._update_last_fetched(engine, source_id)
-        finally:
-            client.close()
 
-        return total_new
+        return refs
+
+    def process_discussion(
+        self,
+        ref_data: dict[str, object],
+        conn: sa.Connection,
+        source_id: int,
+    ) -> None:
+        """Normalize one HN hit into silver rows.
+
+        For stories with a URL: creates SilverContent via ensure_content, then upserts discussion.
+        For self-posts (Ask HN, Show HN without URL): creates SilverContent with text populated
+        immediately via _ensure_self_post_content, then upserts discussion.
+        """
+        hit = ref_data
+        ext_id = str(hit.get("objectID", ""))
+        if not ext_id:
+            return
+
+        hn_url = f"https://news.ycombinator.com/item?id={ext_id}"
+
+        if hit.get("url"):
+            # Normal story with external URL
+            story_url = hit["url"]
+            content_id = ensure_content(conn, str(story_url))
+        else:
+            # Self-post (Ask HN, Show HN, etc.) — text lives in story_text
+            story_url = hn_url
+            story_text = str(hit.get("story_text", ""))
+            content_id = self._ensure_self_post_content(conn, hn_url, story_text)
+
+        created_at_str = hit.get("created_at")
+        published_at = created_at_str if created_at_str else None
+
+        meta = json.dumps({"hn_url": hn_url})
+
+        values = dict(
+            source_id=source_id,
+            source_type="hackernews",
+            external_id=ext_id,
+            title=hit.get("title"),
+            author=hit.get("author"),
+            url=story_url,
+            published_at=published_at,
+            meta=meta,
+            content_id=content_id,
+            score=hit.get("points", 0),
+            comment_count=hit.get("num_comments", 0),
+        )
+        self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
     def collect_comments(
         self,
         engine: sa.engine.Engine,
         config: HackernewsConfig,
         settings: Settings,
-        log: structlog.stdlib.BoundLogger,
         batch_limit: int = 10,
     ) -> int:
         if batch_limit <= 0:
@@ -83,15 +144,14 @@ class HackernewsCollector(BaseCollector):
         rows = self._query_pending_comments(engine, batch_limit)
 
         if not rows:
-            log.info("hackernews.no_pending_comments")
+            logger.info("hackernews.no_pending_comments")
             return 0
 
-        log.info("hackernews.fetching_comments", pending=len(rows))
+        logger.info("hackernews.fetching_comments pending=%d", len(rows))
         rate_limit = settings.hn_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
         fetched = 0
 
-        try:
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             for row in rows:
                 discussion_id = row.id
                 ext_id = row.external_id
@@ -103,32 +163,63 @@ class HackernewsCollector(BaseCollector):
                     resp = client.get(url)
                     resp.raise_for_status()
                     data = resp.json()
+
+                    # Write raw API response to bronze before storing in silver
+                    write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+
+                    children = data.get("children", [])
+                    self._mark_comments_done(engine, discussion_id, ext_id, json.dumps(children), len(children))
+                    fetched += 1
                 except Exception:
-                    log.exception("hackernews.comments_fetch_failed", story_id=ext_id)
+                    logger.exception("hackernews.comments_fetch_failed story_id=%s", ext_id)
+                    self._mark_comments_failed(engine, ext_id, f"fetch_error:{ext_id}")
                     continue
 
-                children = data.get("children", [])
-                self._mark_comments_done(engine, discussion_id, json.dumps(children), len(children))
-                fetched += 1
-
-            log.info("hackernews.comments_fetched", fetched=fetched, total_pending=len(rows))
-        finally:
-            client.close()
+            logger.info("hackernews.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
 
         return fetched
 
+    def fetch_discussion_comments(
+        self,
+        engine: sa.engine.Engine,
+        discussion_id: int,
+        external_id: str,
+        meta_json: str | None,
+        settings: Settings,
+    ) -> None:
+        """Fetch and store comments for a single discussion."""
+        rate_limit = settings.hn_rate_limit
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+            time.sleep(rate_limit)
+            url = f"{HN_ALGOLIA_BASE}/items/{external_id}"
+            resp = client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+            children = data.get("children", [])
+            self._mark_comments_done(engine, discussion_id, external_id, json.dumps(children), len(children))
+
     def search_by_url(
-        self, url: str, engine: sa.engine.Engine, config: HackernewsConfig, settings: Settings, log: structlog.stdlib.BoundLogger,
+        self,
+        url: str,
+        engine: sa.engine.Engine,
+        config: HackernewsConfig,
+        settings: Settings,
     ) -> int:
         rate_limit = settings.hn_rate_limit
-        client = create_http_client(proxy_url=settings.proxy_url or None)
         new_count = 0
 
-        try:
-            search_url = f"{HN_ALGOLIA_BASE}/search?query={url}&tags=story&restrictSearchableAttributes=url"
+        with create_http_client(proxy_url=settings.proxy_url or None) as client:
             time.sleep(rate_limit)
 
-            resp = client.get(search_url)
+            resp = client.get(
+                f"{HN_ALGOLIA_BASE}/search",
+                params={
+                    "query": url,
+                    "tags": "story",
+                    "restrictSearchableAttributes": "url",
+                },
+            )
             if resp.status_code == 404:
                 return 0
             resp.raise_for_status()
@@ -143,43 +234,8 @@ class HackernewsCollector(BaseCollector):
                     if not object_id:
                         continue
 
-                    raw_id = self._store_raw_item(conn, object_id, hit)
-                    discussion_id = self._store_discussion(conn, source_id, raw_id, object_id, hit)
-                    if discussion_id is not None:
-                        new_count += 1
-        finally:
-            client.close()
+                    self._write_bronze(object_id, hit)
+                    self.process_discussion(hit, conn, source_id)
+                    new_count += 1
 
         return new_count
-
-    def _store_discussion(
-        self, conn: sa.Connection, source_id: int, raw_id: int | None, ext_id: str, hit: dict,
-    ) -> int | None:
-        story_url = hit.get("url") or f"https://news.ycombinator.com/item?id={ext_id}"
-        hn_url = f"https://news.ycombinator.com/item?id={ext_id}"
-
-        content_id = None
-        if hit.get("url"):
-            content_id = ensure_content(conn, hit["url"])
-
-        created_at_str = hit.get("created_at")
-        published_at = created_at_str if created_at_str else None
-
-        meta = json.dumps({"hn_url": hn_url})
-
-        values = dict(
-            source_id=source_id,
-            bronze_discussion_id=raw_id,
-            source_type="hackernews",
-            external_id=ext_id,
-            title=hit.get("title"),
-            author=hit.get("author"),
-            url=story_url,
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-            comments_status=CommentsStatus.PENDING,
-            score=hit.get("points", 0),
-            comment_count=hit.get("num_comments", 0),
-        )
-        return self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

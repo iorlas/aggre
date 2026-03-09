@@ -1,0 +1,135 @@
+# Remote data layer: Hatchet worker with autoreload connecting to remote PG + S3 via Tailscale.
+# Requires: Tailscale connected to aggre-shen
+# Usage: make dev-remote
+#
+# Hatchet UI at http://localhost:8888
+# Grafana   at http://localhost:3002 (anonymous access, no login)
+#
+# Docker Desktop on macOS runs containers in a Linux VM that can't resolve
+# Tailscale MagicDNS names. extra_hosts maps aggre-shen to its Tailscale IP,
+# resolved dynamically by the Makefile target.
+
+services:
+  browserless:
+    image: ghcr.io/browserless/chromium
+    restart: unless-stopped
+    environment:
+      MAX_CONCURRENT_SESSIONS: 5
+      TIMEOUT: 60000
+      HEALTH: "true"
+      DEBUG: "browserless.io:*:info,browserless.io:*:warn,browserless.io:*:error"
+    ports:
+      - "3001:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/json/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  migrate:
+    build: .
+    command: uv run alembic upgrade head
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      AGGRE_BROWSERLESS_URL: http://browserless:3000
+    env_file:
+      - path: .env
+        required: true
+    extra_hosts:
+      - "aggre-shen:${TAILSCALE_REMOTE_IP}"
+    depends_on:
+      browserless:
+        condition: service_healthy
+
+  hatchet-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hatchet
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: hatchet
+    volumes:
+      - ./data/remote/hatchet-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  hatchet-lite:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    ports:
+      - "8888:8888"
+      - "7077:7077"
+    environment:
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
+      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
+      SERVER_GRPC_PORT: "7077"
+      SERVER_URL: http://localhost:8888
+      SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+    volumes:
+      - ./data/remote/hatchet-config:/config
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  hatchet-worker:
+    build: .
+    command: uv run python -m aggre.workflows
+    develop:
+      watch:
+        - action: sync
+          path: ./src/
+          target: /app/src/
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    tmpfs:
+      - /app/data/tmp:size=8G
+    environment:
+      AGGRE_BROWSERLESS_URL: http://browserless:3000
+      AGGRE_WHISPER_SERVER_URL: http://host.docker.internal:8090
+      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+      HATCHET_CLIENT_TLS_STRATEGY: none
+      HATCHET_CLIENT_HOST_PORT: hatchet-lite:7077
+      HATCHET_CLIENT_SERVER_URL: http://hatchet-lite:8888
+    env_file:
+      - path: .env
+        required: true
+    extra_hosts:
+      - "aggre-shen:${TAILSCALE_REMOTE_IP}"
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      hatchet-lite:
+        condition: service_started
+      browserless:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana-oss:11.6.0
+    ports:
+      - "3002:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/pipeline-overview.json
+    env_file:
+      - path: .env
+        required: true
+    extra_hosts:
+      - "aggre-shen:${TAILSCALE_REMOTE_IP}"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      # Override local datasource with remote config
+      - ./grafana/datasources-remote.yml:/etc/grafana/provisioning/datasources/postgres.yml:ro
+

@@ -1,5 +1,7 @@
 x-app-env: &app-env
-  AGGRE_DATABASE_URL: postgresql+psycopg2://aggre:aggre@postgres/aggre
+  AGGRE_DATABASE_URL: postgresql+psycopg://aggre:aggre@postgres/aggre
+  HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+  HATCHET_CLIENT_TLS_STRATEGY: none
 
 services:
   postgres:
@@ -33,73 +35,9 @@ services:
       postgres:
         condition: service_healthy
 
-  collect:
+  hatchet-worker:
     build: .
-    command: uv run aggre collect --loop --interval 3600
-    volumes:
-      - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  download:
-    build: .
-    command: uv run aggre download --loop --interval 10
-    volumes:
-      - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  extract-html-text:
-    build: .
-    command: uv run aggre extract-html-text --loop --interval 10
-    volumes:
-      - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  enrich-content-discussions:
-    build: .
-    command: uv run aggre enrich-content-discussions --loop --interval 60
-    volumes:
-      - ./data/app:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    environment:
-      <<: *app-env
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  transcribe:
-    build: .
-    command: uv run aggre transcribe --loop --interval 10
+    command: uv run python -m aggre.workflows
     volumes:
       - ./data/app:/app/data
       - ./config.yaml:/app/config.yaml:ro

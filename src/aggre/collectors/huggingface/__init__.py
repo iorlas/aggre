@@ -1,3 +1,3 @@
-from aggre.collectors.huggingface.collector import HuggingfaceCollector
+from __future__ import annotations
 
 __all__ = ["HuggingfaceCollector"]

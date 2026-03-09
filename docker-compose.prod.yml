@@ -1,102 +1,55 @@
+# AGGRE data services — managed by Dokploy
+# PostgreSQL + Garage accessible via Tailscale (aggre-shen)
+# NOTE: In Dokploy (sourceType: raw), garage.toml bind mount uses absolute path
+# /etc/dokploy/compose/<appName>/garage.toml since code/ dir is wiped on deploy
 services:
-  postgres:
-    image: postgres:16-alpine
+  tailscale:
+    image: tailscale/tailscale:latest
     environment:
-      POSTGRES_DB: aggre
-      POSTGRES_USER: aggre
-      POSTGRES_PASSWORD: aggre
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_HOSTNAME: aggre-shen
+      TS_STATE_DIR: /var/lib/tailscale
+    cap_add: [NET_ADMIN, NET_RAW]
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ts-state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      - dokploy-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    network_mode: service:tailscale
+    depends_on: [tailscale]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aggre}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-aggre}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aggre"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
 
-  migrate:
-    image: ghcr.io/iorlas/aggre:latest
-    command: uv run alembic upgrade head
+  garage:
+    image: dxflrs/garage:v2.2.0
+    network_mode: service:tailscale
+    depends_on: [tailscale]
     volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    env_file:
-      - path: .env
-        required: false
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  collect:
-    image: ghcr.io/iorlas/aggre:latest
-    command: uv run aggre collect --loop --interval 3600
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    env_file:
-      - path: .env
-        required: false
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+      - ./deploy/garage.toml:/etc/garage.toml:ro
     restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
 
-  download:
-    image: ghcr.io/iorlas/aggre:latest
-    command: uv run aggre download --loop --interval 10
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
+volumes:
+  ts-state:
+  postgres-data:
+  garage-meta:
+  garage-data:
 
-  extract-html-text:
-    image: ghcr.io/iorlas/aggre:latest
-    command: uv run aggre extract-html-text --loop --interval 10
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  enrich-content-discussions:
-    image: ghcr.io/iorlas/aggre:latest
-    command: uv run aggre enrich-content-discussions --loop --interval 60
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  transcribe:
-    image: ghcr.io/iorlas/aggre:latest
-    command: uv run aggre transcribe --loop --interval 10
-    volumes:
-      - ./data:/app/data
-      - ./config.yaml:/app/config.yaml:ro
-    env_file:
-      - path: .env
-        required: false
-    restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  tor-proxy:
-    image: peterdavehello/tor-socks-proxy:latest
-    restart: unless-stopped
+networks:
+  dokploy-network:
+    external: true

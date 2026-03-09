@@ -5,61 +5,58 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Protocol, TypedDict
 
 import sqlalchemy as sa
-import structlog
+from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from aggre.db import BronzeDiscussion, SilverDiscussion, Source, now_iso
+from aggre.db import SilverContent, SilverDiscussion, Source
 from aggre.settings import Settings
-from aggre.statuses import CommentsStatus
+from aggre.tracking.model import StageTracking
+from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
+from aggre.tracking.status import Stage
+from aggre.urls import normalize_url
+from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
+from aggre.utils.db import now_iso
+from aggre.utils.urls import extract_domain
 
 
-def all_sources_recent(engine: sa.engine.Engine, source_type: str, ttl_minutes: int) -> bool:
-    """Check if ALL sources of a given type were fetched within a TTL.
+class DiscussionRef(TypedDict):
+    """A reference to a discussion from a collector feed."""
 
-    Returns False if there are no sources (first run) or any source is stale/never-fetched.
-    Returns True only when every source of *source_type* has been fetched within *ttl_minutes*.
-    """
-    cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
-
-    with engine.connect() as conn:
-        total = conn.execute(
-            sa.select(sa.func.count()).select_from(Source).where(Source.type == source_type)
-        ).scalar()
-
-        if total == 0:
-            return False
-
-        stale = conn.execute(
-            sa.select(sa.func.count())
-            .select_from(Source)
-            .where(
-                Source.type == source_type,
-                sa.or_(
-                    Source.last_fetched_at.is_(None),
-                    Source.last_fetched_at < cutoff,
-                ),
-            )
-        ).scalar()
-
-        return stale == 0
+    external_id: str
+    raw_data: dict[str, object]
+    source_id: int
 
 
 class Collector(Protocol):
     """Protocol that all collectors must implement."""
 
-    def collect(self, engine: sa.engine.Engine, config: Any, settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
-        """Fetch new items from the source. Returns count of new items stored."""
+    source_type: str
+
+    def collect_discussions(self, engine: sa.engine.Engine, config: BaseModel, settings: Settings) -> list[DiscussionRef]:
+        """Fetch feed, write each item to bronze, return discussion refs.
+
+        Handles source management (ensure_source, TTL, fetch limits).
+        Writes raw data to bronze. Returns refs with source_ids for process_discussion.
+        """
+        ...
+
+    def process_discussion(self, ref_data: dict[str, object], conn: sa.Connection, source_id: int) -> None:
+        """Normalize one bronze ref into silver rows.
+
+        Calls ensure_content() + _upsert_discussion().
+        For self-posts: also populates SilverContent.text directly.
+        """
         ...
 
 
 class SearchableCollector(Collector, Protocol):
     """Collector that supports searching for discussions by URL."""
 
-    def search_by_url(self, url: str, engine: sa.engine.Engine, config: Any,
-                      settings: Settings, log: structlog.stdlib.BoundLogger) -> int:
+    def search_by_url(self, url: str, engine: sa.engine.Engine, config: BaseModel, settings: Settings) -> int:
         """Search for discussions about a URL. Returns count of new items stored."""
         ...
 
@@ -69,47 +66,29 @@ class BaseCollector:
 
     source_type: str
 
-    def _ensure_source(self, engine: sa.engine.Engine, name: str, source_config: dict[str, Any] | None = None) -> int:
+    def _ensure_source(self, engine: sa.engine.Engine, name: str, source_config: dict[str, object] | None = None) -> int:
         """Find or create a Source row. Returns source_id."""
         with engine.begin() as conn:
-            row = conn.execute(
-                sa.select(Source.id).where(Source.type == self.source_type, Source.name == name)
-            ).first()
+            row = conn.execute(sa.select(Source.id).where(Source.type == self.source_type, Source.name == name)).first()
             if row:
                 return row[0]
             cfg = json.dumps(source_config or {"name": name})
-            result = conn.execute(
-                sa.insert(Source).values(type=self.source_type, name=name, config=cfg)
-            )
+            result = conn.execute(sa.insert(Source).values(type=self.source_type, name=name, config=cfg))
             return result.inserted_primary_key[0]
 
-    def _store_raw_item(self, conn: sa.Connection, ext_id: str, raw_data: Any) -> int | None:
-        """Insert a BronzeDiscussion. Returns id if new, None if duplicate."""
-        stmt = pg_insert(BronzeDiscussion).values(
-            source_type=self.source_type,
-            external_id=ext_id,
-            raw_data=json.dumps(raw_data) if not isinstance(raw_data, str) else raw_data,
-        )
-        stmt = stmt.on_conflict_do_nothing(index_elements=["source_type", "external_id"])
-        result = conn.execute(stmt)
-        if result.rowcount == 0:
-            return None
-        return result.inserted_primary_key[0]
+    def _write_bronze(self, external_id: str, raw_data: object, *, bronze_root: Path = DEFAULT_BRONZE_ROOT) -> Path:
+        """Write raw item data to bronze filesystem."""
+        return write_bronze_json(self.source_type, external_id, raw_data, bronze_root=bronze_root)
 
     def _update_last_fetched(self, engine: sa.engine.Engine, source_id: int) -> None:
         """Update the last_fetched_at timestamp on a Source."""
         with engine.begin() as conn:
-            conn.execute(
-                sa.update(Source).where(Source.id == source_id)
-                .values(last_fetched_at=now_iso())
-            )
+            conn.execute(sa.update(Source).where(Source.id == source_id).values(last_fetched_at=now_iso()))
 
     def _is_initialized(self, engine: sa.engine.Engine, source_id: int) -> bool:
         """True if source has been fetched at least once."""
         with engine.connect() as conn:
-            last = conn.execute(
-                sa.select(Source.last_fetched_at).where(Source.id == source_id)
-            ).scalar()
+            last = conn.execute(sa.select(Source.last_fetched_at).where(Source.id == source_id)).scalar()
         return last is not None
 
     def _get_fetch_limit(self, engine: sa.engine.Engine, source_id: int, init_limit: int, normal_limit: int) -> int:
@@ -125,45 +104,68 @@ class BaseCollector:
             return False
         cutoff = (datetime.now(UTC) - timedelta(minutes=ttl_minutes)).isoformat()
         with engine.connect() as conn:
-            last = conn.execute(
-                sa.select(Source.last_fetched_at).where(Source.id == source_id)
-            ).scalar()
-        if last is None:
+            last = conn.execute(sa.select(Source.last_fetched_at).where(Source.id == source_id)).scalar()
+        if last is None:  # pragma: no cover — source never fetched
             return False
         return last >= cutoff
 
-    def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int):
+    def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int) -> list[sa.Row]:
         """Return discussions with pending comments for this source_type."""
         with engine.connect() as conn:
             return conn.execute(
                 sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
+                .outerjoin(
+                    StageTracking,
+                    sa.and_(
+                        StageTracking.source == self.source_type,
+                        StageTracking.external_id == SilverDiscussion.external_id,
+                        StageTracking.stage == Stage.COMMENTS,
+                    ),
+                )
                 .where(
                     SilverDiscussion.source_type == self.source_type,
-                    SilverDiscussion.comments_status == CommentsStatus.PENDING,
+                    SilverDiscussion.comments_json.is_(None),
+                    sa.or_(
+                        StageTracking.id.is_(None),
+                        retry_filter(StageTracking, Stage.COMMENTS),
+                    ),
                 )
                 .limit(batch_limit)
             ).fetchall()
 
     def _mark_comments_done(
-        self, engine: sa.engine.Engine, discussion_id: int,
-        comments_json: str | None, comment_count: int,
+        self,
+        engine: sa.engine.Engine,
+        discussion_id: int,
+        external_id: str,
+        comments_json: str | None,
+        comment_count: int,
     ) -> None:
-        """PENDING → DONE. Stores fetched comments."""
+        """Store fetched comments on a discussion and record tracking."""
         with engine.begin() as conn:
             conn.execute(
                 sa.update(SilverDiscussion)
                 .where(SilverDiscussion.id == discussion_id)
                 .values(
-                    comments_status=CommentsStatus.DONE,
                     comments_json=comments_json,
                     comment_count=comment_count,
                 )
             )
+        upsert_done(engine, self.source_type, external_id, Stage.COMMENTS)
+
+    def _mark_comments_failed(
+        self,
+        engine: sa.engine.Engine,
+        external_id: str,
+        error: str,
+    ) -> None:
+        """Record comments fetch failure in tracking."""
+        upsert_failed(engine, self.source_type, external_id, Stage.COMMENTS, error)
 
     @staticmethod
     def _upsert_discussion(
         conn: sa.Connection,
-        values: dict[str, Any],
+        values: dict[str, object],
         update_columns: Sequence[str] | None = None,
     ) -> int | None:
         """Insert or update a SilverDiscussion. Returns id if new, None if existing."""
@@ -194,3 +196,34 @@ class BaseCollector:
                 SilverDiscussion.external_id == values["external_id"],
             )
         ).scalar()
+
+    @staticmethod
+    def _ensure_self_post_content(conn: sa.Connection, discussion_url: str, text: str) -> int | None:
+        """Create a SilverContent row for a self-post with text populated immediately.
+
+        The content pipeline will skip this row because text is already set (null-check pattern).
+        Returns the content_id, or None if text is empty.
+        """
+        if not text:
+            return None
+
+        canonical = normalize_url(discussion_url)
+        if not canonical:  # pragma: no cover — malformed URL
+            return None
+
+        row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
+        if row:
+            return row[0]
+
+        domain = extract_domain(canonical)
+        stmt = pg_insert(SilverContent).values(
+            canonical_url=canonical,
+            domain=domain,
+            text=text,
+        )
+        stmt = stmt.on_conflict_do_nothing(index_elements=["canonical_url"])
+        result = conn.execute(stmt)
+        if result.rowcount == 0:  # pragma: no cover — race condition: concurrent insert
+            row = conn.execute(sa.select(SilverContent.id).where(SilverContent.canonical_url == canonical)).first()
+            return row[0] if row else None
+        return result.inserted_primary_key[0]

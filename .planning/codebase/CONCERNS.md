@@ -35,7 +35,7 @@
 - Fix approach: Use PostgreSQL RETURNING clause with INSERT...ON CONFLICT directly; simplify by always returning the ID; profile query performance
 
 **Transcription Status Spread Across Two Tables:**
-- Issue: Transcription status and error live on `SilverContent` (lines 58-60 in `db.py`), but the transcriber joins `SilverDiscussion` to find what to transcribe. This creates a split concern: the content owns the state, but discussions own the reference.
+- Issue: Transcription status and error live on `SilverContent` (lines 58-60 in `db.py`), but the transcriber joins `SilverDiscussion` to find what to transcribe. This creates a split concern: the content owns the state, but discussions own the link.
 - Files: `src/aggre/db.py:57-60`, `src/aggre/transcriber.py:61-74`, `src/aggre/collectors/youtube.py:84-90`
 - Impact: Status updates require updates to SilverContent while querying SilverDiscussion; if a content is linked to multiple discussions (cross-source), status visibility is ambiguous; risk of transcription status inconsistency
 - Fix approach: Clarify whether transcription is per-discussion or per-content; if per-content, move filtering logic to identify unique content_ids; add test for multi-discussion scenarios
@@ -63,14 +63,14 @@
 **YouTube Comments Collection Not Implemented:**
 - Symptoms: The CLI has `--comment-batch` option and there's logic to skip YouTube in `collect_comments()` flow, but YouTube never appears in the comment-collection loop (only reddit, hackernews, lobsters at lines 83-91 in `cli.py`)
 - Files: `src/aggre/cli.py:83-91`
-- Trigger: Run `aggre collect --comment-batch=50`; YouTube discussions with `comments_status=PENDING` are never processed
-- Workaround: Currently must manually update YouTube discussion comments_status to DONE or leave as NULL
+- Trigger: Run `aggre collect --comment-batch=50`; YouTube discussions with `comments_json IS NULL` are never processed
+- Workaround: Currently must manually set YouTube discussion comments_json or error to skip them
 
 **Transcriber Only Processes YouTube via JOIN:**
 - Symptoms: Only YouTube videos can be transcribed because the transcriber queries `SilverDiscussion` with source_type filter. If another source (RSS, HN) links to video content, that content is never transcribed.
-- Files: `src/aggre/transcriber.py:71-74`
+- Files: `src/aggre/dagster_defs/transcription/job.py`
 - Trigger: Add RSS feed with video links; fetch content; run transcriber; videos won't be transcribed
-- Workaround: Manually set `transcription_status='pending'` on SilverContent; manually run transcriber against those IDs (not currently possible without code change)
+- Workaround: Transcription sensor now checks `domain = 'youtube.com'` + null-check pattern (`text IS NULL AND error IS NULL`); non-YouTube video content needs manual intervention
 
 **Domain Extraction Doesn't Handle Subdomains Consistently:**
 - Symptoms: `extract_domain()` removes www. prefix but doesn't normalize other subdomains. Calls to `extract_domain()` in content fetcher may store "api.example.com" vs "example.com" inconsistently.
@@ -86,11 +86,10 @@
 - Current mitigation: Assumes proxy_url is set by administrator in .env; runtime errors would fail the collection cycle
 - Recommendations: Validate proxy URL format on config load (check for valid scheme, host); add proxy connection test on startup; sanitize proxy URLs in error logs
 
-**Raw HTML Storage Without Sanitization:**
-- Risk: Downloaded HTML is stored as-is in raw_html column without any sanitization. If this data is later displayed or processed without escaping, it could be a vector for injection or XSS if exposed via API.
-- Files: `src/aggre/content_fetcher.py:70`, `src/aggre/db.py:52`
-- Current mitigation: raw_html is extracted into body_text by trafilatura (which strips HTML); raw_html field is not currently exposed
-- Recommendations: Document that raw_html must never be returned via API; add runtime assertion if API is added; consider not storing raw_html at all (only body_text)
+**Raw HTML Storage:**
+- Raw HTML is stored in bronze filesystem (`data/bronze/content/{url_hash}/response.html`), not in PostgreSQL.
+- Risk is mitigated: HTML is extracted into `text` by trafilatura (which strips HTML). Raw HTML stays in bronze (immutable filesystem layer), never served directly.
+- Files: `src/aggre/dagster_defs/webpage/job.py`, `src/aggre/utils/bronze.py`
 
 **JSON Parsing Without Size Limits:**
 - Risk: Comments are stored as raw JSON strings. If a discussion has thousands of comments, the JSON could be very large and cause memory pressure during parsing.
@@ -130,11 +129,10 @@
 - Cause: No caching; source_id needed immediately for discussion inserts
 - Improvement path: Pre-load sources at app startup; cache source_id by (type, name); invalidate on config changes
 
-**JOIN Between SilverContent and SilverDiscussion in Transcriber:**
-- Problem: The transcriber JOINs SilverContent to SilverDiscussion to find pending videos. If there are 100k discussions but only 10k YouTube ones, the JOIN still scans both tables.
-- Files: `src/aggre/transcriber.py:61-74`
-- Cause: No index on (source_type, transcription_status) to efficiently filter
-- Improvement path: Add composite index; consider denormalization if needed; or query SilverContent with status=PENDING first, then check for associated discussions
+**Transcription Discovery via Domain Check:**
+- Problem: Transcription sensor finds pending videos by checking `domain = 'youtube.com'` on SilverContent with null-check pattern (`text IS NULL AND error IS NULL`). Non-YouTube video content from other sources is missed.
+- Files: `src/aggre/dagster_defs/transcription/sensor.py`, `src/aggre/dagster_defs/transcription/job.py`
+- Improvement path: Add a `content_type` column or use domain-based routing table instead of hardcoding `youtube.com`
 
 ## Fragile Areas
 
@@ -204,14 +202,14 @@
 
 **trafilatura Extraction Fragility:**
 - Risk: Web page structures change; trafilatura heuristics may not work on custom layouts. Content extraction could silently return empty or truncated text.
-- Impact: body_text is empty for many articles; users see no content; no signal that extraction failed vs page had no content
-- Files: `src/aggre/content_fetcher.py:152`
+- Impact: `text` is empty for many articles; users see no content; no signal that extraction failed vs page had no content
+- Files: `src/aggre/dagster_defs/webpage/job.py`
 - Migration plan: Add fallback extraction method (readability, newspaper3k); validate extraction quality (e.g., min word count); log extraction length for monitoring
 
 **faster-whisper Dependency on FFmpeg:**
 - Risk: faster-whisper requires FFmpeg for audio processing. If FFmpeg is not installed or wrong version, transcription fails.
 - Impact: Transcription fails with unhelpful error; no fallback to other transcription services
-- Files: `src/aggre/transcriber.py:10`, `src/aggre/transcriber.py:106-110`
+- Files: `src/aggre/dagster_defs/transcription/job.py`
 - Migration plan: Add FFmpeg version check on startup; provide docker image with FFmpeg pre-installed; implement fallback to cloud transcription API (AWS Transcribe, GCP Speech)
 
 **Tenacity Retry Configuration for Rate Limiting:**
@@ -238,14 +236,14 @@
 - Fix: Add webhook listener for Reddit/HN API changes; implement message queue (SQS, Kafka) for event-driven enrichment
 
 **No Content Quality Assessment:**
-- Problem: No way to know if extracted content is useful. Some articles return empty body_text; some are paywalled; some are auto-generated spam.
+- Problem: No way to know if extracted content is useful. Some articles return empty `text`; some are paywalled; some are auto-generated spam.
 - Blocks: Preventing low-quality content from inflating database; prioritizing extraction for good content
 - Fix: Add content quality score (based on word count, language model, domain reputation); implement content deduplication
 
 **No Duplicate Content Detection:**
 - Problem: Same article published by multiple users or in multiple sources is stored as separate SilverContent rows.
 - Blocks: Unified view of content; accurate discussion aggregation per unique article
-- Fix: Implement content hashing (MD5 of body_text); add similarity detection for near-duplicates; consolidate duplicate content rows
+- Fix: Implement content hashing (MD5 of `text`); add similarity detection for near-duplicates; consolidate duplicate content rows
 
 ## Test Coverage Gaps
 

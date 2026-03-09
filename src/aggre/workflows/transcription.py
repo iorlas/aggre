@@ -12,7 +12,7 @@ from pathlib import Path
 
 import sqlalchemy as sa
 import yt_dlp
-from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
+from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, DefaultFilter
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion, update_content
@@ -39,15 +39,9 @@ def _transcribe_one(
     audio_dest = None
 
     try:
-        # Skip videos longer than 30 minutes
-        meta = json.loads(item.meta) if item.meta else {}
-        duration = meta.get("duration")
-        if duration is not None and duration > 1800:
-            duration_min = duration / 60
-            logger.info("transcription.skipped_long external_id=%s duration_min=%.0f", external_id, duration_min)
-            return "skipped_long"
-
-        logger.info("transcription.transcribing external_id=%s title=%s", external_id, item.title)
+        duration_meta = json.loads(item.meta).get("duration") if item.meta else None
+        duration_str = f" duration={duration_meta // 60}m{duration_meta % 60}s" if duration_meta else ""
+        logger.info("transcription.transcribing external_id=%s%s title=%s", external_id, duration_str, item.title)
 
         # Cache check: if whisper.json exists in bronze, skip transcription
         cached_whisper = read_bronze_or_none("youtube", external_id, "whisper", "json")
@@ -202,16 +196,15 @@ def register(h):  # pragma: no cover — Hatchet wiring
         on_events=["item.new"],
         concurrency=ConcurrencyExpression(
             expression="'youtube'",
-            max_runs=1,
+            max_runs=3,
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,
+        default_filters=[DefaultFilter(expression="input.source == 'youtube'", scope="default")],
     )
 
     @wf.task(execution_timeout="30m")
     def transcribe_task(input: ItemEvent, ctx):
-        if input.source != "youtube":
-            return {"status": "skipped"}
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         status = transcribe_one(engine, cfg, input.content_id)

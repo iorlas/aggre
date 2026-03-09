@@ -110,8 +110,8 @@ class S3Store:
             aws_secret_access_key=secret_key,
             region_name=region,
             config=Config(
-                connect_timeout=5,
-                read_timeout=30,
+                connect_timeout=10,
+                read_timeout=300,
                 retries={"max_attempts": 3, "mode": "adaptive"},
                 max_pool_connections=20,
             ),

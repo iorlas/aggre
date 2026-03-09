@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from hatchet_sdk.clients.events import PushEventOptions
 
 from aggre.workflows.collection import collect_source
 from tests.factories import make_config
@@ -130,6 +131,7 @@ class TestEventEmission:
                 "source": "hackernews",
                 "domain": "example.com",
             },
+            options=PushEventOptions(scope="default"),
         )
 
     def test_no_event_without_hatchet(self) -> None:

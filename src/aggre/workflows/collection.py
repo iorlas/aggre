@@ -6,6 +6,7 @@ import logging
 
 import sqlalchemy as sa
 from hatchet_sdk import Hatchet
+from hatchet_sdk.clients.events import PushEventOptions
 
 from aggre.collectors.arxiv.collector import ArxivCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
@@ -18,6 +19,7 @@ from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.utils.db import get_engine
+from aggre.workflows.models import ItemEvent
 from aggre.workflows.models import CollectResult
 
 logger = logging.getLogger(__name__)
@@ -82,15 +84,13 @@ def _emit_item_event(
             ).first()
 
         if disc and disc.content_id:
-            hatchet.event.push(
-                "item.new",
-                {
-                    "content_id": disc.content_id,
-                    "discussion_id": disc.id,
-                    "source": source_name,
-                    "domain": disc.domain,
-                },
+            event = ItemEvent(
+                content_id=disc.content_id,
+                discussion_id=disc.id,
+                source=source_name,
+                domain=disc.domain,
             )
+            hatchet.event.push("item.new", event.model_dump(), options=PushEventOptions(scope="default"))
     except Exception:
         logger.exception("collect.event_emit_error source=%s external_id=%s", source_name, ref["external_id"])
 

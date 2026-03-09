@@ -7,12 +7,13 @@ Hatchet manages concurrency (max 1 per domain) and retry.
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import logging
 
 import httpx
 import sqlalchemy as sa
 import trafilatura
-from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
+from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, DefaultFilter
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, update_content
@@ -26,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com", "v.redd.it", "i.redd.it"})
 SKIP_EXTENSIONS = (".pdf",)
+
+_webpage_filter_expr = "!(" + "input.domain in [" + ", ".join(f"'{d}'" for d in sorted(SKIP_DOMAINS)) + "])"
 
 TEXT_CONTENT_TYPES = frozenset(
     {
@@ -116,36 +119,46 @@ def _download_one(
     return "downloaded"
 
 
-_BQL_FETCH = """\
-mutation FetchPage($url: String!) {
-  reject(type: [image, font, media, stylesheet]) {
-    enabled
+_BROWSERLESS_FN = """export default async function ({ page }) {
+  await page.setRequestInterception(true);
+  page.on("request", (r) => {
+    const t = r.resourceType();
+    if (["image", "font", "media", "stylesheet"].includes(t)) r.abort();
+    else r.continue();
+  });
+  try {
+    const resp = await page.goto(URL, { waitUntil: "networkidle2" });
+    return { data: { status: resp.status(), html: await page.content() } };
+  } catch (e) {
+    return { data: { status: 0, html: "", error: e.message } };
   }
-  goto(url: $url, waitUntil: networkIdle) {
-    status
-  }
-  html {
-    html
-  }
-}
-"""
+}"""
 
 
 def _fetch_via_browserless(client: httpx.Client, browserless_url: str, fetch_url: str) -> str:
-    """Render a page via Browserless BrowserQL and return HTML.
+    """Render a page via Browserless /chromium/function and return HTML.
 
     Raises httpx.HTTPStatusError if the target page returns HTTP >= 400.
     """
+    code = _BROWSERLESS_FN.replace("URL", json.dumps(fetch_url))
     resp = client.post(
-        f"{browserless_url}/chromium/bql",
-        json={"query": _BQL_FETCH, "variables": {"url": fetch_url}},
+        f"{browserless_url}/chromium/function",
+        json={"code": code},
         timeout=60.0,
     )
     resp.raise_for_status()  # Browserless service error
 
     data = resp.json()["data"]
-    target_status = data["goto"]["status"]
-    html = data["html"]["html"]
+
+    if data.get("error"):
+        raise httpx.HTTPStatusError(
+            f"Navigation failed: {data['error']}",
+            request=httpx.Request("POST", fetch_url),
+            response=httpx.Response(0, text=data["error"]),
+        )
+
+    target_status = data["status"]
+    html = data["html"]
 
     if target_status >= 400:
         raise httpx.HTTPStatusError(
@@ -266,12 +279,11 @@ def register(h):  # pragma: no cover — Hatchet wiring
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,
+        default_filters=[DefaultFilter(expression=_webpage_filter_expr, scope="default")],
     )
 
     @wf.task(execution_timeout="5m")
     def download_task(input: ItemEvent, ctx):
-        if input.domain in SKIP_DOMAINS:
-            return {"status": "skipped"}
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         status = download_one(engine, cfg, input.content_id)
@@ -280,8 +292,6 @@ def register(h):  # pragma: no cover — Hatchet wiring
 
     @wf.task(parents=[download_task], execution_timeout="5m")
     def extract_task(input: ItemEvent, ctx):
-        if input.domain in SKIP_DOMAINS:
-            return {"status": "skipped"}
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         status = extract_one(engine, input.content_id)

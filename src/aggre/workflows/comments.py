@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 import sqlalchemy as sa
-from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
+from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, DefaultFilter
 
 from aggre.collectors import COLLECTORS
 from aggre.config import load_config
@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 # Sources that support comment fetching
 _COMMENT_SOURCES = ("reddit", "hackernews", "lobsters")
+
+_comments_filter_expr = "input.source in [" + ", ".join(f"'{s}'" for s in sorted(_COMMENT_SOURCES)) + "]"
 
 
 def fetch_one_comments(
@@ -68,12 +70,11 @@ def register(h):  # pragma: no cover — Hatchet wiring
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,
+        default_filters=[DefaultFilter(expression=_comments_filter_expr, scope="default")],
     )
 
     @wf.task(execution_timeout="5m")
     def comments_task(input: ItemEvent, ctx):
-        if input.source not in _COMMENT_SOURCES:
-            return {"status": "skipped"}
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         status = fetch_one_comments(engine, input.discussion_id, input.source, cfg.settings)

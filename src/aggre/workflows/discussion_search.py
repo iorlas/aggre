@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 import sqlalchemy as sa
-from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy
+from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, DefaultFilter
 
 from aggre.collectors.base import SearchableCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
@@ -33,6 +33,8 @@ DISCUSSION_SEARCH_SKIP_DOMAINS = frozenset(
         "linkedin.com",
     }
 )
+
+_search_filter_expr = "!(" + "input.domain in [" + ", ".join(f"'{d}'" for d in sorted(DISCUSSION_SEARCH_SKIP_DOMAINS)) + "])"
 
 
 def search_one(
@@ -99,12 +101,11 @@ def register(h):  # pragma: no cover — Hatchet wiring
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,
+        default_filters=[DefaultFilter(expression=_search_filter_expr, scope="default")],
     )
 
     @wf.task(execution_timeout="5m")
     def discussion_search_task(input: ItemEvent, ctx):
-        if input.domain in DISCUSSION_SEARCH_SKIP_DOMAINS:
-            return {"status": "skipped"}
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         status = search_one(engine, cfg, input.content_id)

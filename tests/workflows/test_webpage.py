@@ -132,33 +132,46 @@ class TestDownloadOne:
 
 
 class TestBrowserlessDownload:
-    """Tests for the Browserless BrowserQL endpoint integration."""
+    """Tests for the Browserless /chromium/function endpoint integration."""
 
-    def _bql_response(self, status: int, html: str) -> dict:
-        return {"data": {"goto": {"status": status}, "html": {"html": html}}}
+    def _fn_response(self, status: int, html: str) -> dict:
+        return {"data": {"status": status, "html": html}}
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_browserless_success_stores_html(self, _mock_bronze, engine, mock_http):
         config = make_config(browserless_url="http://browserless:3000")
         content_id = seed_content(engine, "https://example.com/browserless-test", domain="example.com")
 
-        mock_http.post("http://browserless:3000/chromium/bql").respond(
-            json=self._bql_response(200, "<html><body><p>Real content</p></body></html>"),
+        mock_http.post("http://browserless:3000/chromium/function").respond(
+            json=self._fn_response(200, "<html><body><p>Real content</p></body></html>"),
         )
 
         assert download_one(engine, config, content_id) == "downloaded"
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_browserless_target_403_raises(self, _mock_bronze, engine, mock_http):
-        """BQL returns target HTTP 403 — raises for Hatchet retry."""
+        """Function returns target HTTP 403 — raises for Hatchet retry."""
         config = make_config(browserless_url="http://browserless:3000")
         content_id = seed_content(engine, "https://example.com/blocked", domain="example.com")
 
-        mock_http.post("http://browserless:3000/chromium/bql").respond(
-            json=self._bql_response(403, "<html>Forbidden</html>"),
+        mock_http.post("http://browserless:3000/chromium/function").respond(
+            json=self._fn_response(403, "<html>Forbidden</html>"),
         )
 
         with pytest.raises(Exception):
+            download_one(engine, config, content_id)
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    def test_browserless_navigation_error_raises(self, _mock_bronze, engine, mock_http):
+        """Navigation failure (timeout, DNS) returns structured error — raises for Wayback fallback."""
+        config = make_config(browserless_url="http://browserless:3000")
+        content_id = seed_content(engine, "https://example.com/nav-error", domain="example.com")
+
+        mock_http.post("http://browserless:3000/chromium/function").respond(
+            json={"data": {"status": 0, "html": "", "error": "net::ERR_CONNECTION_REFUSED"}},
+        )
+
+        with pytest.raises(Exception, match="Navigation failed"):
             download_one(engine, config, content_id)
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
@@ -166,7 +179,7 @@ class TestBrowserlessDownload:
         config = make_config(browserless_url="http://browserless:3000")
         content_id = seed_content(engine, "https://example.com/service-down", domain="example.com")
 
-        mock_http.post("http://browserless:3000/chromium/bql").mock(side_effect=Exception("Connection refused"))
+        mock_http.post("http://browserless:3000/chromium/function").mock(side_effect=Exception("Connection refused"))
 
         with pytest.raises(Exception, match="Connection refused"):
             download_one(engine, config, content_id)

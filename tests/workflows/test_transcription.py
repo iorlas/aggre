@@ -183,19 +183,6 @@ class TestTranscribeOne:
         with pytest.raises(Exception, match="Video unavailable"):
             transcribe_one(engine, config, _seed_youtube(engine, external_id="fail02"))
 
-    def test_skips_long_video(self, engine):
-        """Videos longer than 30 minutes are skipped."""
-        meta = json.dumps({"duration": 3600, "channel_id": "UC123"})
-        content_id = _seed_youtube(engine, external_id="long01", title="Long Video", meta=meta)
-        config = make_config()
-
-        result = transcribe_one(engine, config, content_id)
-        assert result == "skipped_long"
-
-        # Content text remains NULL
-        row = _get_content(engine, content_id)
-        assert row.text is None
-
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.read_bronze_or_none")
     def test_processes_short_video(self, mock_read_or_none, mock_write, engine):

@@ -104,7 +104,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         default_filters=[DefaultFilter(expression=_search_filter_expr, scope="default")],
     )
 
-    @wf.task(execution_timeout="5m")
+    @wf.task(execution_timeout="5m", schedule_timeout="72h")
     def discussion_search_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)

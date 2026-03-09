@@ -117,6 +117,8 @@ def extract(input):
 
 ## Operational Constraints
 
+> **For hands-on operational recipes** (retrying runs, pushing events, checking status), see [`hatchet-operations.md`](hatchet-operations.md).
+
 | Resource | Limit | Why |
 |----------|-------|-----|
 | YouTube downloads | max 1 concurrent | IP ban risk (Hatchet concurrency) |

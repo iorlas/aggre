@@ -103,7 +103,7 @@ jobs:
 
             - name: Trigger Dokploy deploy
               if: github.event_name != 'pull_request'
-              uses: benbristow/dokploy-deploy-action@v1
+              uses: benbristow/dokploy-deploy-action@0.2.2
               with:
                   api_token: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
                   application_id: ${{ secrets.DOKPLOY_COMPOSE_ID }}

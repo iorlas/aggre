@@ -77,20 +77,29 @@ jobs:
 
             - name: Set IMAGE_TAG in Dokploy env
               if: github.event_name != 'pull_request'
+              env:
+                POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+                AGGRE_BRONZE_S3_ACCESS_KEY: ${{ secrets.AGGRE_BRONZE_S3_ACCESS_KEY }}
+                AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
+                HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
+                DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+                DOKPLOY_AUTH_TOKEN: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
+                DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
               run: |
                 IMAGE_TAG="main-$(echo '${{ github.sha }}' | cut -c1-7)"
-                ENV_CONTENT="POSTGRES_USER=aggre
-POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-POSTGRES_DB=aggre
-AGGRE_BRONZE_S3_ACCESS_KEY=${{ secrets.AGGRE_BRONZE_S3_ACCESS_KEY }}
-AGGRE_BRONZE_S3_SECRET_KEY=${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
-AGGRE_BRONZE_S3_BUCKET=aggre-bronze
-HATCHET_CLIENT_TOKEN=${{ secrets.HATCHET_CLIENT_TOKEN }}
-IMAGE_TAG=${IMAGE_TAG}"
-                curl -sf -X POST "${{ secrets.DOKPLOY_URL }}/api/compose.update" \
-                  -H "x-api-key: ${{ secrets.DOKPLOY_AUTH_TOKEN }}" \
+                ENV_CONTENT=$(printf '%s\n' \
+                  "POSTGRES_USER=aggre" \
+                  "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
+                  "POSTGRES_DB=aggre" \
+                  "AGGRE_BRONZE_S3_ACCESS_KEY=${AGGRE_BRONZE_S3_ACCESS_KEY}" \
+                  "AGGRE_BRONZE_S3_SECRET_KEY=${AGGRE_BRONZE_S3_SECRET_KEY}" \
+                  "AGGRE_BRONZE_S3_BUCKET=aggre-bronze" \
+                  "HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN}" \
+                  "IMAGE_TAG=${IMAGE_TAG}")
+                curl -sf -X POST "${DOKPLOY_URL}/api/compose.update" \
+                  -H "x-api-key: ${DOKPLOY_AUTH_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"composeId\": \"${{ secrets.DOKPLOY_COMPOSE_ID }}\", \"env\": $(printf '%s' "$ENV_CONTENT" | jq -Rs .)}"
+                  -d "{\"composeId\": \"${DOKPLOY_COMPOSE_ID}\", \"env\": $(printf '%s' "$ENV_CONTENT" | jq -Rs .)}"
 
             - name: Trigger Dokploy deploy
               if: github.event_name != 'pull_request'

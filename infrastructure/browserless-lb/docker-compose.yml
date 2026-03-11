@@ -8,8 +8,8 @@ services:
     networks:
       - dokploy-network
     environment:
-      UPSTREAM_A: "dtomilin-mwg:3001"  # MacBook
-      UPSTREAM_B: "zep:3001"           # zep
+      UPSTREAM_A: "dtomilin-mwg.shrimp-boa.ts.net:3001"  # MacBook (FQDN required — nginx async resolver doesn't expand search domains)
+      UPSTREAM_B: "zep.shrimp-boa.ts.net:3001"           # zep
     command:
       - /bin/sh
       - -c

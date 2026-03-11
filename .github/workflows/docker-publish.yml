@@ -75,10 +75,28 @@ jobs:
                   subject-digest: ${{ steps.build.outputs.digest }}
                   push-to-registry: true
 
-            - name: Trigger Dokploy deploy
+            - name: Set IMAGE_TAG in Dokploy env
               if: github.event_name != 'pull_request'
               run: |
-                curl -sf -X POST "${{ secrets.DOKPLOY_URL }}/api/compose.deploy" \
+                IMAGE_TAG="main-$(echo '${{ github.sha }}' | cut -c1-7)"
+                ENV_CONTENT="POSTGRES_USER=aggre
+POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+POSTGRES_DB=aggre
+AGGRE_BRONZE_S3_ACCESS_KEY=${{ secrets.AGGRE_BRONZE_S3_ACCESS_KEY }}
+AGGRE_BRONZE_S3_SECRET_KEY=${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
+AGGRE_BRONZE_S3_BUCKET=aggre-bronze
+HATCHET_CLIENT_TOKEN=${{ secrets.HATCHET_CLIENT_TOKEN }}
+IMAGE_TAG=${IMAGE_TAG}"
+                curl -sf -X POST "${{ secrets.DOKPLOY_URL }}/api/compose.update" \
                   -H "x-api-key: ${{ secrets.DOKPLOY_AUTH_TOKEN }}" \
                   -H "Content-Type: application/json" \
-                  -d '{"composeId": "${{ secrets.DOKPLOY_COMPOSE_ID }}"}'
+                  -d "{\"composeId\": \"${{ secrets.DOKPLOY_COMPOSE_ID }}\", \"env\": $(printf '%s' "$ENV_CONTENT" | jq -Rs .)}"
+
+            - name: Trigger Dokploy deploy
+              if: github.event_name != 'pull_request'
+              uses: benbristow/dokploy-deploy-action@v1
+              with:
+                  api_token: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
+                  application_id: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+                  dokploy_url: ${{ secrets.DOKPLOY_URL }}
+                  service_type: compose

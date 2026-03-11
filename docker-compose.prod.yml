@@ -123,6 +123,7 @@ services:
         required: false
     tmpfs:
       - /app/data/tmp:size=8G
+    stop_grace_period: 300s
     restart: unless-stopped
 
 volumes:

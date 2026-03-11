@@ -111,12 +111,13 @@ services:
     environment:
       AGGRE_DATABASE_URL: "postgresql+psycopg://aggre:${POSTGRES_PASSWORD}@postgres:5432/aggre"
       AGGRE_BRONZE_S3_ENDPOINT: "http://garage:3900"
+      AGGRE_BRONZE_BACKEND: s3
       AGGRE_BROWSERLESS_URL: "http://browserless-lb:8080"
       AGGRE_WHISPER_ENDPOINTS: "http://dtomilin-mwg:8090:2:whisper-cpp:macbook-whisper:2,http://zep:8100:10:openai:zep-speaches:10"
       HATCHET_CLIENT_TLS_STRATEGY: none
       HATCHET_CLIENT_HOST_PORT: "hatchet-lite:7077"
       HATCHET_CLIENT_SERVER_URL: "http://hatchet-lite:8888"
-      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN}
     env_file:
       - path: .env
         required: false

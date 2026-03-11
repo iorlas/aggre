@@ -3,6 +3,7 @@
 # Worker reaches it as http://browserless-lb:8080 via dokploy-network.
 services:
   browserless-lb:
+    container_name: browserless-lb
     image: nginx:alpine
     networks:
       - dokploy-network

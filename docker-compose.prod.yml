@@ -29,7 +29,7 @@ services:
     volumes:
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
-      - ./deploy/garage.toml:/etc/garage.toml:ro
+      - /etc/dokploy/compose/compose-connect-back-end-alarm-zgu447/garage.toml:/etc/garage.toml:ro
     ports:
       - "100.65.108.29:3900:3900"  # S3 API
       - "100.65.108.29:3902:3902"  # Web
@@ -63,7 +63,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
-      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_DOMAIN: hatchet.ts.shen.iorlas.net
       SERVER_AUTH_COOKIE_INSECURE: "t"
       SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
       SERVER_GRPC_INSECURE: "t"

@@ -1,32 +1,20 @@
-# AGGRE data services — managed by Dokploy
-# PostgreSQL + Garage accessible via Tailscale (aggre-shen)
-# NOTE: In Dokploy (sourceType: raw), garage.toml bind mount uses absolute path
-# /etc/dokploy/compose/<appName>/garage.toml since code/ dir is wiped on deploy
-services:
-  tailscale:
-    image: tailscale/tailscale:latest
-    environment:
-      TS_AUTHKEY: ${TS_AUTHKEY:-}
-      TS_HOSTNAME: aggre-shen
-      TS_STATE_DIR: /var/lib/tailscale
-    cap_add: [NET_ADMIN, NET_RAW]
-    volumes:
-      - ts-state:/var/lib/tailscale
-      - /dev/net/tun:/dev/net/tun
-    networks:
-      - dokploy-network
-    restart: unless-stopped
+# AGGRE production stack — managed by Dokploy on shen
+# All services on dokploy-network. Docker daemon uses 100.100.100.100 for Tailscale DNS.
+# postgres and garage bind to 100.65.108.29 (shen Tailscale IP) — private, not public-facing.
 
+services:
   postgres:
     image: postgres:17-alpine
-    network_mode: service:tailscale
-    depends_on: [tailscale]
+    networks:
+      - dokploy-network
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aggre}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-aggre}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "100.65.108.29:5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aggre"]
@@ -36,20 +24,115 @@ services:
 
   garage:
     image: dxflrs/garage:v2.2.0
-    network_mode: service:tailscale
-    depends_on: [tailscale]
+    networks:
+      - dokploy-network
     volumes:
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
       - ./deploy/garage.toml:/etc/garage.toml:ro
+    ports:
+      - "100.65.108.29:3900:3900"  # S3 API
+      - "100.65.108.29:3902:3902"  # Web
+      - "100.65.108.29:3903:3903"  # Admin
+    restart: unless-stopped
+
+  hatchet-postgres:
+    image: postgres:17-alpine
+    networks:
+      - aggre-internal
+    environment:
+      POSTGRES_DB: hatchet
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: hatchet
+    volumes:
+      - hatchet-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  hatchet-lite:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    networks:
+      - dokploy-network
+      - aggre-internal
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable"
+      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_INSECURE: "t"
+      SERVER_GRPC_BIND_ADDRESS: "0.0.0.0"
+      SERVER_GRPC_INSECURE: "t"
+      SERVER_GRPC_BROADCAST_ADDRESS: "hatchet-lite:7077"
+      SERVER_GRPC_PORT: "7077"
+      SERVER_URL: "http://hatchet.ts.shen.iorlas.net"
+      SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+      SEED_DEFAULT_ADMIN_EMAIL: "admin@example.com"
+      SEED_DEFAULT_ADMIN_PASSWORD: "Admin123!!"
+    volumes:
+      - hatchet-config:/config
+    labels:
+      - tailscale=true
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.aggre-hatchet.rule=Host(`hatchet.ts.shen.iorlas.net`)
+      - traefik.http.routers.aggre-hatchet.entrypoints=web
+      - traefik.http.services.aggre-hatchet.loadbalancer.server.port=8888
+    restart: unless-stopped
+
+  migrate:
+    image: ghcr.io/iorlas/aggre:${IMAGE_TAG:-latest}
+    networks:
+      - dokploy-network
+    command: uv run alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AGGRE_DATABASE_URL: "postgresql+psycopg://aggre:${POSTGRES_PASSWORD}@postgres:5432/aggre"
+    env_file:
+      - path: .env
+        required: false
+
+  hatchet-worker:
+    image: ghcr.io/iorlas/aggre:${IMAGE_TAG:-latest}
+    networks:
+      - dokploy-network
+    command: uv run python -m aggre.workflows
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      hatchet-lite:
+        condition: service_started
+    environment:
+      AGGRE_DATABASE_URL: "postgresql+psycopg://aggre:${POSTGRES_PASSWORD}@postgres:5432/aggre"
+      AGGRE_BRONZE_S3_ENDPOINT: "http://garage:3900"
+      AGGRE_BROWSERLESS_URL: "http://browserless-lb:8080"
+      AGGRE_WHISPER_ENDPOINTS: "http://dtomilin-mwg:8090:2:whisper-cpp:macbook-whisper:2,http://zep:8100:10:openai:zep-speaches:10"
+      HATCHET_CLIENT_TLS_STRATEGY: none
+      HATCHET_CLIENT_HOST_PORT: "hatchet-lite:7077"
+      HATCHET_CLIENT_SERVER_URL: "http://hatchet-lite:8888"
+      HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:-}
+    env_file:
+      - path: .env
+        required: false
+    tmpfs:
+      - /app/data/tmp:size=8G
     restart: unless-stopped
 
 volumes:
-  ts-state:
   postgres-data:
   garage-meta:
   garage-data:
+  hatchet-postgres-data:
+  hatchet-config:
 
 networks:
   dokploy-network:
     external: true
+  aggre-internal:
+    internal: true

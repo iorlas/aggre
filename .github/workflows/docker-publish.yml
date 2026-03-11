@@ -74,3 +74,11 @@ jobs:
                   subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
                   subject-digest: ${{ steps.build.outputs.digest }}
                   push-to-registry: true
+
+            - name: Trigger Dokploy deploy
+              if: github.event_name != 'pull_request'
+              run: |
+                curl -sf -X POST "${{ secrets.DOKPLOY_URL }}/api/compose.deploy" \
+                  -H "x-api-key: ${{ secrets.DOKPLOY_AUTH_TOKEN }}" \
+                  -H "Content-Type: application/json" \
+                  -d '{"composeId": "${{ secrets.DOKPLOY_COMPOSE_ID }}"}'

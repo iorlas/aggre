@@ -7,15 +7,26 @@
         "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
       }
     },
-    "local-postgres": {
+    "remote-db": {
       "command": "toolbox",
       "args": ["--prebuilt", "postgres", "--stdio"],
       "env": {
-        "POSTGRES_HOST": "${POSTGRES_HOST:-127.0.0.1}",
-        "POSTGRES_PORT": "${POSTGRES_PORT:-5432}",
-        "POSTGRES_DATABASE": "${POSTGRES_DATABASE:-aggre}",
-        "POSTGRES_USER": "${POSTGRES_USER:-aggre}",
-        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}"
+        "POSTGRES_HOST": "shen",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_DATABASE": "aggre",
+        "POSTGRES_USER": "aggre",
+        "POSTGRES_PASSWORD": "${AGGRE_DB_PASSWORD}"
+      }
+    },
+    "local-db": {
+      "command": "toolbox",
+      "args": ["--prebuilt", "postgres", "--stdio"],
+      "env": {
+        "POSTGRES_HOST": "127.0.0.1",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_DATABASE": "aggre",
+        "POSTGRES_USER": "aggre",
+        "POSTGRES_PASSWORD": "aggre"
       }
     }
   }

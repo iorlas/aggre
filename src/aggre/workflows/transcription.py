@@ -1,7 +1,7 @@
 """Transcription workflow -- download and transcribe YouTube videos.
 
 Single-task workflow triggered per-item via "item.new" event.
-Hatchet manages concurrency (max 1 YouTube transcription at a time) and retry.
+Hatchet manages concurrency and retry.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
-from aggre.utils.whisper_client import transcribe_audio
+from aggre.utils.whisper_client import parse_endpoints, transcribe_audio
 from aggre.workflows.models import ItemEvent
 
 logger = logging.getLogger(__name__)
@@ -120,10 +120,11 @@ def _transcribe_one(
             logger.warning("transcription.audio_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
             raise ValueError(f"Audio file exceeds 500MB limit ({file_size / (1024 * 1024):.0f}MB)")
 
-        # Transcribe via whisper.cpp server
+        # Transcribe via whisper server
+        endpoints = parse_endpoints(config.settings.whisper_endpoints)
         result = transcribe_audio(
             audio_dest,
-            server_url=config.settings.whisper_server_url,
+            endpoints=endpoints,
             model=config.settings.whisper_model,
             timeout=config.settings.whisper_server_timeout,
         )
@@ -135,7 +136,7 @@ def _transcribe_one(
         write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
 
         # Store result on SilverContent
-        update_content(engine, content_id, text=transcript, detected_language=language)
+        update_content(engine, content_id, text=transcript, detected_language=language, transcribed_by=result.server_name)
 
         logger.info("transcription.transcribed external_id=%s", external_id)
         return "transcribed"
@@ -159,9 +160,8 @@ def transcribe_one(
     content_id: int,
 ) -> str:
     """Transcribe a single YouTube video by content_id. Returns status string."""
-    if not config.settings.whisper_server_url:
-        logger.warning("transcription.no_server_url")
-        return "skipped"
+    if not config.settings.whisper_endpoints:
+        raise RuntimeError("AGGRE_WHISPER_ENDPOINTS not configured")
 
     with engine.connect() as conn:
         row = conn.execute(
@@ -196,14 +196,14 @@ def register(h):  # pragma: no cover — Hatchet wiring
         on_events=["item.new"],
         concurrency=ConcurrencyExpression(
             expression="'youtube'",
-            max_runs=3,
+            max_runs=20,
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,
-        default_filters=[DefaultFilter(expression="input.source == 'youtube'", scope="default")],
+        default_filters=[DefaultFilter(expression="input.domain == 'youtube.com'", scope="default")],
     )
 
-    @wf.task(execution_timeout="30m", schedule_timeout="72h")
+    @wf.task(execution_timeout="30m", schedule_timeout="720h")
     def transcribe_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)

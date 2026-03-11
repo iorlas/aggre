@@ -116,7 +116,7 @@ def _seed_youtube(engine, external_id="abc123", title="Test Video", meta=None):
 def _mock_transcribe(transcript_text="This is the transcript", language="en"):
     from aggre.utils.whisper_client import TranscriptionResult
 
-    return TranscriptionResult(text=transcript_text, language=language)
+    return TranscriptionResult(text=transcript_text, language=language, server_name="test-whisper")
 
 
 class TestTranscriptionViaS3:

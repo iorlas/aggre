@@ -49,3 +49,10 @@ class DownloadResult(TaskResult):
 
     cached: int = 0
     skipped: int = 0
+
+
+class StepOutput(BaseModel):
+    """Flexible output model for individual workflow task steps."""
+
+    status: str = ""
+    reason: str = ""

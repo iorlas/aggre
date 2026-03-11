@@ -33,6 +33,7 @@ class SilverContent(Base):
     text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     created_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
     detected_language: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    transcribed_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SilverDiscussion(Base):

@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://localhost/aggre"
     log_dir: str = "./data/logs"
     youtube_temp_dir: str = "./data/tmp/videos"
-    whisper_model: str = "large-v3-turbo"
-    whisper_server_url: str = ""
+    whisper_model: str = "deepdml/faster-whisper-large-v3-turbo-ct2"
+    whisper_endpoints: str = ""
     whisper_server_timeout: float = 300.0
     proxy_url: str = ""
     browserless_url: str = ""

@@ -118,7 +118,7 @@ class TestTranscribeOne:
         content_id = _seed_youtube(engine, external_id="vid001")
         config = make_config()
 
-        mock_transcribe.return_value = TranscriptionResult(text="This is the transcript", language="en")
+        mock_transcribe.return_value = TranscriptionResult(text="This is the transcript", language="en", server_name="test-whisper")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio data")
@@ -136,6 +136,7 @@ class TestTranscribeOne:
         row = _get_content(engine, content_id)
         assert row.text == "This is the transcript"
         assert row.detected_language == "en"
+        assert row.transcribed_by == "test-whisper"
 
     @patch("aggre.workflows.transcription.transcribe_audio")
     @patch("aggre.workflows.transcription.write_bronze")
@@ -146,7 +147,7 @@ class TestTranscribeOne:
         content_id = _seed_youtube(engine, external_id="audio01")
         config = make_config()
 
-        mock_transcribe.return_value = TranscriptionResult(text="Transcribed from cache", language="en")
+        mock_transcribe.return_value = TranscriptionResult(text="Transcribed from cache", language="en", server_name="test-whisper")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake cached audio")
@@ -230,7 +231,7 @@ class TestTranscribeOne:
         content_id = _seed_youtube(engine, external_id="bronze01")
         config = make_config()
 
-        mock_transcribe.return_value = TranscriptionResult(text="Hello world", language="de")
+        mock_transcribe.return_value = TranscriptionResult(text="Hello world", language="de", server_name="test-whisper")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio")
@@ -323,10 +324,10 @@ class TestTranscribeOne:
         with pytest.raises(httpx.ConnectError, match="server down"):
             transcribe_one(engine, config, content_id)
 
-    def test_empty_whisper_server_url_returns_skipped(self, engine):
-        """When whisper_server_url is empty, transcription is skipped."""
+    def test_empty_whisper_endpoints_raises(self, engine):
+        """When whisper_endpoints is empty, transcription raises RuntimeError (Hatchet retries)."""
         content_id = _seed_youtube(engine, external_id="nourl01")
-        config = make_config(whisper_server_url="")
+        config = make_config(whisper_endpoints="")
 
-        result = transcribe_one(engine, config, content_id)
-        assert result == "skipped"
+        with pytest.raises(RuntimeError, match="AGGRE_WHISPER_ENDPOINTS not configured"):
+            transcribe_one(engine, config, content_id)

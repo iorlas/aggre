@@ -110,5 +110,6 @@ routinely exceed 5 minutes.
 - Dokploy Compose docs: https://docs.dokploy.com/docs/core/docker-compose
 - Dokploy API: https://docs.dokploy.com/docs/api
 - Deploy action: https://github.com/benbristow/dokploy-deploy-action
-- Full platform details: ~/Projects/resarches/researches-cowork/researches/036-deployment-platform/decisions.md §8
-- Private Traefik compose: ~/Projects/resarches/researches-cowork/researches/036-deployment-platform/traefik-ts-compose.yml
+- Full platform details: R036 decisions.md §8
+- Private Traefik compose: R036 traefik-ts-compose.yml
+- Canonical source: ~/Documents/Knowledge/Researches/036-deployment-platform/guidelines/deployment.md

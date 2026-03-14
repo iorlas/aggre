@@ -53,7 +53,6 @@ jobs:
                       type=semver,pattern={{major}}.{{minor}}
                       type=semver,pattern={{major}}
                       type=sha,prefix={{branch}}-
-                      type=raw,value=latest,enable={{is_default_branch}}
 
             - name: Build and push Docker image
               id: build
@@ -82,6 +81,7 @@ jobs:
                 AGGRE_BRONZE_S3_ACCESS_KEY: ${{ secrets.AGGRE_BRONZE_S3_ACCESS_KEY }}
                 AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
                 HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
+                HATCHET_ADMIN_PASSWORD: ${{ secrets.HATCHET_ADMIN_PASSWORD }}
                 DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
                 DOKPLOY_AUTH_TOKEN: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
                 DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
@@ -95,6 +95,8 @@ jobs:
                   "AGGRE_BRONZE_S3_SECRET_KEY=${AGGRE_BRONZE_S3_SECRET_KEY}" \
                   "AGGRE_BRONZE_S3_BUCKET=aggre-bronze" \
                   "HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN}" \
+                  "HATCHET_ADMIN_PASSWORD=${HATCHET_ADMIN_PASSWORD}" \
+                  "TAILSCALE_IP=100.65.108.29" \
                   "IMAGE_TAG=${IMAGE_TAG}")
                 curl -sf -X POST "${DOKPLOY_URL}/api/compose.update" \
                   -H "x-api-key: ${DOKPLOY_AUTH_TOKEN}" \

@@ -1,6 +1,6 @@
 # AGGRE production stack — managed by Dokploy on shen
 # All services on dokploy-network. Docker daemon uses 100.100.100.100 for Tailscale DNS.
-# postgres and garage bind to 100.65.108.29 (shen Tailscale IP) — private, not public-facing.
+# postgres and garage bind to ${TAILSCALE_IP} (shen Tailscale IP) — private, not public-facing.
 
 services:
   postgres:
@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "100.65.108.29:5432:5432"
+      - "${TAILSCALE_IP}:5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aggre"]
@@ -31,9 +31,9 @@ services:
       - garage-data:/var/lib/garage/data
       - /etc/dokploy/compose/compose-connect-back-end-alarm-zgu447/garage.toml:/etc/garage.toml:ro
     ports:
-      - "100.65.108.29:3900:3900"  # S3 API
-      - "100.65.108.29:3902:3902"  # Web
-      - "100.65.108.29:3903:3903"  # Admin
+      - "${TAILSCALE_IP}:3900:3900"  # S3 API
+      - "${TAILSCALE_IP}:3902:3902"  # Web
+      - "${TAILSCALE_IP}:3903:3903"  # Admin
     restart: unless-stopped
 
   hatchet-postgres:
@@ -72,7 +72,7 @@ services:
       SERVER_URL: "http://hatchet.ts.shen.iorlas.net"
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
       SEED_DEFAULT_ADMIN_EMAIL: "admin@example.com"
-      SEED_DEFAULT_ADMIN_PASSWORD: "Admin123!!"
+      SEED_DEFAULT_ADMIN_PASSWORD: ${HATCHET_ADMIN_PASSWORD}
     volumes:
       - hatchet-config:/config
     labels:
@@ -85,7 +85,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: ghcr.io/iorlas/aggre:${IMAGE_TAG:-latest}
+    image: ghcr.io/iorlas/aggre:${IMAGE_TAG}
     networks:
       - dokploy-network
     command: uv run alembic upgrade head
@@ -98,8 +98,17 @@ services:
       - path: .env
         required: false
 
+  browserless:
+    image: ghcr.io/browserless/chromium
+    environment:
+      CONCURRENT: "3"
+      TIMEOUT: "60000"
+    networks:
+      - dokploy-network
+    restart: unless-stopped
+
   hatchet-worker:
-    image: ghcr.io/iorlas/aggre:${IMAGE_TAG:-latest}
+    image: ghcr.io/iorlas/aggre:${IMAGE_TAG}
     networks:
       - dokploy-network
     command: uv run python -m aggre.workflows
@@ -112,8 +121,8 @@ services:
       AGGRE_DATABASE_URL: "postgresql+psycopg://aggre:${POSTGRES_PASSWORD}@postgres:5432/aggre"
       AGGRE_BRONZE_S3_ENDPOINT: "http://garage:3900"
       AGGRE_BRONZE_BACKEND: s3
-      AGGRE_BROWSERLESS_URL: "http://browserless-lb:8080"
-      AGGRE_WHISPER_ENDPOINTS: "http://dtomilin-mwg:8090:2:whisper-cpp:macbook-whisper:2,http://zep:8100:10:openai:zep-speaches:10"
+      AGGRE_BROWSERLESS_URL: "http://browserless:3000"
+      AGGRE_WHISPER_ENDPOINTS: "http://dtomilin-mwg.shrimp-boa.ts.net:8090:2:whisper-cpp:macbook-whisper:2,http://zep.shrimp-boa.ts.net:8100:10:openai:zep-speaches:10"
       HATCHET_CLIENT_TLS_STRATEGY: none
       HATCHET_CLIENT_HOST_PORT: "hatchet-lite:7077"
       HATCHET_CLIENT_SERVER_URL: "http://hatchet-lite:8888"

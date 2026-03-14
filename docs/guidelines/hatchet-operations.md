@@ -95,6 +95,51 @@ run = h.runs.get(external_id)
 # Returns full details including task outputs and errors
 ```
 
+## Resetting the Admin UI Password
+
+`SEED_DEFAULT_ADMIN_PASSWORD` in compose is **one-shot** — it only seeds the account on first deploy and is ignored after that. Changing it in compose does NOT update the existing password.
+
+To reset:
+
+```bash
+# 1. Generate a bcrypt hash — use Python to avoid shell escaping issues
+uv run --with bcrypt python3 -c "
+import bcrypt
+h = bcrypt.hashpw(b'YourNewPassword', bcrypt.gensalt(10))
+print(h.decode())
+" > /tmp/new_hash.txt
+
+# 2. Write the UPDATE to a SQL file — never interpolate bcrypt hashes in shell strings
+#    (the $ signs get expanded as shell variables and the hash is silently corrupted)
+python3 -c "
+hash = open('/tmp/new_hash.txt').read().strip()
+open('/tmp/reset_pw.sql','w').write(f'UPDATE \"UserPassword\" SET hash = \'{hash}\';')
+"
+
+# 3. Copy and execute via psql
+scp -P 2201 /tmp/reset_pw.sql iorlas@shen.iorlas.net:/tmp/reset_pw.sql
+ssh -p 2201 iorlas@shen.iorlas.net \
+  "docker cp /tmp/reset_pw.sql compose-connect-back-end-alarm-zgu447-hatchet-postgres-1:/tmp/ && \
+   docker exec compose-connect-back-end-alarm-zgu447-hatchet-postgres-1 psql -U hatchet -d hatchet -f /tmp/reset_pw.sql"
+
+# 4. Verify login — use Python, not curl, to avoid ! mangling in shell
+python3 -c "
+import urllib.request, json
+body = json.dumps({'email':'admin@example.com','password':'YourNewPassword'}).encode()
+req = urllib.request.Request('http://hatchet.ts.shen.iorlas.net/api/v1/users/login',
+    data=body, headers={'Content-Type':'application/json'}, method='POST')
+import urllib.error
+try:
+    with urllib.request.urlopen(req) as r: print('OK', r.status)
+except urllib.error.HTTPError as e: print('FAIL', e.code, e.read().decode())
+"
+```
+
+**Pitfalls to avoid:**
+- Never interpolate bcrypt hashes (`$2b$10$...`) in double-quoted shell strings — bash expands `$2b`, `$10`, etc. as variables, silently corrupting the hash
+- Never use `curl -d '...'` with passwords containing `!` — shells escape `!` to `\!`, making Go's JSON parser reject the request with "invalid character '!' in string escape code"
+- Prefer passwords without `!` for Hatchet admin to avoid this class of issue entirely
+
 ## Common Operational Recipes
 
 ### Retry all failed transcriptions from last 7 days

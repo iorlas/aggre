@@ -82,6 +82,7 @@ jobs:
                 AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
                 HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
                 HATCHET_ADMIN_PASSWORD: ${{ secrets.HATCHET_ADMIN_PASSWORD }}
+                AGGRE_PROXY_URL: ${{ secrets.AGGRE_PROXY_URL }}
                 DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
                 DOKPLOY_AUTH_TOKEN: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
                 DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
@@ -96,6 +97,7 @@ jobs:
                   "AGGRE_BRONZE_S3_BUCKET=aggre-bronze" \
                   "HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN}" \
                   "HATCHET_ADMIN_PASSWORD=${HATCHET_ADMIN_PASSWORD}" \
+                  "AGGRE_PROXY_URL=${AGGRE_PROXY_URL}" \
                   "TAILSCALE_IP=100.65.108.29" \
                   "IMAGE_TAG=${IMAGE_TAG}")
                 curl -sf -X POST "${DOKPLOY_URL}/api/compose.update" \

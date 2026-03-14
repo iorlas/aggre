@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from aggre.collectors.arxiv.config import ArxivConfig
 from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.settings import Settings
+from aggre.utils.http import create_http_client
 from aggre.urls import ensure_content
 from aggre.utils.bronze import url_hash
 
@@ -41,45 +42,48 @@ class ArxivCollector(BaseCollector):
         """Fetch ArXiv RSS feeds, write bronze, return references."""
         refs: list[DiscussionRef] = []
 
-        for arxiv_source in config.sources:
-            url = _FEED_URL.format(category=arxiv_source.category)
-            logger.info("arxiv.collecting name=%s category=%s", arxiv_source.name, arxiv_source.category)
+        with create_http_client(proxy_url=settings.proxy_url or None, timeout=30.0) as http:
+            for arxiv_source in config.sources:
+                url = _FEED_URL.format(category=arxiv_source.category)
+                logger.info("arxiv.collecting name=%s category=%s", arxiv_source.name, arxiv_source.category)
 
-            source_id = self._ensure_source(engine, arxiv_source.name, {"category": arxiv_source.category})
+                source_id = self._ensure_source(engine, arxiv_source.name, {"category": arxiv_source.category})
 
-            feed = feedparser.parse(url)
+                response = http.get(url)
+                response.raise_for_status()
+                feed = feedparser.parse(response.text)
 
-            if feed.bozo:
-                logger.warning("arxiv_bozo_error name=%s error=%s", arxiv_source.name, str(feed.bozo_exception))
+                if feed.bozo:
+                    logger.warning("arxiv_bozo_error name=%s error=%s", arxiv_source.name, str(feed.bozo_exception))
 
-            if not feed.entries:
-                logger.warning("arxiv_no_entries name=%s", arxiv_source.name)
-                self._update_last_fetched(engine, source_id)
-                continue
-
-            for entry in feed.entries:
-                link = entry.get("link", "")
-                m = _PAPER_ID_RE.search(link)
-                if not m:
-                    logger.warning("skipping_entry_no_paper_id name=%s link=%s", arxiv_source.name, link)
+                if not feed.entries:
+                    logger.warning("arxiv_no_entries name=%s", arxiv_source.name)
+                    self._update_last_fetched(engine, source_id)
                     continue
 
-                external_id = m.group(1)
+                for entry in feed.entries:
+                    link = entry.get("link", "")
+                    m = _PAPER_ID_RE.search(link)
+                    if not m:
+                        logger.warning("skipping_entry_no_paper_id name=%s link=%s", arxiv_source.name, link)
+                        continue
 
-                raw_data = dict(entry)
-                raw_data["_arxiv_category"] = arxiv_source.category
+                    external_id = m.group(1)
 
-                self._write_bronze(url_hash(external_id), raw_data)
-                refs.append(
-                    DiscussionRef(
-                        external_id=external_id,
-                        raw_data=raw_data,
-                        source_id=source_id,
+                    raw_data = dict(entry)
+                    raw_data["_arxiv_category"] = arxiv_source.category
+
+                    self._write_bronze(url_hash(external_id), raw_data)
+                    refs.append(
+                        DiscussionRef(
+                            external_id=external_id,
+                            raw_data=raw_data,
+                            source_id=source_id,
+                        )
                     )
-                )
 
-            self._update_last_fetched(engine, source_id)
-            logger.info("arxiv.discussions_collected name=%s count=%d", arxiv_source.name, len(feed.entries))
+                self._update_last_fetched(engine, source_id)
+                logger.info("arxiv.discussions_collected name=%s count=%d", arxiv_source.name, len(feed.entries))
 
         return refs
 

@@ -12,6 +12,7 @@ from aggre.collectors.arxiv.collector import ArxivCollector
 from aggre.collectors.arxiv.config import ArxivConfig, ArxivSource
 from aggre.db import SilverContent, SilverDiscussion, Source
 from aggre.settings import Settings
+from tests.conftest import dummy_http_client as _dummy_http_client
 from tests.factories import arxiv_entry, rss_feed
 from tests.helpers import collect, get_discussions, get_sources
 
@@ -26,7 +27,10 @@ class TestArxivCollector:
         entry = arxiv_entry()
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             count = collect(collector, engine, config, settings)
 
@@ -54,7 +58,10 @@ class TestArxivCollector:
         feed.bozo = True
         feed.bozo_exception = Exception("malformed XML")
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             count = collect(collector, engine, config, settings)
 
@@ -68,7 +75,10 @@ class TestArxivCollector:
 
         feed = rss_feed([])
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             collect(collector, engine, config, settings)
 
@@ -84,7 +94,10 @@ class TestArxivCollector:
         entry = arxiv_entry(link="https://arxiv.org/list/cs.AI/recent")
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             count = collect(collector, engine, config, settings)
 
@@ -99,7 +112,10 @@ class TestArxivCollector:
         entry = arxiv_entry(tags=[{"term": "cs.AI"}, {"term": "cs.LG"}])
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             collect(collector, engine, config, settings)
 
@@ -117,7 +133,10 @@ class TestArxivCollector:
         entry = arxiv_entry()
         feed = rss_feed([entry])
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             collect(collector, engine, config, settings)
 
@@ -135,7 +154,10 @@ class TestArxivCollector:
 
         feed = rss_feed([arxiv_entry()])
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             collect(collector, engine, config, settings)
 
@@ -154,7 +176,10 @@ class TestArxivCollector:
         ]
         feed = rss_feed(entries)
 
-        with patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed):
+        with (
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
             collector = ArxivCollector()
             count = collect(collector, engine, config, settings)
 

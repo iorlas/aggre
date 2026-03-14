@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import sqlalchemy as sa
 import yt_dlp
@@ -162,6 +163,14 @@ def _transcribe_one(
 # -- Per-item function (tested directly) ------------------------------------
 
 
+def _extract_video_id(url: str) -> str | None:
+    """Extract YouTube video ID from canonical URL."""
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    v = params.get("v")
+    return v[0] if v else None
+
+
 def transcribe_one(
     engine: sa.engine.Engine,
     config: AppConfig,
@@ -177,12 +186,9 @@ def transcribe_one(
                 SilverContent.id,
                 SilverContent.canonical_url,
                 SilverContent.text,
-                SilverDiscussion.external_id,
-                SilverDiscussion.title,
-                SilverDiscussion.meta,
+                SilverContent.domain,
             )
-            .join(SilverDiscussion, SilverDiscussion.content_id == SilverContent.id)
-            .where(SilverContent.id == content_id, SilverDiscussion.source_type == "youtube")
+            .where(SilverContent.id == content_id, SilverContent.domain == "youtube.com")
         ).first()
 
     if not row:
@@ -191,7 +197,30 @@ def transcribe_one(
     if row.text is not None:
         return StepOutput(status="skipped", reason="already_done", url=row.canonical_url)
 
-    return _transcribe_one(engine, config, row)
+    video_id = _extract_video_id(row.canonical_url)
+    if not video_id:
+        return StepOutput(status="skipped", reason="no_video_id", url=row.canonical_url)
+
+    # Fetch title and meta from any associated discussion (for logging/duration)
+    with engine.connect() as conn:
+        disc = conn.execute(
+            sa.select(SilverDiscussion.title, SilverDiscussion.meta)
+            .where(SilverDiscussion.content_id == content_id)
+            .limit(1)
+        ).first()
+
+    # Build a lightweight row-like object for _transcribe_one
+    from types import SimpleNamespace
+    item = SimpleNamespace(
+        id=row.id,
+        canonical_url=row.canonical_url,
+        text=row.text,
+        external_id=video_id,
+        title=disc.title if disc else None,
+        meta=disc.meta if disc else None,
+    )
+
+    return _transcribe_one(engine, config, item)
 
 
 # -- Hatchet workflow ----------------------------------------------------------

@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 from aggre.db import SilverContent
 from aggre.utils.whisper_client import TranscriptionResult
-from aggre.workflows.transcription import transcribe_one
+from aggre.workflows.transcription import _extract_video_id, transcribe_one
 from tests.factories import make_config, seed_content, seed_discussion
 
 pytestmark = pytest.mark.integration
@@ -51,6 +51,17 @@ def _seed_youtube(
     return content_id
 
 
+class TestExtractVideoId:
+    def test_standard_url(self):
+        assert _extract_video_id("https://youtube.com/watch?v=abc123") == "abc123"
+
+    def test_no_video_id(self):
+        assert _extract_video_id("https://youtube.com/@channel") is None
+
+    def test_extra_params(self):
+        assert _extract_video_id("https://youtube.com/watch?v=xyz&t=120") == "xyz"
+
+
 class TestTranscribeOne:
     def test_returns_skipped_for_nonexistent_content(self, engine):
         config = make_config()
@@ -61,7 +72,7 @@ class TestTranscribeOne:
         assert result.reason == "not_found"
 
     def test_returns_skipped_for_non_youtube_content(self, engine):
-        """Content not linked to a YouTube discussion is skipped."""
+        """Content not on youtube.com domain is skipped."""
         config = make_config()
         content_id = seed_content(engine, "https://example.com/article", domain="example.com")
         seed_discussion(
@@ -75,6 +86,36 @@ class TestTranscribeOne:
 
         assert result.status == "skipped"
         assert result.reason == "not_found"
+
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.read_bronze_or_none")
+    def test_transcribes_youtube_from_non_youtube_collector(self, mock_read_or_none, mock_write, engine):
+        """YouTube URL found by Reddit/HN collector still gets transcribed."""
+        config = make_config()
+        content_id = seed_content(engine, "https://youtube.com/watch?v=reddit01", domain="youtube.com")
+        seed_discussion(
+            engine,
+            source_type="reddit",
+            external_id="t3_abc",
+            content_id=content_id,
+            title="Cool Video",
+        )
+
+        cached_data = json.dumps({"transcript": "From reddit link", "language": "en"})
+        mock_read_or_none.return_value = cached_data
+
+        result = transcribe_one(engine, config, content_id)
+        assert result.status == "cached"
+
+    def test_returns_skipped_for_youtube_channel_url(self, engine):
+        """YouTube URL without video ID (e.g. channel page) is skipped."""
+        config = make_config()
+        content_id = seed_content(engine, "https://youtube.com/@somechannel", domain="youtube.com")
+
+        result = transcribe_one(engine, config, content_id)
+
+        assert result.status == "skipped"
+        assert result.reason == "no_video_id"
 
     def test_returns_already_done_when_text_set(self, engine):
         config = make_config()

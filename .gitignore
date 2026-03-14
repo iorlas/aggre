@@ -67,6 +67,7 @@ dist-ssr/
 
 # Environment variables (IMPORTANT: .env.example should NOT be ignored)
 .env
+.envrc
 .env.local
 .env.*.local
 .env.development

@@ -1,0 +1,44 @@
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: traefik-ts
+    environment:
+      - TS_STATE_DIR=/var/lib/tailscale
+    cap_add: [NET_ADMIN, NET_RAW]
+    volumes:
+      - ts-state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      - dokploy-network
+    labels:
+      - tailscale=true
+      - traefik.enable=true
+      - traefik.http.routers.traefik-dashboard.rule=Host(`traefik.ts.shen.iorlas.net`)
+      - traefik.http.routers.traefik-dashboard.entrypoints=web
+      - traefik.http.routers.traefik-dashboard.service=api@internal
+      - traefik.http.services.tailscale-dummy.loadbalancer.server.port=80
+    restart: unless-stopped
+
+  traefik-ts:
+    image: traefik:v3
+    network_mode: "service:tailscale"
+    command:
+      - --api=true
+      - --api.dashboard=true
+      - --entrypoints.web.address=:80
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.constraints=Label(`tailscale`,`true`)
+      - --providers.docker.network=dokploy-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - tailscale
+    restart: unless-stopped
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  ts-state:

@@ -17,7 +17,7 @@ from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent
 from aggre.utils.db import get_engine
-from aggre.workflows.models import ItemEvent
+from aggre.workflows.models import ItemEvent, StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +44,16 @@ def search_one(
     *,
     hn_collector: SearchableCollector | None = None,
     lobsters_collector: SearchableCollector | None = None,
-) -> str:
+) -> StepOutput:
     """Search HN and Lobsters for discussions about a single content URL.
 
-    Returns status: searched/skipped/partial. Raises if both searches fail.
+    Returns StepOutput. Raises if both searches fail.
     """
     with engine.connect() as conn:
         row = conn.execute(sa.select(SilverContent.canonical_url).where(SilverContent.id == content_id)).first()
 
     if not row or not row.canonical_url:
-        return "skipped"
+        return StepOutput(status="skipped", reason="not_found")
 
     content_url = row.canonical_url
 
@@ -84,7 +84,7 @@ def search_one(
         raise hn_error  # pragma: no cover — both APIs down
 
     logger.info("discussion_search.searched url=%s hackernews=%d lobsters=%d", content_url, hn_found, lobsters_found)
-    return "searched"
+    return StepOutput(status="searched", url=content_url, detail={"hackernews": str(hn_found), "lobsters": str(lobsters_found)})
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -108,8 +108,8 @@ def register(h):  # pragma: no cover — Hatchet wiring
     def discussion_search_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        status = search_one(engine, cfg, input.content_id)
-        ctx.log(f"Discussion search: {status} for content_id={input.content_id}")
-        return {"status": status}
+        result = search_one(engine, cfg, input.content_id)
+        ctx.log(f"Discussion search: {result.status} for content_id={input.content_id}")
+        return result.model_dump(exclude_none=True)
 
     return wf

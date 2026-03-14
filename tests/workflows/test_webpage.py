@@ -20,17 +20,21 @@ class TestDownloadOne:
         config = make_config()
         content_id = seed_content(engine, "https://example.com/done", text="already processed")
 
-        assert download_one(engine, config, content_id) == "skipped"
+        result = download_one(engine, config, content_id)
+        assert result.status == "skipped"
+        assert result.reason == "already_done"
 
     def test_skips_nonexistent_content(self, engine):
         config = make_config()
-        assert download_one(engine, config, 99999) == "skipped"
+        result = download_one(engine, config, 99999)
+        assert result.status == "skipped"
+        assert result.reason == "not_found"
 
     def test_skips_pdf_urls(self, engine):
         config = make_config()
         content_id = seed_content(engine, "https://example.com/paper.pdf", domain="example.com")
 
-        assert download_one(engine, config, content_id) == "skipped"
+        assert download_one(engine, config, content_id).status == "skipped"
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_downloads_and_stores_html(self, _mock_bronze, engine, mock_http):
@@ -42,7 +46,7 @@ class TestDownloadOne:
             headers={"content-type": "text/html"},
         )
 
-        assert download_one(engine, config, content_id) == "downloaded"
+        assert download_one(engine, config, content_id).status == "downloaded"
 
         # text should still be NULL (extraction is separate)
         with engine.connect() as conn:
@@ -69,7 +73,7 @@ class TestDownloadOne:
         with caplog.at_level(logging.WARNING, logger="aggre.workflows.webpage"):
             result = download_one(engine, config, content_id)
 
-        assert result == "skipped"
+        assert result.status == "skipped"
         assert any("webpage_downloader.http_gone" in r.message for r in caplog.records)
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
@@ -82,7 +86,7 @@ class TestDownloadOne:
             headers={"content-type": "image/png"},
         )
 
-        assert download_one(engine, config, content_id) == "skipped"
+        assert download_one(engine, config, content_id).status == "skipped"
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_fetches_using_original_url(self, _mock_bronze, engine, mock_http):
@@ -100,7 +104,7 @@ class TestDownloadOne:
             headers={"content-type": "text/html"},
         )
 
-        assert download_one(engine, config, content_id) == "downloaded"
+        assert download_one(engine, config, content_id).status == "downloaded"
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_falls_back_to_canonical_when_no_original_url(self, _mock_bronze, engine, mock_http):
@@ -112,14 +116,14 @@ class TestDownloadOne:
             headers={"content-type": "text/html"},
         )
 
-        assert download_one(engine, config, content_id) == "downloaded"
+        assert download_one(engine, config, content_id).status == "downloaded"
 
     def test_bronze_cache_hit(self, engine):
         config = make_config()
         content_id = seed_content(engine, "https://example.com/cached", domain="example.com")
 
         with patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=True):
-            assert download_one(engine, config, content_id) == "cached"
+            assert download_one(engine, config, content_id).status == "cached"
 
     def test_bronze_check_exception_propagates(self, engine):
         """When bronze_exists_by_url raises, the error propagates (Hatchet retries)."""
@@ -146,7 +150,7 @@ class TestBrowserlessDownload:
             json=self._fn_response(200, "<html><body><p>Real content</p></body></html>"),
         )
 
-        assert download_one(engine, config, content_id) == "downloaded"
+        assert download_one(engine, config, content_id).status == "downloaded"
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_browserless_target_403_raises(self, _mock_bronze, engine, mock_http):
@@ -194,7 +198,7 @@ class TestBrowserlessDownload:
             json=self._fn_response(200, "<html><body>ok</body></html>"),
         )
 
-        assert download_one(engine, config, content_id) == "downloaded"
+        assert download_one(engine, config, content_id).status == "downloaded"
 
         import json as _json
 
@@ -211,7 +215,7 @@ class TestBrowserlessDownload:
             json=self._fn_response(200, "<html><body>ok</body></html>"),
         )
 
-        assert download_one(engine, config, content_id) == "downloaded"
+        assert download_one(engine, config, content_id).status == "downloaded"
 
         import json as _json
 
@@ -221,15 +225,21 @@ class TestBrowserlessDownload:
 
 class TestExtractOne:
     def test_returns_not_found_for_nonexistent_content(self, engine):
-        assert extract_one(engine, 99999) == "not_found"
+        result = extract_one(engine, 99999)
+        assert result.status == "skipped"
+        assert result.reason == "not_found"
 
     def test_skips_already_processed(self, engine):
         content_id = seed_content(engine, "https://example.com/done", text="existing text")
-        assert extract_one(engine, content_id) == "already_done"
+        result = extract_one(engine, content_id)
+        assert result.status == "skipped"
+        assert result.reason == "already_done"
 
     def test_skips_when_bronze_missing(self, engine):
         content_id = seed_content(engine, "https://example.com/no-bronze", domain="example.com")
-        assert extract_one(engine, content_id) == "skipped"
+        result = extract_one(engine, content_id)
+        assert result.status == "skipped"
+        assert result.reason == "no_bronze"
 
     def test_extracts_text_from_downloaded(self, engine):
         content_id = seed_content(engine, "https://example.com/article", domain="example.com")
@@ -249,7 +259,7 @@ class TestExtractOne:
 
             result = extract_one(engine, content_id)
 
-        assert result == "extracted"
+        assert result.status == "extracted"
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.id == content_id)).fetchone()
@@ -270,7 +280,7 @@ class TestExtractOne:
         ):
             result = extract_one(engine, content_id)
 
-        assert result == "no_content"
+        assert result.status == "no_content"
 
         # text must remain NULL
         with engine.connect() as conn:

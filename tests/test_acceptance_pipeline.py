@@ -84,7 +84,7 @@ class TestFullPipelineFlow:
 
         with patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False):
             result = download_one(engine, config, content_id)
-        assert result == "downloaded"
+        assert result.status == "downloaded"
 
         # Verify intermediate state: downloaded but not yet extracted
         content = get_contents(engine)[0]
@@ -101,7 +101,7 @@ class TestFullPipelineFlow:
 
             result = extract_one(engine, content_id)
 
-        assert result == "extracted"
+        assert result.status == "extracted"
 
         # Verify full chain: SilverDiscussion -> SilverContent
         with engine.connect() as conn:
@@ -132,7 +132,7 @@ class TestContentFetcherIntegration:
 
         # Download each item individually (as Hatchet would)
         with patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False):
-            assert download_one(engine, config, good_id) == "downloaded"
+            assert download_one(engine, config, good_id).status == "downloaded"
 
         # YouTube is skipped at domain level by the workflow (download_one still processes it)
         # In real usage, the event self-filter in the Hatchet task would skip this
@@ -157,7 +157,7 @@ class TestContentFetcherIntegration:
 
             result = extract_one(engine, good_id)
 
-        assert result == "extracted"
+        assert result.status == "extracted"
 
         with engine.connect() as conn:
             good = conn.execute(sa.select(SilverContent).where(SilverContent.id == good_id)).fetchone()

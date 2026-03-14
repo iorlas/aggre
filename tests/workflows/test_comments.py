@@ -42,14 +42,16 @@ class TestFetchOneComments:
 
         result = fetch_one_comments(engine, disc_id, "unknown_source", settings)
 
-        assert result == "no_collector"
+        assert result.status == "skipped"
+        assert result.reason == "no_collector"
 
     def test_returns_not_found_for_missing_discussion(self, engine):
         settings = make_config().settings
 
         result = fetch_one_comments(engine, 99999, "hackernews", settings)
 
-        assert result == "not_found"
+        assert result.status == "skipped"
+        assert result.reason == "not_found"
 
     def test_returns_already_done_when_comments_exist(self, engine):
         settings = make_config().settings
@@ -58,7 +60,8 @@ class TestFetchOneComments:
         with patch("aggre.workflows.comments.COLLECTORS", {"hackernews": MagicMock()}):
             result = fetch_one_comments(engine, disc_id, "hackernews", settings)
 
-        assert result == "already_done"
+        assert result.status == "skipped"
+        assert result.reason == "already_done"
 
     @patch("aggre.workflows.comments.COLLECTORS")
     def test_fetches_comments_successfully(self, mock_collectors, engine):
@@ -70,7 +73,7 @@ class TestFetchOneComments:
 
         result = fetch_one_comments(engine, disc_id, "hackernews", settings)
 
-        assert result == "fetched"
+        assert result.status == "fetched"
         mock_cls.return_value.fetch_discussion_comments.assert_called_once_with(
             engine,
             disc_id,
@@ -106,7 +109,7 @@ class TestFetchOneComments:
 
         result = fetch_one_comments(engine, disc_id, "reddit", settings)
 
-        assert result == "fetched"
+        assert result.status == "fetched"
         mock_cls.return_value.fetch_discussion_comments.assert_called_once()
 
     @patch("aggre.workflows.comments.COLLECTORS")
@@ -123,5 +126,5 @@ class TestFetchOneComments:
 
         result = fetch_one_comments(engine, disc_id, "lobsters", settings)
 
-        assert result == "fetched"
+        assert result.status == "fetched"
         mock_cls.return_value.fetch_discussion_comments.assert_called_once()

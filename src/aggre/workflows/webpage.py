@@ -20,7 +20,7 @@ from aggre.db import SilverContent, update_content
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.utils.db import get_engine
 from aggre.utils.http import create_http_client
-from aggre.workflows.models import ItemEvent
+from aggre.workflows.models import ItemEvent, StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -208,8 +208,8 @@ def download_one(
     engine: sa.engine.Engine,
     config: AppConfig,
     content_id: int,
-) -> str:
-    """Download HTML for a single SilverContent. Returns status: downloaded/cached/skipped."""
+) -> StepOutput:
+    """Download HTML for a single SilverContent. Returns StepOutput."""
     with engine.connect() as conn:
         row = conn.execute(
             sa.select(SilverContent.canonical_url, SilverContent.original_url, SilverContent.domain, SilverContent.text).where(
@@ -217,8 +217,10 @@ def download_one(
             )
         ).first()
 
-    if not row or row.text is not None:
-        return "skipped"
+    if not row:
+        return StepOutput(status="skipped", reason="not_found")
+    if row.text is not None:
+        return StepOutput(status="skipped", reason="already_done", url=row.canonical_url)
 
     browserless_url = config.settings.browserless_url or ""
 
@@ -226,40 +228,41 @@ def download_one(
         proxy_url=config.settings.proxy_url or None,
         follow_redirects=True,
     ) as client:
-        return _download_one(client, row.canonical_url, row.original_url, browserless_url, config.settings.proxy_url or "")
+        status = _download_one(client, row.canonical_url, row.original_url, browserless_url, config.settings.proxy_url or "")
+        return StepOutput(status=status, url=row.canonical_url)
 
 
 def extract_one(
     engine: sa.engine.Engine,
     content_id: int,
-) -> str:
-    """Extract text from downloaded HTML for a single SilverContent. Returns status string."""
+) -> StepOutput:
+    """Extract text from downloaded HTML for a single SilverContent. Returns StepOutput."""
     with engine.connect() as conn:
         row = conn.execute(sa.select(SilverContent.canonical_url, SilverContent.text).where(SilverContent.id == content_id)).first()
 
     if not row:
-        return "not_found"
+        return StepOutput(status="skipped", reason="not_found")
     if row.text is not None:
-        return "already_done"
+        return StepOutput(status="skipped", reason="already_done", url=row.canonical_url)
 
     url = row.canonical_url
 
     try:
         html = read_bronze_by_url("webpage", url, "response", "html")
     except FileNotFoundError:
-        return "skipped"  # Download was skipped (PDF, non-text, etc.)
+        return StepOutput(status="skipped", reason="no_bronze", url=url)
 
     # Extract text with 90s timeout
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(trafilatura.extract, html, include_comments=False, include_tables=False)
         try:
-            result = future.result(timeout=90)
+            extracted = future.result(timeout=90)
         except concurrent.futures.TimeoutError:  # pragma: no cover — trafilatura hang safety net
             raise TimeoutError("Content extraction timed out after 90s")
 
-    if result is None:
+    if extracted is None:
         logger.warning("webpage_extractor.no_content url=%s", url)
-        return "no_content"
+        return StepOutput(status="no_content", url=url)
 
     # Extract title from trafilatura metadata
     extracted_title = None
@@ -267,9 +270,9 @@ def extract_one(
     if metadata:
         extracted_title = metadata.title
 
-    update_content(engine, content_id, text=result, title=extracted_title)
+    update_content(engine, content_id, text=extracted, title=extracted_title)
     logger.info("webpage_extractor.extracted url=%s", url)
-    return "extracted"
+    return StepOutput(status="extracted", url=url)
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -293,9 +296,9 @@ def register(h):  # pragma: no cover — Hatchet wiring
     def download_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        status = download_one(engine, cfg, input.content_id)
-        ctx.log(f"Download: {status} for content_id={input.content_id}")
-        return {"status": status}
+        result = download_one(engine, cfg, input.content_id)
+        ctx.log(f"Download: {result.status} for content_id={input.content_id}")
+        return result.model_dump(exclude_none=True)
 
     @wf.task(
         parents=[download_task],
@@ -308,8 +311,8 @@ def register(h):  # pragma: no cover — Hatchet wiring
     def extract_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        status = extract_one(engine, input.content_id)
-        ctx.log(f"Extract: {status} for content_id={input.content_id}")
-        return {"status": status}
+        result = extract_one(engine, input.content_id)
+        ctx.log(f"Extract: {result.status} for content_id={input.content_id}")
+        return result.model_dump(exclude_none=True)
 
     return wf

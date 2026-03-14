@@ -57,7 +57,8 @@ class TestTranscribeOne:
 
         result = transcribe_one(engine, config, 99999)
 
-        assert result == "skipped"
+        assert result.status == "skipped"
+        assert result.reason == "not_found"
 
     def test_returns_skipped_for_non_youtube_content(self, engine):
         """Content not linked to a YouTube discussion is skipped."""
@@ -72,7 +73,8 @@ class TestTranscribeOne:
 
         result = transcribe_one(engine, config, content_id)
 
-        assert result == "skipped"
+        assert result.status == "skipped"
+        assert result.reason == "not_found"
 
     def test_returns_already_done_when_text_set(self, engine):
         config = make_config()
@@ -80,7 +82,8 @@ class TestTranscribeOne:
 
         result = transcribe_one(engine, config, content_id)
 
-        assert result == "already_done"
+        assert result.status == "skipped"
+        assert result.reason == "already_done"
 
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.read_bronze_or_none")
@@ -93,7 +96,7 @@ class TestTranscribeOne:
         mock_read_or_none.return_value = cached_data
 
         result = transcribe_one(engine, config, content_id)
-        assert result == "cached"
+        assert result.status == "cached"
 
         row = _get_content(engine, content_id)
         assert row.text == "Cached transcript"
@@ -131,7 +134,7 @@ class TestTranscribeOne:
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
         result = transcribe_one(engine, config, content_id)
-        assert result == "transcribed"
+        assert result.status == "transcribed"
 
         row = _get_content(engine, content_id)
         assert row.text == "This is the transcript"
@@ -156,7 +159,7 @@ class TestTranscribeOne:
         mock_get_store.return_value = mock_store
 
         result = transcribe_one(engine, config, content_id)
-        assert result == "transcribed"
+        assert result.status == "transcribed"
 
         row = _get_content(engine, content_id)
         assert row.text == "Transcribed from cache"
@@ -196,7 +199,7 @@ class TestTranscribeOne:
         mock_read_or_none.return_value = cached_data
 
         result = transcribe_one(engine, config, content_id)
-        assert result == "cached"
+        assert result.status == "cached"
 
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.read_bronze_or_none")
@@ -210,7 +213,7 @@ class TestTranscribeOne:
         mock_read_or_none.return_value = cached_data
 
         result = transcribe_one(engine, config, content_id)
-        assert result == "cached"
+        assert result.status == "cached"
 
     @patch("aggre.workflows.transcription.transcribe_audio")
     @patch("aggre.workflows.transcription.write_bronze")

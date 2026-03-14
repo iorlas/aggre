@@ -21,7 +21,8 @@ class TestSearchOne:
 
         result = search_one(engine, config, 99999)
 
-        assert result == "skipped"
+        assert result.status == "skipped"
+        assert result.reason == "not_found"
 
     def test_searches_hn_and_lobsters(self, engine):
         config = make_config()
@@ -41,7 +42,7 @@ class TestSearchOne:
             lobsters_collector=mock_lob,
         )
 
-        assert result == "searched"
+        assert result.status == "searched"
         mock_hn.search_by_url.assert_called_once_with(
             "https://example.com/article",
             engine,
@@ -74,7 +75,7 @@ class TestSearchOne:
         )
 
         # Partial success — lobsters worked
-        assert result == "searched"
+        assert result.status == "searched"
 
     def test_partial_success_when_lobsters_fails(self, engine):
         config = make_config()
@@ -94,7 +95,7 @@ class TestSearchOne:
             lobsters_collector=mock_lob,
         )
 
-        assert result == "searched"
+        assert result.status == "searched"
 
     def test_raises_when_both_fail(self, engine):
         config = make_config()
@@ -132,7 +133,7 @@ class TestSearchOne:
             hn_collector=mock_hn,
             lobsters_collector=mock_lob,
         )
-        assert result == "searched"
+        assert result.status == "searched"
 
 
 class TestSkipDomains:

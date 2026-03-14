@@ -131,7 +131,7 @@ class TestTranscriptionViaS3:
         s3_backend.write("youtube/cached01/whisper.json", whisper_data)
 
         result = transcribe_one(engine, config, content_id)
-        assert result == "cached"
+        assert result.status == "cached"
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.id == content_id)).fetchone()
@@ -163,7 +163,7 @@ class TestTranscriptionViaS3:
         mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
 
         result = transcribe_one(engine, config, content_id)
-        assert result == "transcribed"
+        assert result.status == "transcribed"
 
         # Audio should have been uploaded to S3
         audio_bytes = s3_backend.read_bytes("youtube/up01/audio.opus")
@@ -185,7 +185,7 @@ class TestTranscriptionViaS3:
         with patch("aggre.workflows.transcription.yt_dlp.YoutubeDL") as mock_ydl_cls:
             result = transcribe_one(engine, config, content_id)
 
-        assert result == "transcribed"
+        assert result.status == "transcribed"
         # yt_dlp should never have been instantiated
         mock_ydl_cls.assert_not_called()
 

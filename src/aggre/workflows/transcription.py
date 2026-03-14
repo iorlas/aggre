@@ -19,7 +19,7 @@ from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
 from aggre.utils.whisper_client import parse_endpoints, transcribe_audio
-from aggre.workflows.models import ItemEvent
+from aggre.workflows.models import ItemEvent, StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,14 @@ def _transcribe_one(
     engine: sa.engine.Engine,
     config: AppConfig,
     item: sa.engine.Row,
-) -> str:
-    """Transcribe a single video. Returns status string.
+) -> StepOutput:
+    """Transcribe a single video. Returns StepOutput.
 
     Raises on transient failure (Hatchet handles retry).
     """
     content_id = item.id
     external_id = item.external_id
+    url = item.canonical_url
     is_remote = False
     audio_dest = None
 
@@ -51,7 +52,10 @@ def _transcribe_one(
             transcript = cached["transcript"] if isinstance(cached, dict) else ""
             language = cached.get("language", "unknown") if isinstance(cached, dict) else "unknown"
             update_content(engine, content_id, text=transcript, detected_language=language)
-            return "cached"
+            detail: dict[str, str] = {}
+            if duration_meta:
+                detail["duration"] = f"{duration_meta // 60}m{duration_meta % 60}s"
+            return StepOutput(status="cached", url=url, detail=detail or None)
 
         # Resolve audio location — filesystem store uses local path, S3 uses temp dir
         store = get_store()
@@ -140,7 +144,10 @@ def _transcribe_one(
         update_content(engine, content_id, text=transcript, detected_language=language, transcribed_by=result.server_name)
 
         logger.info("transcription.transcribed external_id=%s", external_id)
-        return "transcribed"
+        detail = {"transcriber": result.server_name, "language": language}
+        if duration_meta:
+            detail["duration"] = f"{duration_meta // 60}m{duration_meta % 60}s"
+        return StepOutput(status="transcribed", url=url, detail=detail)
 
     finally:
         # Clean up temp audio when using remote storage (S3)
@@ -159,8 +166,8 @@ def transcribe_one(
     engine: sa.engine.Engine,
     config: AppConfig,
     content_id: int,
-) -> str:
-    """Transcribe a single YouTube video by content_id. Returns status string."""
+) -> StepOutput:
+    """Transcribe a single YouTube video by content_id. Returns StepOutput."""
     if not config.settings.whisper_endpoints:
         raise RuntimeError("AGGRE_WHISPER_ENDPOINTS not configured")
 
@@ -179,10 +186,10 @@ def transcribe_one(
         ).first()
 
     if not row:
-        return "skipped"
+        return StepOutput(status="skipped", reason="not_found")
 
     if row.text is not None:
-        return "already_done"
+        return StepOutput(status="skipped", reason="already_done", url=row.canonical_url)
 
     return _transcribe_one(engine, config, row)
 
@@ -208,8 +215,8 @@ def register(h):  # pragma: no cover — Hatchet wiring
     def transcribe_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        status = transcribe_one(engine, cfg, input.content_id)
-        ctx.log(f"Transcription: {status} for content_id={input.content_id}")
-        return {"status": status}
+        result = transcribe_one(engine, cfg, input.content_id)
+        ctx.log(f"Transcription: {result.status} for content_id={input.content_id}")
+        return result.model_dump(exclude_none=True)
 
     return wf

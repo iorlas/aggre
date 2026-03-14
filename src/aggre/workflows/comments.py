@@ -16,7 +16,7 @@ from aggre.config import load_config
 from aggre.db import SilverDiscussion
 from aggre.settings import Settings
 from aggre.utils.db import get_engine
-from aggre.workflows.models import ItemEvent
+from aggre.workflows.models import ItemEvent, StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +31,11 @@ def fetch_one_comments(
     discussion_id: int,
     source: str,
     settings: Settings,
-) -> str:
-    """Fetch comments for a single discussion. Returns status string."""
+) -> StepOutput:
+    """Fetch comments for a single discussion. Returns StepOutput."""
     cls = COLLECTORS.get(source)
     if not cls:
-        return "no_collector"
+        return StepOutput(status="skipped", reason="no_collector")
 
     with engine.connect() as conn:
         row = conn.execute(
@@ -45,15 +45,15 @@ def fetch_one_comments(
         ).first()
 
     if not row:
-        return "not_found"
+        return StepOutput(status="skipped", reason="not_found")
 
     if row.comments_json is not None:
-        return "already_done"
+        return StepOutput(status="skipped", reason="already_done")
 
     collector = cls()
     collector.fetch_discussion_comments(engine, row.id, row.external_id, row.meta, settings)
     logger.info("comments.fetched source=%s discussion_id=%d external_id=%s", source, discussion_id, row.external_id)
-    return "fetched"
+    return StepOutput(status="fetched")
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -77,8 +77,8 @@ def register(h):  # pragma: no cover — Hatchet wiring
     def comments_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
-        status = fetch_one_comments(engine, input.discussion_id, input.source, cfg.settings)
-        ctx.log(f"Comments: {status} for discussion_id={input.discussion_id}")
-        return {"status": status}
+        result = fetch_one_comments(engine, input.discussion_id, input.source, cfg.settings)
+        ctx.log(f"Comments: {result.status} for discussion_id={input.discussion_id}")
+        return result.model_dump(exclude_none=True)
 
     return wf

@@ -44,15 +44,10 @@ class CollectResult(TaskResult):
     source: str = ""
 
 
-class DownloadResult(TaskResult):
-    """Download result with cache/skip tracking."""
-
-    cached: int = 0
-    skipped: int = 0
-
-
 class StepOutput(BaseModel):
-    """Flexible output model for individual workflow task steps."""
+    """Per-item task output. Visible as JSON in Hatchet UI."""
 
-    status: str = ""
-    reason: str = ""
+    status: str  # "downloaded", "cached", "skipped", "transcribed", etc.
+    reason: str | None = None  # Short reason code for skips: "already_done", "not_found", etc.
+    url: str | None = None  # What URL was processed
+    detail: dict[str, str] | None = None  # Extras: transcriber, language, duration, counts

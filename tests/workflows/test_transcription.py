@@ -324,6 +324,47 @@ class TestTranscribeOne:
         with pytest.raises(httpx.ConnectError, match="server down"):
             transcribe_one(engine, config, content_id)
 
+    @patch("aggre.workflows.transcription.transcribe_audio")
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
+    def test_ydl_opts_include_impersonate(
+        self,
+        mock_ydl_cls,
+        mock_read_or_none,
+        mock_get_store,
+        mock_write,
+        mock_transcribe,
+        engine,
+        tmp_path,
+    ):
+        """yt-dlp opts always include impersonate=chrome for TLS fingerprint evasion."""
+        content_id = _seed_youtube(engine, external_id="imp01")
+        config = make_config()
+
+        mock_transcribe.return_value = TranscriptionResult(text="Hello", language="en", server_name="test-whisper")
+
+        # audio_dest must NOT exist so the download path is triggered
+        audio_dest = tmp_path / "audio.opus"
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_dest
+        mock_get_store.return_value = mock_store
+
+        # Side-effect: create the expected file so the glob finds it
+        def fake_download(urls):
+            (audio_dest.parent / "imp01.opus").write_bytes(b"fake audio data")
+
+        mock_ydl_instance = MagicMock()
+        mock_ydl_instance.download.side_effect = fake_download
+        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
+        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+        transcribe_one(engine, config, content_id)
+
+        opts = mock_ydl_cls.call_args[0][0]
+        assert opts["impersonate"] == "chrome"
+
     def test_empty_whisper_endpoints_raises(self, engine):
         """When whisper_endpoints is empty, transcription raises RuntimeError (Hatchet retries)."""
         content_id = _seed_youtube(engine, external_id="nourl01")

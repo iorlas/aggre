@@ -217,6 +217,17 @@ class TestYoutubeCollector:
         assert "proxy" not in opts
         assert "source_address" not in opts
 
+    def test_collect_passes_impersonate_to_ytdlp(self, engine):
+        config = _default_config()
+        mock_ydl = _mock_ydl(_default_entries())
+
+        with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl) as mock_cls:
+            collector = YoutubeCollector()
+            collect(collector, engine, config.youtube, config.settings)
+
+        opts = mock_cls.call_args[0][0]
+        assert opts["impersonate"] == "chrome"
+
     def test_collect_url_fallback(self, engine):
         config = _default_config()
 

@@ -19,7 +19,7 @@ Read the relevant docs first:
 - **Before adding processing logic:** `docs/guidelines/component-contracts.md` — input accountability, disposition tracking
 - **Before changing concurrency/pipeline:** `docs/guidelines/formal-verification.md` — TLA+ specs, spec-first workflow
 - **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
-- **Before deploying:** `docs/guidelines/deployment.md` — Dokploy platform, Traefik routing, compose structure, CI/CD pipeline
+- **Before deploying:** `/Users/iorlas/Documents/Knowledge/Researches/036-deployment-platform/guidelines/` — deployment platform guidelines (Dokploy, Traefik, CI/CD, Tailscale networking)
 - **Before operating Hatchet:** `docs/guidelines/hatchet-operations.md` — retrying runs, pushing events, connection setup, SDK recipes
 
 > **Note:** `.planning/codebase/` files are AI-generated snapshots of current codebase state, not human-authored guidelines. `docs/guidelines/` contains the human-authored standards.

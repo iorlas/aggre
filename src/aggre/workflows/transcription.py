@@ -82,6 +82,7 @@ def _transcribe_one(
 
             ydl_opts = {
                 "format": "bestaudio/best",
+                "impersonate": "chrome",
                 "outtmpl": output_path,
                 "quiet": True,
                 "no_warnings": True,

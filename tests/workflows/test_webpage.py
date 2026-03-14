@@ -184,6 +184,40 @@ class TestBrowserlessDownload:
         with pytest.raises(Exception, match="Connection refused"):
             download_one(engine, config, content_id)
 
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    def test_browserless_sends_proxy_launch_arg(self, _mock_bronze, engine, mock_http):
+        """When proxy_url is set, launch.args includes --proxy-server for chromium."""
+        config = make_config(browserless_url="http://browserless:3000", proxy_url="socks5://proxy:1080")
+        content_id = seed_content(engine, "https://example.com/proxy-test", domain="example.com")
+
+        route = mock_http.post("http://browserless:3000/chromium/function").respond(
+            json=self._fn_response(200, "<html><body>ok</body></html>"),
+        )
+
+        assert download_one(engine, config, content_id) == "downloaded"
+
+        import json as _json
+
+        body = _json.loads(route.calls[0].request.content)
+        assert body.get("launch", {}).get("args") == ["--proxy-server=socks5://proxy:1080"]
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    def test_browserless_no_launch_arg_without_proxy(self, _mock_bronze, engine, mock_http):
+        """When proxy_url is empty, no launch key is sent to browserless."""
+        config = make_config(browserless_url="http://browserless:3000")
+        content_id = seed_content(engine, "https://example.com/no-proxy-test", domain="example.com")
+
+        route = mock_http.post("http://browserless:3000/chromium/function").respond(
+            json=self._fn_response(200, "<html><body>ok</body></html>"),
+        )
+
+        assert download_one(engine, config, content_id) == "downloaded"
+
+        import json as _json
+
+        body = _json.loads(route.calls[0].request.content)
+        assert "launch" not in body
+
 
 class TestExtractOne:
     def test_returns_not_found_for_nonexistent_content(self, engine):

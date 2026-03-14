@@ -21,6 +21,7 @@ dependencies = [
     "telethon>=1.37",
     "hatchet-sdk>=1.4",
     "boto3>=1.35",
+    "curl-cffi>=0.7",
 ]
 
 [dependency-groups]
@@ -36,6 +37,7 @@ dev = [
     "moto[s3]>=5.0",
     "pytest-cov>=6.0",
     "diff-cover>=9.0",
+    "pytest-env>=1.0",
 ]
 
 [project.scripts]
@@ -77,6 +79,11 @@ redundant-cast = "warn"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+env = [
+    "AGGRE_BRONZE_BACKEND=filesystem",
+    "AGGRE_BRONZE_S3_ENDPOINT=",
+    "AGGRE_DATABASE_URL=postgresql+psycopg://aggre:aggre@localhost:5433/aggre_test",
+]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

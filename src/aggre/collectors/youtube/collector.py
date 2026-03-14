@@ -55,6 +55,7 @@ class YoutubeCollector(BaseCollector):
                 "quiet": True,
                 "no_warnings": True,
                 "ignoreerrors": True,
+                "impersonate": "chrome",
                 "playlistend": fetch_limit,
             }
             if settings.proxy_url:

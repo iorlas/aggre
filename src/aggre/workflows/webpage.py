@@ -72,6 +72,7 @@ def _download_one(
     url: str,
     original_url: str | None,
     browserless_url: str = "",
+    proxy_url: str = "",
 ) -> str:
     """Download a single URL and store HTML in bronze.
 
@@ -90,7 +91,7 @@ def _download_one(
 
     try:
         if browserless_url:
-            html = _fetch_via_browserless(client, browserless_url, fetch_url)
+            html = _fetch_via_browserless(client, browserless_url, fetch_url, proxy_url)
         else:
             html = _fetch_direct(client, url, fetch_url)
             if html is None:
@@ -135,15 +136,18 @@ _BROWSERLESS_FN = """export default async function ({ page }) {
 }"""
 
 
-def _fetch_via_browserless(client: httpx.Client, browserless_url: str, fetch_url: str) -> str:
+def _fetch_via_browserless(client: httpx.Client, browserless_url: str, fetch_url: str, proxy_url: str = "") -> str:
     """Render a page via Browserless /chromium/function and return HTML.
 
     Raises httpx.HTTPStatusError if the target page returns HTTP >= 400.
     """
     code = _BROWSERLESS_FN.replace("URL", json.dumps(fetch_url))
+    payload: dict[str, object] = {"code": code}
+    if proxy_url:
+        payload["launch"] = {"args": [f"--proxy-server={proxy_url}"]}
     resp = client.post(
         f"{browserless_url}/chromium/function",
-        json={"code": code},
+        json=payload,
         timeout=60.0,
     )
     resp.raise_for_status()  # Browserless service error
@@ -219,7 +223,7 @@ def download_one(
         proxy_url=config.settings.proxy_url or None,
         follow_redirects=True,
     ) as client:
-        return _download_one(client, row.canonical_url, row.original_url, browserless_url)
+        return _download_one(client, row.canonical_url, row.original_url, browserless_url, config.settings.proxy_url or "")
 
 
 def extract_one(

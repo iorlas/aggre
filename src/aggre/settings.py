@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AGGRE_",
-        env_file=".env",
+        env_file=None if "PYTEST_CURRENT_TEST" in os.environ else ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

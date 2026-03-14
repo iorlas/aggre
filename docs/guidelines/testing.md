@@ -69,6 +69,36 @@ omit = ["src/aggre/cli.py"]
 
 Use `omit` for entire modules that are interactive entry points or otherwise structurally untestable as a whole.
 
+## Test Environment Isolation
+
+**Shell env vars contaminate pytest.** Production settings (`AGGRE_BRONZE_BACKEND=s3`,
+`AGGRE_BRONZE_S3_ENDPOINT`, `AGGRE_DATABASE_URL`) bleed into tests when `pytest` is invoked
+directly, causing tests to attempt writes to production S3 or connect to production databases.
+
+Two layers of protection prevent contamination:
+
+1. **`Settings` skips `.env` under pytest** — `settings.py` checks `PYTEST_CURRENT_TEST`
+   (set automatically by pytest) and sets `env_file=None`, so no `.env` file is ever loaded
+   during test runs. Shell env vars are the only source of truth.
+
+2. **`pytest-env` overrides shell env vars** — values in `pyproject.toml` are injected before
+   any fixture or pydantic-settings read, winning over whatever the shell exported:
+
+```toml
+[tool.pytest.ini_options]
+env = [
+    "AGGRE_BRONZE_BACKEND=filesystem",
+    "AGGRE_BRONZE_S3_ENDPOINT=",
+    "AGGRE_DATABASE_URL=postgresql+psycopg://aggre:aggre@localhost:5433/aggre_test",
+]
+```
+
+**Never remove these.** If a test needs S3, use `moto` to mock it — not real S3.
+
+**Diagnostic signal**: if Docker logs show `FATAL: database "aggre" does not exist` on the
+test DB container, it means `AGGRE_DATABASE_URL` in the shell points to the test host but
+with the production database name — env isolation has failed.
+
 ## Test Workflow
 
 Standard verification sequence after making changes:
@@ -80,6 +110,9 @@ make lint              # ruff check + format + ty check
 ```
 
 Run `make test-e2e` first — it produces `coverage.xml` that `coverage-diff` reads. If coverage-diff fails, add tests for the uncovered lines before adding pragmas.
+
+Direct `pytest` invocation (without `make test-e2e`) is also safe thanks to `pytest-env`
+isolation above — but requires a running postgres on port 5433.
 
 ## Test Layers
 

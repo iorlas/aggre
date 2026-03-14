@@ -29,7 +29,7 @@ class TestSettings:
 
         assert s.database_url == "postgresql+psycopg://localhost/aggre"
         assert s.log_dir == "./data/logs"
-        assert s.whisper_model == "large-v3-turbo"
+        assert s.whisper_model == "deepdml/faster-whisper-large-v3-turbo-ct2"
         assert s.telegram_api_id == 0
         assert s.telegram_api_hash == ""
 

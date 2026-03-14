@@ -121,6 +121,7 @@ services:
       AGGRE_DATABASE_URL: "postgresql+psycopg://aggre:${POSTGRES_PASSWORD}@postgres:5432/aggre"
       AGGRE_PROXY_URL: ${AGGRE_PROXY_URL}
       AGGRE_BRONZE_S3_ENDPOINT: "http://garage:3900"
+      AGGRE_BRONZE_S3_BUCKET: aggre-bronze
       AGGRE_BRONZE_BACKEND: s3
       AGGRE_BROWSERLESS_URL: "http://browserless:3000"
       AGGRE_WHISPER_ENDPOINTS: "http://dtomilin-mwg.shrimp-boa.ts.net:8090:2:whisper-cpp:macbook-whisper:2,http://zep.shrimp-boa.ts.net:8100:10:openai:zep-speaches:10"

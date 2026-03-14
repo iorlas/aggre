@@ -74,7 +74,7 @@ jobs:
                   subject-digest: ${{ steps.build.outputs.digest }}
                   push-to-registry: true
 
-            - name: Set IMAGE_TAG in Dokploy env
+            - name: Push compose file and env to Dokploy
               if: github.event_name != 'pull_request'
               env:
                 POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -82,29 +82,31 @@ jobs:
                 AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
                 HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
                 HATCHET_ADMIN_PASSWORD: ${{ secrets.HATCHET_ADMIN_PASSWORD }}
-                AGGRE_PROXY_URL: ${{ secrets.AGGRE_PROXY_URL }}
                 DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
                 DOKPLOY_AUTH_TOKEN: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
                 DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
               run: |
                 IMAGE_TAG="main-$(echo '${{ github.sha }}' | cut -c1-7)"
+                # Secrets + deployment-specific values only. Config lives in compose file.
                 ENV_CONTENT=$(printf '%s\n' \
-                  "POSTGRES_USER=aggre" \
                   "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
-                  "POSTGRES_DB=aggre" \
                   "AGGRE_BRONZE_S3_ACCESS_KEY=${AGGRE_BRONZE_S3_ACCESS_KEY}" \
                   "AGGRE_BRONZE_S3_SECRET_KEY=${AGGRE_BRONZE_S3_SECRET_KEY}" \
-                  "AGGRE_BRONZE_S3_BUCKET=aggre-bronze" \
                   "HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN}" \
                   "HATCHET_ADMIN_PASSWORD=${HATCHET_ADMIN_PASSWORD}" \
-                  "AGGRE_PROXY_URL=${AGGRE_PROXY_URL}" \
-                  "AGGRE_BROWSERLESS_URL=http://browserless:3000" \
+                  "AGGRE_PROXY_URL=socks5h://shen.shrimp-boa.ts.net:1080" \
                   "TAILSCALE_IP=100.65.108.29" \
                   "IMAGE_TAG=${IMAGE_TAG}")
-                curl -sf -X POST "${DOKPLOY_URL}/api/compose.update" \
+                # Push both compose file and env — never let them diverge
+                jq -n \
+                  --arg id "${DOKPLOY_COMPOSE_ID}" \
+                  --arg env "$ENV_CONTENT" \
+                  --arg compose "$(cat docker-compose.prod.yml)" \
+                  '{composeId: $id, env: $env, composeFile: $compose}' \
+                | curl -sf -X POST "${DOKPLOY_URL}/api/compose.update" \
                   -H "x-api-key: ${DOKPLOY_AUTH_TOKEN}" \
                   -H "Content-Type: application/json" \
-                  -d "{\"composeId\": \"${DOKPLOY_COMPOSE_ID}\", \"env\": $(printf '%s' "$ENV_CONTENT" | jq -Rs .)}"
+                  -d @-
 
             - name: Trigger Dokploy deploy
               if: github.event_name != 'pull_request'

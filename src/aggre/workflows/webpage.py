@@ -91,7 +91,7 @@ def _download_one(
 
     try:
         if browserless_url:
-            html = _fetch_via_browserless(client, browserless_url, fetch_url, proxy_url)
+            html = _fetch_via_browserless(browserless_url, fetch_url, proxy_url)
         else:
             html = _fetch_direct(client, url, fetch_url)
             if html is None:
@@ -136,8 +136,11 @@ _BROWSERLESS_FN = """export default async function ({ page }) {
 }"""
 
 
-def _fetch_via_browserless(client: httpx.Client, browserless_url: str, fetch_url: str, proxy_url: str = "") -> str:
+def _fetch_via_browserless(browserless_url: str, fetch_url: str, proxy_url: str = "") -> str:
     """Render a page via Browserless /chromium/function and return HTML.
+
+    Uses a plain (non-proxied) client to reach the browserless API.
+    The proxy is passed to Chromium via --proxy-server launch arg.
 
     Raises httpx.HTTPStatusError if the target page returns HTTP >= 400.
     """
@@ -145,7 +148,7 @@ def _fetch_via_browserless(client: httpx.Client, browserless_url: str, fetch_url
     payload: dict[str, object] = {"code": code}
     if proxy_url:
         payload["launch"] = {"args": [f"--proxy-server={proxy_url}"]}
-    resp = client.post(
+    resp = httpx.post(
         f"{browserless_url}/chromium/function",
         json=payload,
         timeout=60.0,

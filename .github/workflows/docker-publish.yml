@@ -98,6 +98,7 @@ jobs:
                   "HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN}" \
                   "HATCHET_ADMIN_PASSWORD=${HATCHET_ADMIN_PASSWORD}" \
                   "AGGRE_PROXY_URL=${AGGRE_PROXY_URL}" \
+                  "AGGRE_BROWSERLESS_URL=http://browserless:3000" \
                   "TAILSCALE_IP=100.65.108.29" \
                   "IMAGE_TAG=${IMAGE_TAG}")
                 curl -sf -X POST "${DOKPLOY_URL}/api/compose.update" \

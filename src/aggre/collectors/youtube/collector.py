@@ -6,12 +6,12 @@ import json
 import logging
 
 import sqlalchemy as sa
-import yt_dlp
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.youtube.config import YoutubeConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
+from aggre.utils.ytdlp import YtDlpError, VideoUnavailable, extract_channel_info
 
 logger = logging.getLogger(__name__)
 
@@ -51,24 +51,12 @@ class YoutubeCollector(BaseCollector):
             fetch_limit = None if backfill else self._get_fetch_limit(engine, source_id, config.init_fetch_limit, config.fetch_limit)
 
             url = f"https://www.youtube.com/channel/{yt_source.channel_id}/videos"
-            ydl_opts: dict[str, object] = {
-                "quiet": True,
-                "no_warnings": True,
-                "ignoreerrors": True,
-                "impersonate": "chrome",
-                "playlistend": fetch_limit,
-            }
-            if settings.proxy_url:
-                ydl_opts["proxy"] = settings.proxy_url
-                ydl_opts["source_address"] = "0.0.0.0"
 
             try:
-                logger.info("youtube.fetching name=%s limit=%s", yt_source.name, ydl_opts.get("playlistend"))
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    entries = info.get("entries", []) if info else []
+                logger.info("youtube.fetching name=%s limit=%s", yt_source.name, fetch_limit)
+                entries = extract_channel_info(url, proxy_url=settings.proxy_url, fetch_limit=fetch_limit)
                 logger.info("youtube.fetched name=%s entries=%d", yt_source.name, len(entries))
-            except Exception:
+            except (VideoUnavailable, YtDlpError):
                 logger.exception("youtube.fetch_error channel=%s", yt_source.name)
                 continue
 

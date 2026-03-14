@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -228,12 +228,7 @@ class TestYoutubeContentLinking:
     def test_creates_silver_content(self, engine):
         config = make_config(youtube=YoutubeConfig(sources=[YoutubeSource(channel_id="UC_test", name="Test Channel")], fetch_limit=10))
 
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = lambda url, download=False: {"entries": [youtube_entry()]}
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
-
-        with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
+        with patch("aggre.collectors.youtube.collector.extract_channel_info", return_value=[youtube_entry()]):
             collect(YoutubeCollector(), engine, config.youtube, config.settings)
 
         sc_rows = get_contents(engine)

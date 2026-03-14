@@ -21,7 +21,7 @@ For SilverDiscussion:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
@@ -547,12 +547,8 @@ class TestCollectorContentConstraints:
         from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
 
         entries = [youtube_entry(video_id="vid001", title="Test Video")]
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = lambda url, download=False: {"entries": entries}
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
+        with patch("aggre.collectors.youtube.collector.extract_channel_info", return_value=entries):
             config = make_config(
                 youtube=YoutubeConfig(sources=[YoutubeSource(channel_id="UC_test", name="Test Channel")]),
             )
@@ -628,12 +624,8 @@ class TestCollectorContentConstraints:
         from aggre.collectors.youtube.config import YoutubeConfig, YoutubeSource
 
         entries = [youtube_entry(video_id="vid_pipe")]
-        mock_ydl = MagicMock()
-        mock_ydl.extract_info = lambda url, download=False: {"entries": entries}
-        mock_ydl.__enter__ = lambda s: s
-        mock_ydl.__exit__ = MagicMock(return_value=False)
 
-        with patch("aggre.collectors.youtube.collector.yt_dlp.YoutubeDL", return_value=mock_ydl):
+        with patch("aggre.collectors.youtube.collector.extract_channel_info", return_value=entries):
             config = make_config(
                 youtube=YoutubeConfig(sources=[YoutubeSource(channel_id="UC_test", name="Test Channel")]),
             )

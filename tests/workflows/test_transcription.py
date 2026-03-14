@@ -6,6 +6,7 @@ Uses real PostgreSQL engine for DB queries, mocks whisper.cpp server via transcr
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -14,6 +15,7 @@ import sqlalchemy as sa
 
 from aggre.db import SilverContent
 from aggre.utils.whisper_client import TranscriptionResult
+from aggre.utils.ytdlp import VideoUnavailable, YtDlpError
 from aggre.workflows.transcription import _extract_video_id, transcribe_one
 from tests.factories import make_config, seed_content, seed_discussion
 
@@ -147,10 +149,10 @@ class TestTranscribeOne:
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
-    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.download_audio")
     def test_transcribes_and_stores_text(
         self,
-        mock_ydl_cls,
+        mock_download,
         mock_read_or_none,
         mock_get_store,
         mock_write,
@@ -170,9 +172,8 @@ class TestTranscribeOne:
         mock_store.local_path.return_value = audio_file
         mock_get_store.return_value = mock_store
 
-        mock_ydl_instance = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        # download_audio returns the path to the audio file
+        mock_download.return_value = audio_file
 
         result = transcribe_one(engine, config, content_id)
         assert result.status == "transcribed"
@@ -209,10 +210,9 @@ class TestTranscribeOne:
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
-    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
-    def test_download_error_propagates(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
+    @patch("aggre.workflows.transcription.download_audio")
+    def test_download_error_propagates(self, mock_download, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """yt-dlp failure propagates for Hatchet retry."""
-        _seed_youtube(engine, external_id="fail01")
         config = make_config()
 
         audio_file = tmp_path / "nonexistent_audio.opus"
@@ -220,13 +220,29 @@ class TestTranscribeOne:
         mock_store.local_path.return_value = audio_file
         mock_get_store.return_value = mock_store
 
-        mock_ydl_instance = MagicMock()
-        mock_ydl_instance.download.side_effect = Exception("Video unavailable")
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_download.side_effect = YtDlpError("Network error")
 
-        with pytest.raises(Exception, match="Video unavailable"):
+        with pytest.raises(YtDlpError, match="Network error"):
             transcribe_one(engine, config, _seed_youtube(engine, external_id="fail02"))
+
+    @patch("aggre.workflows.transcription.write_bronze")
+    @patch("aggre.workflows.transcription.get_store")
+    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
+    @patch("aggre.workflows.transcription.download_audio")
+    def test_video_unavailable_returns_skipped(self, mock_download, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
+        """VideoUnavailable is caught and returns skipped status."""
+        config = make_config()
+
+        audio_file = tmp_path / "nonexistent_audio.opus"
+        mock_store = MagicMock()
+        mock_store.local_path.return_value = audio_file
+        mock_get_store.return_value = mock_store
+
+        mock_download.side_effect = VideoUnavailable("Video unavailable")
+
+        result = transcribe_one(engine, config, _seed_youtube(engine, external_id="unavail01"))
+        assert result.status == "skipped"
+        assert result.reason == "video_unavailable"
 
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.read_bronze_or_none")
@@ -260,10 +276,10 @@ class TestTranscribeOne:
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
-    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.download_audio")
     def test_writes_whisper_output_to_bronze(
         self,
-        mock_ydl_cls,
+        mock_download,
         mock_read_or_none,
         mock_get_store,
         mock_write,
@@ -283,9 +299,7 @@ class TestTranscribeOne:
         mock_store.local_path.return_value = audio_file
         mock_get_store.return_value = mock_store
 
-        mock_ydl_instance = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_download.return_value = audio_file
 
         transcribe_one(engine, config, content_id)
 
@@ -303,8 +317,8 @@ class TestTranscribeOne:
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
-    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
-    def test_skips_large_audio_file(self, mock_ydl_cls, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
+    @patch("aggre.workflows.transcription.download_audio")
+    def test_skips_large_audio_file(self, mock_download, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
         """Audio >500MB raises ValueError (Hatchet retries or gives up)."""
         content_id = _seed_youtube(engine, external_id="big01")
         config = make_config()
@@ -315,9 +329,7 @@ class TestTranscribeOne:
         mock_store.local_path.return_value = audio_file
         mock_get_store.return_value = mock_store
 
-        mock_ydl_instance = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_download.return_value = audio_file
 
         with patch.object(type(audio_file), "stat", return_value=MagicMock(st_size=600 * 1024 * 1024)):
             with pytest.raises(ValueError, match="500MB"):
@@ -338,10 +350,10 @@ class TestTranscribeOne:
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
-    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
+    @patch("aggre.workflows.transcription.download_audio")
     def test_transcription_server_error_propagates(
         self,
-        mock_ydl_cls,
+        mock_download,
         mock_read_or_none,
         mock_get_store,
         mock_write,
@@ -359,55 +371,12 @@ class TestTranscribeOne:
         mock_store.local_path.return_value = audio_file
         mock_get_store.return_value = mock_store
 
-        mock_ydl_instance = MagicMock()
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_download.return_value = audio_file
 
         mock_transcribe.side_effect = httpx.ConnectError("server down")
 
         with pytest.raises(httpx.ConnectError, match="server down"):
             transcribe_one(engine, config, content_id)
-
-    @patch("aggre.workflows.transcription.transcribe_audio")
-    @patch("aggre.workflows.transcription.write_bronze")
-    @patch("aggre.workflows.transcription.get_store")
-    @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
-    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
-    def test_ydl_opts_include_impersonate(
-        self,
-        mock_ydl_cls,
-        mock_read_or_none,
-        mock_get_store,
-        mock_write,
-        mock_transcribe,
-        engine,
-        tmp_path,
-    ):
-        """yt-dlp opts always include impersonate=chrome for TLS fingerprint evasion."""
-        content_id = _seed_youtube(engine, external_id="imp01")
-        config = make_config()
-
-        mock_transcribe.return_value = TranscriptionResult(text="Hello", language="en", server_name="test-whisper")
-
-        # audio_dest must NOT exist so the download path is triggered
-        audio_dest = tmp_path / "audio.opus"
-        mock_store = MagicMock()
-        mock_store.local_path.return_value = audio_dest
-        mock_get_store.return_value = mock_store
-
-        # Side-effect: create the expected file so the glob finds it
-        def fake_download(urls):
-            (audio_dest.parent / "imp01.opus").write_bytes(b"fake audio data")
-
-        mock_ydl_instance = MagicMock()
-        mock_ydl_instance.download.side_effect = fake_download
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
-
-        transcribe_one(engine, config, content_id)
-
-        opts = mock_ydl_cls.call_args[0][0]
-        assert opts["impersonate"] == "chrome"
 
     def test_empty_whisper_endpoints_raises(self, engine):
         """When whisper_endpoints is empty, transcription raises RuntimeError (Hatchet retries)."""

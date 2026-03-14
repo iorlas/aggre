@@ -12,7 +12,6 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import sqlalchemy as sa
-import yt_dlp
 from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, DefaultFilter
 
 from aggre.config import AppConfig, load_config
@@ -20,6 +19,7 @@ from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
 from aggre.utils.whisper_client import parse_endpoints, transcribe_audio
+from aggre.utils.ytdlp import VideoUnavailable, download_audio
 from aggre.workflows.models import ItemEvent, StepOutput
 
 logger = logging.getLogger(__name__)
@@ -81,39 +81,14 @@ def _transcribe_one(
                 pass  # Not in S3 either — will download from YouTube below
 
         if not audio_dest.exists():
-            # Download audio from YouTube
-            audio_dest.parent.mkdir(parents=True, exist_ok=True)
-            output_path = str(audio_dest.parent / f"{external_id}.%(ext)s")
-
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "impersonate": "chrome",
-                "outtmpl": output_path,
-                "quiet": True,
-                "no_warnings": True,
-                "postprocessors": [
-                    {
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "opus",
-                        "preferredquality": "48",
-                    }
-                ],
-            }
-            if config.settings.proxy_url:
-                ydl_opts["proxy"] = config.settings.proxy_url
-                ydl_opts["source_address"] = "0.0.0.0"
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([f"https://www.youtube.com/watch?v={external_id}"])
-
-            # Find the downloaded file and move to target path
-            candidates = list(audio_dest.parent.glob(f"{external_id}.*"))
-            if not candidates:
-                raise FileNotFoundError(f"No downloaded file found for {external_id}")
-            audio_file = candidates[0]
-
-            if audio_file != audio_dest:
-                audio_file.rename(audio_dest)
+            # Download audio from YouTube via subprocess wrapper
+            downloaded = download_audio(
+                external_id,
+                audio_dest.parent,
+                proxy_url=config.settings.proxy_url,
+            )
+            if downloaded != audio_dest:
+                downloaded.rename(audio_dest)
 
             # Upload audio to S3 so it survives temp dir cleanup
             if is_remote:
@@ -220,7 +195,10 @@ def transcribe_one(
         meta=disc.meta if disc else None,
     )
 
-    return _transcribe_one(engine, config, item)
+    try:
+        return _transcribe_one(engine, config, item)
+    except VideoUnavailable as e:
+        return StepOutput(status="skipped", reason="video_unavailable", url=item.canonical_url, detail={"message": str(e)})
 
 
 # -- Hatchet workflow ----------------------------------------------------------

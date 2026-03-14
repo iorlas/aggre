@@ -139,8 +139,8 @@ class TestTranscriptionViaS3:
             assert row.detected_language == "fr"
 
     @patch("aggre.workflows.transcription.transcribe_audio")
-    @patch("aggre.workflows.transcription.yt_dlp.YoutubeDL")
-    def test_audio_uploaded_to_s3_after_download(self, mock_ydl_cls, mock_transcribe_audio, engine, s3_backend, tmp_path):
+    @patch("aggre.workflows.transcription.download_audio")
+    def test_audio_uploaded_to_s3_after_download(self, mock_download, mock_transcribe_audio, engine, s3_backend, tmp_path):
         """After downloading audio, it's uploaded to S3 for persistence."""
         from aggre.workflows.transcription import transcribe_one
 
@@ -150,17 +150,16 @@ class TestTranscriptionViaS3:
         config.settings.youtube_temp_dir = str(tmp_path / "videos")
         mock_transcribe_audio.return_value = _mock_transcribe()
 
-        # Mock yt_dlp to create a fake audio file matching yt_dlp's output pattern
-        # (the code globs for {external_id}.* then renames to audio.opus)
-        def fake_download(urls):
-            dest = tmp_path / "videos" / "up01"
+        # download_audio creates the file and returns its path
+        def fake_download(video_id, output_dir, *, proxy_url):
+            from pathlib import Path
+            dest = Path(output_dir)
             dest.mkdir(parents=True, exist_ok=True)
-            (dest / "up01.opus").write_bytes(b"fake opus audio")
+            audio_path = dest / "audio.opus"
+            audio_path.write_bytes(b"fake opus audio")
+            return audio_path
 
-        mock_ydl_instance = MagicMock()
-        mock_ydl_instance.download.side_effect = fake_download
-        mock_ydl_cls.return_value.__enter__ = MagicMock(return_value=mock_ydl_instance)
-        mock_ydl_cls.return_value.__exit__ = MagicMock(return_value=False)
+        mock_download.side_effect = fake_download
 
         result = transcribe_one(engine, config, content_id)
         assert result.status == "transcribed"
@@ -171,7 +170,7 @@ class TestTranscriptionViaS3:
 
     @patch("aggre.workflows.transcription.transcribe_audio")
     def test_audio_downloaded_from_s3_skips_yt_dlp(self, mock_transcribe_audio, engine, s3_backend, tmp_path):
-        """When audio exists in S3, yt_dlp is NOT called."""
+        """When audio exists in S3, download_audio is NOT called."""
         from aggre.workflows.transcription import transcribe_one
 
         content_id = _seed_youtube(engine, external_id="s3aud01")
@@ -182,12 +181,12 @@ class TestTranscriptionViaS3:
         # Pre-upload audio to S3
         s3_backend.write_bytes("youtube/s3aud01/audio.opus", b"s3 cached audio")
 
-        with patch("aggre.workflows.transcription.yt_dlp.YoutubeDL") as mock_ydl_cls:
+        with patch("aggre.workflows.transcription.download_audio") as mock_download:
             result = transcribe_one(engine, config, content_id)
 
         assert result.status == "transcribed"
-        # yt_dlp should never have been instantiated
-        mock_ydl_cls.assert_not_called()
+        # download_audio should never have been called
+        mock_download.assert_not_called()
 
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverContent).where(SilverContent.text.isnot(None))).fetchone()

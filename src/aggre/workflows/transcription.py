@@ -203,7 +203,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         default_filters=[DefaultFilter(expression="input.domain == 'youtube.com'", scope="default")],
     )
 
-    @wf.task(execution_timeout="30m", schedule_timeout="720h")
+    @wf.task(execution_timeout="30m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
     def transcribe_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)

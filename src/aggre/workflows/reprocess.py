@@ -72,7 +72,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
     """Register the reprocess workflow with the Hatchet instance."""
     wf = h.workflow(name="reprocess")
 
-    @wf.task(execution_timeout="30m")
+    @wf.task(execution_timeout="30m", schedule_timeout="720h")
     def reprocess_task(input, ctx):
         ctx.log("Starting reprocess from bronze")
         cfg = load_config()

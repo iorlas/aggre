@@ -19,8 +19,7 @@ from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.utils.db import get_engine
-from aggre.workflows.models import ItemEvent
-from aggre.workflows.models import CollectResult
+from aggre.workflows.models import CollectResult, ItemEvent
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +118,7 @@ def register(h) -> list:  # pragma: no cover — Hatchet wiring
         _name = source_name
         _cls = collector_cls
 
-        @wf.task(execution_timeout="30m")
+        @wf.task(execution_timeout="30m", schedule_timeout="720h")
         def collect(input, ctx, _name=_name, _cls=_cls):
             ctx.log(f"Collecting {_name}")
             cfg = load_config()

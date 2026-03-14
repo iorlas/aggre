@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def register(h):  # pragma: no cover — Hatchet wiring
     child_wf = h.workflow(name="collect-rss-feed", input_validator=RssSourceInput)
 
-    @child_wf.task(execution_timeout="5m")
+    @child_wf.task(execution_timeout="5m", schedule_timeout="720h")
     def rss_collect_one(input: RssSourceInput, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
@@ -28,7 +28,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
 
     parent_wf = h.workflow(name="collect-rss", on_crons=["0 */2 * * *"])
 
-    @parent_wf.task(execution_timeout="10m")
+    @parent_wf.task(execution_timeout="10m", schedule_timeout="720h")
     async def rss_fan_out(input, ctx):
         cfg = load_config()
         ctx.log(f"Fanning out to {len(cfg.rss.sources)} RSS feeds")

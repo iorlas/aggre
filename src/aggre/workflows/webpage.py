@@ -282,7 +282,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         default_filters=[DefaultFilter(expression=_webpage_filter_expr, scope="default")],
     )
 
-    @wf.task(execution_timeout="5m", schedule_timeout="72h")
+    @wf.task(execution_timeout="5m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
     def download_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
@@ -290,7 +290,14 @@ def register(h):  # pragma: no cover — Hatchet wiring
         ctx.log(f"Download: {status} for content_id={input.content_id}")
         return {"status": status}
 
-    @wf.task(parents=[download_task], execution_timeout="5m", schedule_timeout="72h")
+    @wf.task(
+        parents=[download_task],
+        execution_timeout="5m",
+        schedule_timeout="720h",
+        retries=7,
+        backoff_factor=4,
+        backoff_max_seconds=3600,
+    )
     def extract_task(input: ItemEvent, ctx):
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)

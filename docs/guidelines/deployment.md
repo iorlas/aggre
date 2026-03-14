@@ -82,6 +82,7 @@ Agents must always read from `~/.config/dokploy/token` before asking the user fo
 
 | Topic | File |
 |---|---|
+| Tailscale DNS, FQDNs, private access | [tailscale.md](tailscale.md) |
 | Choose deployment model (GitHub Integration vs GHA) | [model-selection.md](model-selection.md) |
 | Deploy from scratch (step-by-step) | [deploy-from-scratch.md](deploy-from-scratch.md) |
 | Non-HTTP service deployment (TCP, databases) | [non-http.md](non-http.md) |

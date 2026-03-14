@@ -21,7 +21,7 @@ dependencies = [
     "telethon>=1.37",
     "hatchet-sdk>=1.4",
     "boto3>=1.35",
-    "curl-cffi>=0.7",
+    "curl-cffi>=0.7,<0.15",
 ]
 
 [dependency-groups]

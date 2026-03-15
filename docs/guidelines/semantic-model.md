@@ -22,29 +22,29 @@ tables:
     description: >
       One row per canonical URL. The content artifact (article, video, paper) itself,
       independent of discussions about it. This is the cross-source pivot table.
-      Processing state uses null-check pattern: text IS NULL AND error IS NULL = needs processing.
+      Processing state uses null-check pattern: text IS NULL = needs processing.
     columns:
       id:                     { type: serial, pk: true }
       canonical_url:          { type: text, not_null: true, unique: true, description: "Normalized URL (see urls.py)" }
+      original_url:           { type: text, nullable: true, description: "Pre-normalization URL" }
       domain:                 { type: text, nullable: true, description: "Extracted domain for grouping/filtering" }
       title:                  { type: text, nullable: true, description: "Page title (from trafilatura extraction)" }
       text:                   { type: text, nullable: true, description: "Article body (trafilatura) OR video transcript (whisper)" }
-      error:                  { type: text, nullable: true, description: "Error message if processing failed, or 'skipped:reason' for skipped content" }
-      fetched_at:             { type: text, nullable: true, description: "ISO 8601 — when content was fetched (intermediate marker between download and extraction)" }
       created_at:             { type: text, default: "now()", description: "ISO 8601 timestamp" }
       detected_language:      { type: text, nullable: true, description: "ISO language code from whisper" }
-      enriched_at:            { type: text, nullable: true, description: "ISO 8601 — when discussion search was run for this URL" }
+      transcribed_by:         { type: text, nullable: true, description: "Transcription model identifier (e.g. whisper model name)" }
+      discussions_searched_at: { type: text, nullable: true, description: "ISO 8601 — when discussion search was last run for this URL. NULL = never searched." }
     indexes:
       - idx_silver_content_domain: { columns: [domain], where: "domain IS NOT NULL" }
-      - idx_content_needs_processing: { columns: [id], where: "text IS NULL AND error IS NULL" }
-      - idx_content_needs_discussion_search: { columns: [id], where: "text IS NOT NULL AND canonical_url IS NOT NULL" }
+      - idx_content_text_null: { columns: [id], where: "text IS NULL" }
+      - idx_content_needs_discussion_search: { columns: [id], where: "discussions_searched_at IS NULL AND text IS NOT NULL" }
 
   silver_discussions:
     description: >
       One row per source discussion (HN thread, Reddit post, RSS entry, etc.).
       Multiple discussions can reference the same silver_content row — this is the
       cross-source join. The main table for analysis queries.
-      Comment processing uses null-check pattern: comments_json IS NULL AND error IS NULL = needs fetching.
+      Comment processing uses null-check pattern: comments_json IS NULL = needs fetching.
     columns:
       id:                     { type: serial, pk: true }
       source_id:              { type: integer, nullable: true, fk: "sources.id" }
@@ -59,9 +59,9 @@ tables:
       fetched_at:             { type: text, default: "now()", description: "ISO 8601 — when we collected it" }
       meta:                   { type: text, nullable: true, description: "JSON string — source-specific metadata (see meta section below)" }
       comments_json:          { type: text, nullable: true, description: "Raw comments JSON blob. NULL = not yet fetched (for sources that support comments)" }
-      error:                  { type: text, nullable: true, description: "Error message if comment fetching failed" }
       score:                  { type: integer, nullable: true, description: "Platform-specific score — see score semantics below" }
       comment_count:          { type: integer, nullable: true }
+      comments_fetched_at:    { type: text, nullable: true, description: "ISO 8601 — when comments were last fetched. NULL = not yet fetched. Used for staleness-based re-fetching." }
     constraints:
       - unique: [source_type, external_id]
     indexes:
@@ -69,7 +69,7 @@ tables:
       - idx_silver_discussions_published: [published_at]
       - idx_silver_discussions_source_id: [source_id]
       - idx_silver_discussions_external: [source_type, external_id]
-      - idx_discussions_needs_comments: { columns: [id], where: "comments_json IS NULL AND error IS NULL" }
+      - idx_discussions_comments_null: { columns: [id], where: "comments_json IS NULL" }
       - idx_silver_discussions_url: { columns: [url], where: "url IS NOT NULL" }
       - idx_silver_discussions_content_id: { columns: [content_id], where: "content_id IS NOT NULL" }
 ```
@@ -137,7 +137,7 @@ Cast with `meta::jsonb` before querying.
 
 7. **YouTube `score` is NULL** — YouTube view counts are in `meta::jsonb->>'view_count'`, not in the `score` column.
 
-8. **Discussion search creates discussions** — the discussion search process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_discussions` rows. Check `silver_content.enriched_at IS NOT NULL` to find content that has been searched.
+8. **Discussion search creates discussions** — the discussion search process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_discussions` rows. Check `silver_content.discussions_searched_at IS NOT NULL` to find content that has been searched.
 
 ---
 
@@ -318,26 +318,18 @@ LIMIT 20;
 -- Processing state overview
 SELECT
   CASE
-    WHEN text IS NOT NULL THEN 'processed'
-    WHEN error IS NOT NULL THEN 'failed_or_skipped'
-    WHEN fetched_at IS NOT NULL THEN 'downloaded_not_extracted'
+    WHEN text IS NOT NULL AND discussions_searched_at IS NOT NULL THEN 'processed_and_searched'
+    WHEN text IS NOT NULL THEN 'processed_pending_search'
     ELSE 'pending'
   END AS state,
   COUNT(*) AS count
 FROM silver_content
 GROUP BY state;
 
--- Content that failed to process
-SELECT canonical_url, domain, error
-FROM silver_content
-WHERE error IS NOT NULL AND error NOT LIKE 'skipped:%'
-ORDER BY created_at::timestamptz DESC
-LIMIT 20;
-
--- Content still pending processing
+-- Content still pending text processing
 SELECT canonical_url, domain, created_at
 FROM silver_content
-WHERE text IS NULL AND error IS NULL
+WHERE text IS NULL
 ORDER BY created_at::timestamptz DESC;
 ```
 
@@ -349,9 +341,6 @@ ORDER BY created_at::timestamptz DESC;
 SELECT
   CASE
     WHEN text IS NOT NULL THEN 'processed'
-    WHEN error LIKE 'skipped:%' THEN 'skipped'
-    WHEN error IS NOT NULL THEN 'failed'
-    WHEN fetched_at IS NOT NULL THEN 'downloaded'
     ELSE 'pending'
   END AS state,
   COUNT(*)
@@ -361,7 +350,6 @@ FROM silver_content GROUP BY state;
 SELECT
   CASE
     WHEN comments_json IS NOT NULL THEN 'fetched'
-    WHEN error IS NOT NULL THEN 'failed'
     ELSE 'pending'
   END AS state,
   COUNT(*)
@@ -377,7 +365,7 @@ SELECT source_type, COUNT(*) FROM silver_discussions GROUP BY source_type ORDER 
 ```sql
 -- How many content URLs have been searched for discussions
 SELECT
-  CASE WHEN enriched_at IS NOT NULL THEN 'searched' ELSE 'not_searched' END AS status,
+  CASE WHEN discussions_searched_at IS NOT NULL THEN 'searched' ELSE 'not_searched' END AS status,
   COUNT(*)
 FROM silver_content
 GROUP BY status;
@@ -386,7 +374,7 @@ GROUP BY status;
 SELECT sc.canonical_url, sc.domain, sc.title
 FROM silver_content sc
 LEFT JOIN silver_discussions sd ON sd.content_id = sc.id
-WHERE sc.enriched_at IS NOT NULL
+WHERE sc.discussions_searched_at IS NOT NULL
 GROUP BY sc.id
 HAVING COUNT(DISTINCT sd.source_type) <= 1
 LIMIT 20;

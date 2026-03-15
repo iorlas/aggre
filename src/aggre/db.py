@@ -34,6 +34,7 @@ class SilverContent(Base):
     created_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
     detected_language: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     transcribed_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    discussions_searched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SilverDiscussion(Base):
@@ -55,6 +56,7 @@ class SilverDiscussion(Base):
     comments_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     score: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     comment_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    comments_fetched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 # SilverContent indexes
@@ -63,7 +65,7 @@ sa.Index("idx_content_text_null", SilverContent.id, postgresql_where=SilverConte
 sa.Index(
     "idx_content_needs_discussion_search",
     SilverContent.id,
-    postgresql_where=sa.and_(SilverContent.text.isnot(None), SilverContent.canonical_url.isnot(None)),
+    postgresql_where=sa.and_(SilverContent.discussions_searched_at.is_(None), SilverContent.text.isnot(None)),
 )
 
 # SilverDiscussion indexes

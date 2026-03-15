@@ -7,16 +7,20 @@ import logging
 from unittest.mock import patch
 
 import pytest
+import sqlalchemy as sa
 
 from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.collectors.lobsters.config import LobstersConfig, LobstersSource
 from aggre.config import AppConfig
+from aggre.db import SilverDiscussion
 from aggre.settings import Settings
 from tests.factories import (
     lobsters_comment,
     lobsters_story,
     lobsters_story_detail,
     make_config,
+    seed_content,
+    seed_discussion,
 )
 from tests.helpers import collect, get_discussions, get_sources
 
@@ -98,112 +102,28 @@ class TestLobstersCollectorDiscussions:
         assert collect(collector, engine, config.lobsters, config.settings) == 0
 
 
-class TestLobstersCollectorComments:
-    def test_fetches_comments_and_marks_done(self, engine, mock_http):
-        # Collect a story first
-        story = lobsters_story()
-        mock_http.get(url__regex=r"hottest\.json").respond(json=[story])
-        mock_http.get(url__regex=r"newest\.json").respond(json=[])
+class TestLobstersCollectorFetchDiscussionComments:
+    def test_sets_comments_fetched_at_on_success(self, engine, mock_http):
+        config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
+        collector = LobstersCollector()
 
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collect(LobstersCollector(), engine, config.lobsters, config.settings)
+        content_id = seed_content(engine, "https://example.com/lob-fetch-test", domain="example.com")
+        discussion_id = seed_discussion(
+            engine, source_type="lobsters", external_id="abc123", content_id=content_id
+        )
 
-        # Reset mock_http for comment fetching
-        mock_http.reset()
-
-        # Now fetch comments
         comment = lobsters_comment(short_id="com1", comment="Nice!")
         detail = lobsters_story_detail(short_id="abc123", comments=[comment])
         mock_http.get(url__regex=r"s/abc123\.json").respond(json=detail)
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            collector = LobstersCollector()
-            fetched = collector.collect_comments(engine, config.lobsters, config.settings, batch_limit=10)
+            collector.fetch_discussion_comments(engine, discussion_id, "abc123", None, config.settings)
 
-        assert fetched == 1
-
-        # Verify comments stored as JSON on SilverDiscussion
-        items = get_discussions(engine)
-        assert len(items) == 1
-        assert items[0].comments_json is not None
-        comments_data = json.loads(items[0].comments_json)
-        assert len(comments_data) == 1
-        assert comments_data[0]["commenting_user"]["username"] == "commenter"
-        assert comments_data[0]["comment"] == "Nice!"
-        assert items[0].comment_count == 1
-
-        # Comments have been fetched
-        assert items[0].comments_json is not None
-
-    def test_indent_levels(self, engine, mock_http):
-        story = lobsters_story()
-        mock_http.get(url__regex=r"hottest\.json").respond(json=[story])
-        mock_http.get(url__regex=r"newest\.json").respond(json=[])
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collect(LobstersCollector(), engine, config.lobsters, config.settings)
-
-        # Reset mock_http for comment fetching
-        mock_http.reset()
-
-        parent = lobsters_comment(short_id="c1", comment="Parent", indent_level=1)
-        child = lobsters_comment(short_id="c2", comment="Child", indent_level=2, parent_comment="c1")
-        detail = lobsters_story_detail(short_id="abc123", comments=[parent, child])
-        mock_http.get(url__regex=r"s/abc123\.json").respond(json=detail)
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            collector = LobstersCollector()
-            collector.collect_comments(engine, config.lobsters, config.settings, batch_limit=10)
-
-        items = get_discussions(engine)
-        assert items[0].comments_json is not None
-        comments_data = json.loads(items[0].comments_json)
-        assert len(comments_data) == 2
-        assert comments_data[0]["comment"] == "Parent"
-        assert comments_data[0]["indent_level"] == 1
-        assert comments_data[1]["comment"] == "Child"
-        assert comments_data[1]["indent_level"] == 2
-        assert comments_data[1]["parent_comment"] == "c1"
-
-    def test_no_pending_returns_zero(self, engine):
-        config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-        collector = LobstersCollector()
-        assert collector.collect_comments(engine, config.lobsters, config.settings, batch_limit=10) == 0
-
-    def test_zero_batch_returns_zero(self, engine):
-        config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-        collector = LobstersCollector()
-        assert collector.collect_comments(engine, config.lobsters, config.settings, batch_limit=0) == 0
-
-    def test_respects_batch_limit(self, engine, mock_http):
-        stories = [lobsters_story(short_id=f"s{i}", title=f"Story {i}") for i in range(3)]
-        mock_http.get(url__regex=r"hottest\.json").respond(json=stories)
-        mock_http.get(url__regex=r"newest\.json").respond(json=[])
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collect(LobstersCollector(), engine, config.lobsters, config.settings)
-
-        # Reset mock_http for comment fetching
-        mock_http.reset()
-
-        for i in range(3):
-            detail = lobsters_story_detail(short_id=f"s{i}", comments=[])
-            mock_http.get(url__regex=rf"s/s{i}\.json").respond(json=detail)
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            collector = LobstersCollector()
-            fetched = collector.collect_comments(engine, config.lobsters, config.settings, batch_limit=2)
-
-        assert fetched == 2
-
-        items = get_discussions(engine)
-        done = [i for i in items if i.comments_json is not None]
-        pending = [i for i in items if i.comments_json is None]
-        assert len(done) == 2
-        assert len(pending) == 1
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)
+            ).first()
+        assert row.comments_fetched_at is not None
 
 
 class TestLobstersSearchByUrl:

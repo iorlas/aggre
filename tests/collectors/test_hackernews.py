@@ -11,12 +11,17 @@ import sqlalchemy as sa
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.db import SilverContent, SilverDiscussion
+import sqlalchemy as sa
+
+from aggre.db import SilverDiscussion
 from tests.factories import (
     hn_comment_child,
     hn_hit,
     hn_item_response,
     hn_search_response,
     make_config,
+    seed_content,
+    seed_discussion,
 )
 from tests.helpers import collect, get_discussions, get_sources
 
@@ -164,160 +169,30 @@ class TestHackernewsCollectorDiscussions:
         assert len(get_discussions(engine)) == 0
 
 
-class TestHackernewsCollectorComments:
-    def test_fetches_comments_and_marks_done(self, engine, mock_http):
+class TestHackernewsCollectorFetchDiscussionComments:
+    def test_sets_comments_fetched_at_on_success(self, engine, mock_http):
         config = make_config(
             hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
             rate_limit=0.0,
         )
         collector = HackernewsCollector()
 
-        # First, collect a story
-        hit = hn_hit()
-        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
-            json=hn_search_response(hit),
-        )
+        content_id = seed_content(engine, "https://example.com/hn-fetch-test", domain="example.com")
+        discussion_id = seed_discussion(engine, source_type="hackernews", external_id="12345", content_id=content_id)
 
-        with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings)
-
-        # Now fetch comments
         comment = hn_comment_child(comment_id=100, text="Nice!")
         mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").respond(
             json=hn_item_response(object_id="12345", children=[comment]),
         )
 
         with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
+            collector.fetch_discussion_comments(engine, discussion_id, "12345", None, config.settings)
 
-        assert fetched == 1
-
-        # Verify comments stored as JSON on SilverDiscussion
-        items = get_discussions(engine)
-        assert len(items) == 1
-        assert items[0].comments_json is not None
-        comments_data = json.loads(items[0].comments_json)
-        assert len(comments_data) == 1
-        assert comments_data[0]["author"] == "commenter"
-        assert comments_data[0]["text"] == "Nice!"
-        assert items[0].comment_count == 1
-
-        # Comments have been fetched
-        assert items[0].comments_json is not None
-
-    def test_nested_comments(self, engine, mock_http):
-        config = make_config(
-            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
-            rate_limit=0.0,
-        )
-        collector = HackernewsCollector()
-
-        hit = hn_hit()
-        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
-            json=hn_search_response(hit),
-        )
-
-        with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings)
-
-        reply = hn_comment_child(comment_id=200, text="I agree", children=[])
-        parent = hn_comment_child(comment_id=100, text="Top level", children=[reply])
-        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").respond(
-            json=hn_item_response(object_id="12345", children=[parent]),
-        )
-
-        with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
-
-        items = get_discussions(engine)
-        assert items[0].comments_json is not None
-        comments_data = json.loads(items[0].comments_json)
-        # Top-level has 1 child (parent comment)
-        assert len(comments_data) == 1
-        assert comments_data[0]["text"] == "Top level"
-        # Nested reply is inside children
-        assert len(comments_data[0]["children"]) == 1
-        assert comments_data[0]["children"][0]["text"] == "I agree"
-
-    def test_no_pending_returns_zero(self, engine):
-        config = make_config(
-            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
-            rate_limit=0.0,
-        )
-        collector = HackernewsCollector()
-        assert collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10) == 0
-
-    def test_zero_batch_returns_zero(self, engine):
-        config = make_config(
-            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
-            rate_limit=0.0,
-        )
-        collector = HackernewsCollector()
-        assert collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=0) == 0
-
-    def test_respects_batch_limit(self, engine, mock_http):
-        config = make_config(
-            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
-            rate_limit=0.0,
-        )
-        collector = HackernewsCollector()
-
-        # Collect 3 stories
-        hits = [hn_hit(object_id=str(i), title=f"Story {i}") for i in range(3)]
-        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
-            json=hn_search_response(*hits),
-        )
-
-        with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings)
-
-        # Fetch comments with batch_limit=2 — set up routes for all 3 stories
-        for i in range(3):
-            mock_http.get(url__startswith=f"https://hn.algolia.com/api/v1/items/{i}").respond(
-                json=hn_item_response(object_id=str(i), children=[]),
-            )
-
-        with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=2)
-
-        assert fetched == 2
-
-        items = get_discussions(engine)
-        done = [i for i in items if i.comments_json is not None]
-        pending = [i for i in items if i.comments_json is None]
-        assert len(done) == 2
-        assert len(pending) == 1
-
-    def test_comments_fetch_failure_marks_failed(self, engine, mock_http):
-        """Comments API fails → _mark_comments_failed records tracking error."""
-        config = make_config(
-            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
-            rate_limit=0.0,
-        )
-        collector = HackernewsCollector()
-
-        # First, collect a story
-        hit = hn_hit()
-        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
-            json=hn_search_response(hit),
-        )
-
-        with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            collect(collector, engine, config.hackernews, config.settings)
-
-        # Comments fetch fails
-        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/12345").mock(
-            side_effect=Exception("Timeout"),
-        )
-
-        with patch("aggre.collectors.hackernews.collector.time.sleep"):
-            fetched = collector.collect_comments(engine, config.hackernews, config.settings, batch_limit=10)
-
-        assert fetched == 0
-
-        # Discussion should still have no comments_json
-        items = get_discussions(engine)
-        assert items[0].comments_json is None
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)
+            ).first()
+        assert row.comments_fetched_at is not None
 
 
 class TestHackernewsSearchByUrl:

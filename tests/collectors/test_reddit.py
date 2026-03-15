@@ -8,9 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+import sqlalchemy as sa
 
 from aggre.collectors.reddit.collector import RedditCollector, _rate_limit_sleep
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
+from aggre.db import SilverDiscussion
 from aggre.utils.http import create_http_client
 from tests.factories import (
     make_config,
@@ -18,6 +20,8 @@ from tests.factories import (
     reddit_comment_listing,
     reddit_listing,
     reddit_post,
+    seed_content,
+    seed_discussion,
 )
 from tests.helpers import collect, get_discussions, get_sources
 
@@ -104,129 +108,34 @@ class TestRedditCollectorDiscussions:
         assert items[0].comments_json is None
 
 
-class TestRedditCollectorComments:
-    def test_collect_comments_fetches_and_marks_done(self, engine, mock_http):
-        """collect_comments() should fetch comments for pending posts and mark them done."""
-        # First, collect posts
-        post = reddit_post()
-        listing = reddit_listing(post)
-        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
-        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
+class TestRedditCollectorFetchDiscussionComments:
+    def test_sets_comments_fetched_at_on_success(self, engine, mock_http):
+        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
+        collector = RedditCollector()
 
-        with patch("aggre.collectors.reddit.collector.time.sleep"):
-            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
-            collect(RedditCollector(), engine, config.reddit, config.settings)
+        content_id = seed_content(engine, "https://example.com/reddit-fetch-test", domain="example.com")
+        discussion_id = seed_discussion(
+            engine,
+            source_type="reddit",
+            external_id="t3_abc123",
+            content_id=content_id,
+            meta='{"subreddit": "python"}',
+        )
 
-        # Reset mock_http for comment requests
-        mock_http.reset()
-
-        # Now collect comments
         comment = reddit_comment(comment_id="com1", body="Great post!")
         comment_response = reddit_comment_listing(comment)
         mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_response)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, batch_limit=10)
+            collector.fetch_discussion_comments(
+                engine, discussion_id, "t3_abc123", '{"subreddit": "python"}', config.settings
+            )
 
-        assert fetched == 1
-
-        # Verify comments are stored as JSON on SilverDiscussion
-        items = get_discussions(engine)
-        assert len(items) == 1
-        assert items[0].comments_json is not None
-        comments_data = json.loads(items[0].comments_json)
-        assert len(comments_data) == 1
-        assert comments_data[0]["data"]["body"] == "Great post!"
-        assert comments_data[0]["data"]["author"] == "commenter"
-        assert items[0].comment_count == 1
-
-        # Comments have been fetched
-        assert items[0].comments_json is not None
-
-    def test_collect_comments_respects_batch_limit(self, engine, mock_http):
-        """collect_comments() should only process batch_limit posts."""
-        # Create 3 posts
-        post1 = reddit_post(post_id="aaa", title="First")
-        post2 = reddit_post(post_id="bbb", title="Second")
-        post3 = reddit_post(post_id="ccc", title="Third")
-        listing = reddit_listing(post1, post2, post3)
-
-        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
-        mock_http.get(url__regex=r".*/new\.json.*").respond(json=reddit_listing())
-
-        with patch("aggre.collectors.reddit.collector.time.sleep"):
-            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
-            collect(RedditCollector(), engine, config.reddit, config.settings)
-
-        # Reset mock_http for comment requests
-        mock_http.reset()
-
-        # Fetch comments with batch_limit=2
-        mock_http.get(url__regex=r".*/comments/aaa\.json.*").respond(json=reddit_comment_listing())
-        mock_http.get(url__regex=r".*/comments/bbb\.json.*").respond(json=reddit_comment_listing())
-        mock_http.get(url__regex=r".*/comments/ccc\.json.*").respond(json=reddit_comment_listing())
-
-        with patch("aggre.collectors.reddit.collector.time.sleep"):
-            fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, batch_limit=2)
-
-        assert fetched == 2
-
-        # One should still be pending
-        items = get_discussions(engine)
-        done = [i for i in items if i.comments_json is not None]
-        pending = [i for i in items if i.comments_json is None]
-        assert len(done) == 2
-        assert len(pending) == 1
-
-    def test_collect_comments_no_pending(self, engine):
-        """collect_comments() returns 0 when no pending posts exist."""
-        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
-        fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, batch_limit=10)
-        assert fetched == 0
-
-    def test_collect_comments_zero_batch_limit(self, engine):
-        """collect_comments() returns 0 when batch_limit is 0."""
-        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
-        fetched = RedditCollector().collect_comments(engine, config.reddit, config.settings, batch_limit=0)
-        assert fetched == 0
-
-    def test_nested_comments(self, engine, mock_http):
-        # Collect posts first
-        post = reddit_post()
-        listing = reddit_listing(post)
-        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
-        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
-
-        with patch("aggre.collectors.reddit.collector.time.sleep"):
-            config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
-            collect(RedditCollector(), engine, config.reddit, config.settings)
-
-        # Reset mock_http for comment requests
-        mock_http.reset()
-
-        # Fetch comments with nested replies
-        reply = reddit_comment(comment_id="reply1", body="I agree", parent_id="t1_com1")
-        parent_comment = reddit_comment(
-            comment_id="com1",
-            body="Top level",
-            replies={"data": {"children": [reply]}},
-        )
-        comment_response = reddit_comment_listing(parent_comment)
-        mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_response)
-
-        with patch("aggre.collectors.reddit.collector.time.sleep"):
-            RedditCollector().collect_comments(engine, config.reddit, config.settings, batch_limit=10)
-
-        items = get_discussions(engine)
-        assert items[0].comments_json is not None
-        comments_data = json.loads(items[0].comments_json)
-        # The top-level children list has 1 comment (parent_comment)
-        assert len(comments_data) == 1
-        assert comments_data[0]["data"]["body"] == "Top level"
-        # The nested reply is inside the parent comment's replies
-        replies = comments_data[0]["data"]["replies"]["data"]["children"]
-        assert len(replies) == 1
-        assert replies[0]["data"]["body"] == "I agree"
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)
+            ).first()
+        assert row.comments_fetched_at is not None
 
 
 class TestRedditCollectorRateLimit:

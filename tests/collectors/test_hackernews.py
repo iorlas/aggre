@@ -11,9 +11,6 @@ import sqlalchemy as sa
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.hackernews.config import HackernewsConfig, HackernewsSource
 from aggre.db import SilverContent, SilverDiscussion
-import sqlalchemy as sa
-
-from aggre.db import SilverDiscussion
 from tests.factories import (
     hn_comment_child,
     hn_hit,

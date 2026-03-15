@@ -194,7 +194,7 @@ class LobstersCollector(BaseCollector):
             data = resp.json()
             write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
             comments = data.get("comments", [])
-            self._mark_comments_done(engine, discussion_id, external_id, json.dumps(comments), len(comments))
+            self._mark_comments_done(engine, discussion_id, json.dumps(comments), len(comments))
 
     def search_by_url(
         self,

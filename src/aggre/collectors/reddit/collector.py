@@ -259,4 +259,4 @@ class RedditCollector(BaseCollector):
                 comment_children = data[1].get("data", {}).get("children", [])
                 comments_json = json.dumps(comment_children)
                 comment_count = len(comment_children)
-            self._mark_comments_done(engine, discussion_id, external_id, comments_json, comment_count)
+            self._mark_comments_done(engine, discussion_id, comments_json, comment_count)

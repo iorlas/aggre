@@ -197,7 +197,7 @@ class HackernewsCollector(BaseCollector):
             data = resp.json()
             write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
             children = data.get("children", [])
-            self._mark_comments_done(engine, discussion_id, external_id, json.dumps(children), len(children))
+            self._mark_comments_done(engine, discussion_id, json.dumps(children), len(children))
 
     def search_by_url(
         self,

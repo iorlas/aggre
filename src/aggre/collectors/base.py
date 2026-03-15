@@ -14,9 +14,6 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.db import SilverContent, SilverDiscussion, Source
 from aggre.settings import Settings
-from aggre.tracking.model import StageTracking
-from aggre.tracking.ops import retry_filter, upsert_done, upsert_failed
-from aggre.tracking.status import Stage
 from aggre.urls import normalize_url
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
 from aggre.utils.db import now_iso
@@ -109,39 +106,14 @@ class BaseCollector:
             return False
         return last >= cutoff
 
-    def _query_pending_comments(self, engine: sa.engine.Engine, batch_limit: int) -> list[sa.Row]:
-        """Return discussions with pending comments for this source_type."""
-        with engine.connect() as conn:
-            return conn.execute(
-                sa.select(SilverDiscussion.id, SilverDiscussion.external_id, SilverDiscussion.meta)
-                .outerjoin(
-                    StageTracking,
-                    sa.and_(
-                        StageTracking.source == self.source_type,
-                        StageTracking.external_id == SilverDiscussion.external_id,
-                        StageTracking.stage == Stage.COMMENTS,
-                    ),
-                )
-                .where(
-                    SilverDiscussion.source_type == self.source_type,
-                    SilverDiscussion.comments_json.is_(None),
-                    sa.or_(
-                        StageTracking.id.is_(None),
-                        retry_filter(StageTracking, Stage.COMMENTS),
-                    ),
-                )
-                .limit(batch_limit)
-            ).fetchall()
-
     def _mark_comments_done(
         self,
         engine: sa.engine.Engine,
         discussion_id: int,
-        external_id: str,
         comments_json: str | None,
         comment_count: int,
     ) -> None:
-        """Store fetched comments on a discussion and record tracking."""
+        """Store fetched comments on a discussion."""
         with engine.begin() as conn:
             conn.execute(
                 sa.update(SilverDiscussion)
@@ -149,18 +121,9 @@ class BaseCollector:
                 .values(
                     comments_json=comments_json,
                     comment_count=comment_count,
+                    comments_fetched_at=now_iso(),
                 )
             )
-        upsert_done(engine, self.source_type, external_id, Stage.COMMENTS)
-
-    def _mark_comments_failed(
-        self,
-        engine: sa.engine.Engine,
-        external_id: str,
-        error: str,
-    ) -> None:
-        """Record comments fetch failure in tracking."""
-        upsert_failed(engine, self.source_type, external_id, Stage.COMMENTS, error)
 
     @staticmethod
     def _upsert_discussion(

@@ -12,6 +12,7 @@ import pytest
 from hatchet_sdk.clients.events import PushEventOptions
 
 from aggre.workflows.collection import collect_source
+from aggre.workflows.models import CollectResult
 from tests.factories import make_config
 
 pytestmark = pytest.mark.integration
@@ -43,7 +44,7 @@ class TestCollectSource:
         engine = MagicMock()
         result = collect_source(engine, cfg, "hackernews", mock_cls)
 
-        assert result == 1
+        assert result == CollectResult(source="hackernews", succeeded=1, failed=0, total=1)
         mock_instance.collect_discussions.assert_called_once()
         mock_instance.process_discussion.assert_called_once()
 
@@ -64,7 +65,7 @@ class TestCollectSource:
         result = collect_source(engine, cfg, "hackernews", mock_cls)
 
         # First and third succeed, second fails -> 2 processed
-        assert result == 2
+        assert result == CollectResult(source="hackernews", succeeded=2, failed=1, total=3)
         assert mock_instance.process_discussion.call_count == 3
 
     def test_returns_count(self) -> None:
@@ -79,7 +80,7 @@ class TestCollectSource:
 
         result = collect_source(MagicMock(), cfg, "hackernews", mock_cls)
 
-        assert result == 3
+        assert result == CollectResult(source="hackernews", succeeded=3, failed=0, total=3)
 
     def test_source_error_propagates(self) -> None:
         """collect_discussions raising propagates — retry handles it."""
@@ -173,7 +174,7 @@ class TestEventEmission:
 
         # Should not raise — event emission failure is logged, not propagated
         result = collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
-        assert result == 2
+        assert result == CollectResult(source="hackernews", succeeded=2, failed=0, total=2, event_errors=2)
 
     def test_no_event_when_content_id_null(self) -> None:
         """No event emitted when discussion has no content_id."""

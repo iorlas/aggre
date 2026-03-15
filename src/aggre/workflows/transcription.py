@@ -219,11 +219,11 @@ def register(h):  # pragma: no cover — Hatchet wiring
     )
 
     @wf.task(execution_timeout="30m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
-    def transcribe_task(input: ItemEvent, ctx):
+    def transcribe_task(input: ItemEvent, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = transcribe_one(engine, cfg, input.content_id)
         ctx.log(f"Transcription: {result.status} for content_id={input.content_id}")
-        return result.model_dump(exclude_none=True)
+        return result
 
     return wf

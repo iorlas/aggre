@@ -83,8 +83,15 @@ def search_one(
     if hn_error and lobsters_error:
         raise hn_error  # pragma: no cover — both APIs down
 
-    logger.info("discussion_search.searched url=%s hackernews=%d lobsters=%d", content_url, hn_found, lobsters_found)
-    return StepOutput(status="searched", url=content_url, detail={"hackernews": str(hn_found), "lobsters": str(lobsters_found)})
+    detail: dict[str, str] = {"hackernews": str(hn_found), "lobsters": str(lobsters_found)}
+    if hn_error:
+        detail["hackernews_error"] = str(hn_error)
+    if lobsters_error:
+        detail["lobsters_error"] = str(lobsters_error)
+
+    status = "searched_partial" if (hn_error or lobsters_error) else "searched"
+    logger.info("discussion_search.searched url=%s status=%s hackernews=%d lobsters=%d", content_url, status, hn_found, lobsters_found)
+    return StepOutput(status=status, url=content_url, detail=detail)
 
 
 # -- Hatchet workflow ----------------------------------------------------------
@@ -105,11 +112,11 @@ def register(h):  # pragma: no cover — Hatchet wiring
     )
 
     @wf.task(execution_timeout="5m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
-    def discussion_search_task(input: ItemEvent, ctx):
+    def discussion_search_task(input: ItemEvent, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = search_one(engine, cfg, input.content_id)
         ctx.log(f"Discussion search: {result.status} for content_id={input.content_id}")
-        return result.model_dump(exclude_none=True)
+        return result
 
     return wf

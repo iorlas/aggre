@@ -74,8 +74,9 @@ class TestSearchOne:
             lobsters_collector=mock_lob,
         )
 
-        # Partial success — lobsters worked
-        assert result.status == "searched"
+        # Partial success — lobsters worked but degraded
+        assert result.status == "searched_partial"
+        assert "hackernews_error" in result.detail
 
     def test_partial_success_when_lobsters_fails(self, engine):
         config = make_config()
@@ -95,7 +96,8 @@ class TestSearchOne:
             lobsters_collector=mock_lob,
         )
 
-        assert result.status == "searched"
+        assert result.status == "searched_partial"
+        assert "lobsters_error" in result.detail
 
     def test_raises_when_both_fail(self, engine):
         config = make_config()

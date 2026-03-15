@@ -103,7 +103,7 @@ def _download_one(
         if html is not None:
             write_bronze_by_url("webpage", url, "response", html, "html")
             logger.info("webpage_downloader.wayback_fallback url=%s", url)
-            return "downloaded"
+            return "downloaded_wayback"
         raise
 
     except Exception:  # pragma: no cover — unexpected download error with Wayback fallback
@@ -112,7 +112,7 @@ def _download_one(
         if html is not None:
             write_bronze_by_url("webpage", url, "response", html, "html")
             logger.info("webpage_downloader.wayback_fallback url=%s", url)
-            return "downloaded"
+            return "downloaded_wayback"
         raise
 
     write_bronze_by_url("webpage", url, "response", html, "html")
@@ -293,12 +293,12 @@ def register(h):  # pragma: no cover — Hatchet wiring
     )
 
     @wf.task(execution_timeout="5m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
-    def download_task(input: ItemEvent, ctx):
+    def download_task(input: ItemEvent, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = download_one(engine, cfg, input.content_id)
         ctx.log(f"Download: {result.status} for content_id={input.content_id}")
-        return result.model_dump(exclude_none=True)
+        return result
 
     @wf.task(
         parents=[download_task],
@@ -308,11 +308,11 @@ def register(h):  # pragma: no cover — Hatchet wiring
         backoff_factor=4,
         backoff_max_seconds=3600,
     )
-    def extract_task(input: ItemEvent, ctx):
+    def extract_task(input: ItemEvent, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = extract_one(engine, input.content_id)
         ctx.log(f"Extract: {result.status} for content_id={input.content_id}")
-        return result.model_dump(exclude_none=True)
+        return result
 
     return wf

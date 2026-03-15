@@ -74,11 +74,11 @@ def register(h):  # pragma: no cover — Hatchet wiring
     )
 
     @wf.task(execution_timeout="5m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
-    def comments_task(input: ItemEvent, ctx):
+    def comments_task(input: ItemEvent, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = fetch_one_comments(engine, input.discussion_id, input.source, cfg.settings)
         ctx.log(f"Comments: {result.status} for discussion_id={input.discussion_id}")
-        return result.model_dump(exclude_none=True)
+        return result
 
     return wf

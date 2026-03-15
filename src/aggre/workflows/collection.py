@@ -32,8 +32,8 @@ def collect_source(
     *,
     source_config: object | None = None,
     hatchet: Hatchet | None = None,
-) -> int:
-    """Collect discussions for one source, process into silver. Returns count.
+) -> CollectResult:
+    """Collect discussions for one source, process into silver.
 
     If hatchet is provided, emits "item.new" events for downstream processing.
     """
@@ -44,6 +44,7 @@ def collect_source(
     logger.info("collect.fetched source=%s discussions=%d", name, len(refs))
     count = 0
     errors = 0
+    event_errors = 0
     for ref in refs:
         try:
             with engine.begin() as conn:
@@ -52,12 +53,16 @@ def collect_source(
 
             # Emit event for downstream processing workflows
             if hatchet is not None:
-                _emit_item_event(engine, hatchet, ref, name)
+                if not _emit_item_event(engine, hatchet, ref, name):
+                    event_errors += 1
         except Exception:
             logger.exception("collect.process_error source=%s external_id=%s", name, ref["external_id"])
             errors += 1
-    logger.info("collect.source_complete source=%s fetched=%d processed=%d errors=%d", name, len(refs), count, errors)
-    return count
+    logger.info(
+        "collect.source_complete source=%s fetched=%d processed=%d errors=%d event_errors=%d",
+        name, len(refs), count, errors, event_errors,
+    )
+    return CollectResult(source=name, succeeded=count, failed=errors, total=len(refs), event_errors=event_errors)
 
 
 def _emit_item_event(
@@ -65,8 +70,8 @@ def _emit_item_event(
     hatchet: Hatchet,
     ref: dict,
     source_name: str,
-) -> None:
-    """Emit an 'item.new' event for a processed discussion."""
+) -> bool:
+    """Emit an 'item.new' event for a processed discussion. Returns True on success."""
     try:
         with engine.connect() as conn:
             disc = conn.execute(
@@ -90,8 +95,10 @@ def _emit_item_event(
                 domain=disc.domain,
             )
             hatchet.event.push("item.new", event.model_dump(), options=PushEventOptions(scope="default"))
+        return True
     except Exception:
         logger.exception("collect.event_emit_error source=%s external_id=%s", source_name, ref["external_id"])
+        return False
 
 
 # -- Source configs: (name, collector_class, cron_schedule) --
@@ -119,13 +126,13 @@ def register(h) -> list:  # pragma: no cover — Hatchet wiring
         _cls = collector_cls
 
         @wf.task(execution_timeout="30m", schedule_timeout="720h")
-        def collect(input, ctx, _name=_name, _cls=_cls):
+        def collect(input, ctx, _name=_name, _cls=_cls) -> CollectResult:
             ctx.log(f"Collecting {_name}")
             cfg = load_config()
             engine = get_engine(cfg.settings.database_url)
-            count = collect_source(engine, cfg, _name, _cls, hatchet=h)
-            ctx.log(f"Collected {count} discussions from {_name}")
-            return CollectResult(source=_name, succeeded=count, total=count)
+            result = collect_source(engine, cfg, _name, _cls, hatchet=h)
+            ctx.log(f"Collected {result.succeeded} discussions from {_name} (errors={result.failed}, event_errors={result.event_errors})")
+            return result
 
         workflows.append(wf)
     return workflows

@@ -73,7 +73,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
     wf = h.workflow(name="reprocess")
 
     @wf.task(execution_timeout="30m", schedule_timeout="720h")
-    def reprocess_task(input, ctx):
+    def reprocess_task(input, ctx) -> TaskResult:
         ctx.log("Starting reprocess from bronze")
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)

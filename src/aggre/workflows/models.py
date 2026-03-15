@@ -42,6 +42,7 @@ class CollectResult(TaskResult):
     """Collection result with source identifier."""
 
     source: str = ""
+    event_errors: int = 0  # Items processed but failed to emit downstream event
 
 
 class StepOutput(BaseModel):

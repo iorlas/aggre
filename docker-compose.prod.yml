@@ -133,7 +133,7 @@ services:
       - path: .env
         required: false
     tmpfs:
-      - /app/data/tmp:size=8G
+      - /app/data/tmp:size=100G
     stop_grace_period: 300s
     restart: unless-stopped
 

@@ -8,7 +8,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+import sqlalchemy as sa
 
+from aggre.db import SilverContent
 from aggre.workflows.discussion_search import DISCUSSION_SEARCH_SKIP_DOMAINS, search_one
 from tests.factories import make_config, seed_content
 
@@ -136,6 +138,58 @@ class TestSearchOne:
             lobsters_collector=mock_lob,
         )
         assert result.status == "searched"
+
+    def test_sets_discussions_searched_at_on_success(self, engine):
+        config = make_config()
+        content_id = seed_content(engine, "https://example.com/timestamp-test", domain="example.com")
+
+        mock_hn = MagicMock()
+        mock_hn.search_by_url.return_value = 0
+        mock_lob = MagicMock()
+        mock_lob.search_by_url.return_value = 0
+
+        search_one(engine, config, content_id, hn_collector=mock_hn, lobsters_collector=mock_lob)
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.select(SilverContent.discussions_searched_at).where(SilverContent.id == content_id)
+            ).first()
+        assert row.discussions_searched_at is not None
+
+    def test_sets_discussions_searched_at_on_partial_success(self, engine):
+        config = make_config()
+        content_id = seed_content(engine, "https://example.com/partial-ts", domain="example.com")
+
+        mock_hn = MagicMock()
+        mock_hn.search_by_url.side_effect = Exception("HN down")
+        mock_lob = MagicMock()
+        mock_lob.search_by_url.return_value = 1
+
+        search_one(engine, config, content_id, hn_collector=mock_hn, lobsters_collector=mock_lob)
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.select(SilverContent.discussions_searched_at).where(SilverContent.id == content_id)
+            ).first()
+        assert row.discussions_searched_at is not None
+
+    def test_no_discussions_searched_at_when_both_fail(self, engine):
+        config = make_config()
+        content_id = seed_content(engine, "https://example.com/both-fail-ts", domain="example.com")
+
+        mock_hn = MagicMock()
+        mock_hn.search_by_url.side_effect = Exception("HN down")
+        mock_lob = MagicMock()
+        mock_lob.search_by_url.side_effect = Exception("Lobsters down")
+
+        with pytest.raises(Exception):
+            search_one(engine, config, content_id, hn_collector=mock_hn, lobsters_collector=mock_lob)
+
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.select(SilverContent.discussions_searched_at).where(SilverContent.id == content_id)
+            ).first()
+        assert row.discussions_searched_at is None
 
 
 class TestSkipDomains:

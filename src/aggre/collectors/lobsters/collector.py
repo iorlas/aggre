@@ -128,54 +128,6 @@ class LobstersCollector(BaseCollector):
         )
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
-    def collect_comments(
-        self,
-        engine: sa.engine.Engine,
-        config: LobstersConfig,
-        settings: Settings,
-        batch_limit: int = 10,
-    ) -> int:
-        if batch_limit <= 0:
-            return 0
-
-        rows = self._query_pending_comments(engine, batch_limit)
-
-        if not rows:
-            logger.info("lobsters.no_pending_comments")
-            return 0
-
-        logger.info("lobsters.fetching_comments pending=%d", len(rows))
-        rate_limit = settings.lobsters_rate_limit
-        fetched = 0
-
-        with create_http_client(proxy_url=settings.proxy_url or None) as client:
-            for row in rows:
-                discussion_id = row.id
-                short_id = row.external_id
-
-                url = f"{LOBSTERS_BASE}/s/{short_id}.json"
-                time.sleep(rate_limit)
-
-                try:
-                    resp = client.get(url)
-                    resp.raise_for_status()
-                    data = resp.json()
-
-                    # Write raw API response to bronze before storing in silver
-                    write_bronze(self.source_type, short_id, "comments", json.dumps(data, ensure_ascii=False), "json")
-
-                    comments = data.get("comments", [])
-                    self._mark_comments_done(engine, discussion_id, short_id, json.dumps(comments), len(comments))
-                    fetched += 1
-                except Exception:  # pragma: no cover — network error during comments fetch
-                    logger.exception("lobsters.comments_fetch_failed story_id=%s", short_id)
-                    self._mark_comments_failed(engine, short_id, f"fetch_error:{short_id}")
-                    continue
-
-            logger.info("lobsters.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
-
-        return fetched
-
     def fetch_discussion_comments(
         self,
         engine: sa.engine.Engine,

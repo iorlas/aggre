@@ -15,8 +15,8 @@ from aggre.collectors.base import SearchableCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.config import AppConfig, load_config
-from aggre.db import SilverContent
-from aggre.utils.db import get_engine
+from aggre.db import SilverContent, update_content
+from aggre.utils.db import get_engine, now_iso
 from aggre.workflows.models import ItemEvent, StepOutput
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,7 @@ def search_one(
 
     status = "searched_partial" if (hn_error or lobsters_error) else "searched"
     logger.info("discussion_search.searched url=%s status=%s hackernews=%d lobsters=%d", content_url, status, hn_found, lobsters_found)
+    update_content(engine, content_id, discussions_searched_at=now_iso())
     return StepOutput(status=status, url=content_url, detail=detail)
 
 

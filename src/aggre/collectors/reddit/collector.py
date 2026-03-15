@@ -177,62 +177,6 @@ class RedditCollector(BaseCollector):
         )
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
-    def collect_comments(
-        self,
-        engine: sa.engine.Engine,
-        config: RedditConfig,
-        settings: Settings,
-        batch_limit: int = 10,
-    ) -> int:
-        """Fetch comments for posts with comments_json=NULL, up to batch_limit posts."""
-        if batch_limit <= 0:
-            return 0
-
-        rows = self._query_pending_comments(engine, batch_limit)
-
-        if not rows:
-            logger.info("reddit.no_pending_comments")
-            return 0
-
-        logger.info("reddit.fetching_comments pending=%d", len(rows))
-        rate_limit = settings.reddit_rate_limit
-        fetched = 0
-
-        with create_http_client(proxy_url=settings.proxy_url or None) as client:
-            for row in rows:
-                discussion_id = row.id
-                ext_id = row.external_id
-                meta = json.loads(row.meta) if row.meta else {}
-                subreddit = meta.get("subreddit", "")
-
-                post_id = ext_id.removeprefix("t3_")
-                url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json"
-                time.sleep(rate_limit)
-                try:
-                    data, resp = _fetch_json(client, url)
-                    _rate_limit_sleep(resp, 0)
-
-                    # Write raw API response to bronze before storing in silver
-                    write_bronze(self.source_type, ext_id, "comments", json.dumps(data, ensure_ascii=False), "json")
-
-                    comments_json = None
-                    comment_count = 0
-                    if len(data) >= 2:
-                        comment_children = data[1].get("data", {}).get("children", [])
-                        comments_json = json.dumps(comment_children)
-                        comment_count = len(comment_children)
-
-                    self._mark_comments_done(engine, discussion_id, ext_id, comments_json, comment_count)
-                    fetched += 1
-                except Exception:  # pragma: no cover — network error during comments fetch
-                    logger.exception("reddit.comments_fetch_failed post_id=%s", ext_id)
-                    self._mark_comments_failed(engine, ext_id, f"fetch_error:{ext_id}")
-                    continue
-
-            logger.info("reddit.comments_fetched fetched=%d total_pending=%d", fetched, len(rows))
-
-        return fetched
-
     def fetch_discussion_comments(
         self,
         engine: sa.engine.Engine,

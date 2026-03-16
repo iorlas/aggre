@@ -42,25 +42,36 @@ services:
       - aggre-internal
     command:
       - postgres
-      # Memory — shen has 29 GB, hatchet-postgres is the primary consumer
-      - -c shared_buffers=2GB
-      - -c work_mem=128MB
-      - -c maintenance_work_mem=2GB
-      - -c effective_cache_size=8GB
-      - -c wal_buffers=64MB
-      - -c max_wal_size=15GB
-      # Autovacuum — aggressive, per Hatchet docs (OLAP tables + TOAST bloat)
-      - -c autovacuum_max_workers=10
-      - -c autovacuum_vacuum_scale_factor=0.1
-      - -c autovacuum_analyze_scale_factor=0.05
-      - -c autovacuum_vacuum_threshold=25
-      - -c autovacuum_analyze_threshold=25
-      - -c autovacuum_vacuum_cost_delay=10ms
-      - -c autovacuum_vacuum_cost_limit=1000
-      # Checkpoints — reduce frequency, smooth writes
-      - -c checkpoint_completion_target=0.9
-      # Planner — SSD-friendly
-      - -c random_page_cost=1.1
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - work_mem=128MB
+      - -c
+      - maintenance_work_mem=2GB
+      - -c
+      - effective_cache_size=8GB
+      - -c
+      - wal_buffers=64MB
+      - -c
+      - max_wal_size=15GB
+      - -c
+      - autovacuum_max_workers=10
+      - -c
+      - autovacuum_vacuum_scale_factor=0.1
+      - -c
+      - autovacuum_analyze_scale_factor=0.05
+      - -c
+      - autovacuum_vacuum_threshold=25
+      - -c
+      - autovacuum_analyze_threshold=25
+      - -c
+      - autovacuum_vacuum_cost_delay=10ms
+      - -c
+      - autovacuum_vacuum_cost_limit=1000
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
     environment:
       POSTGRES_DB: hatchet
       POSTGRES_USER: hatchet

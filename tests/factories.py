@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from aggre.collectors.github_trending.config import GithubTrendingConfig
 from aggre.collectors.hackernews.config import HackernewsConfig
 from aggre.collectors.huggingface.config import HuggingfaceConfig
 from aggre.collectors.lobsters.config import LobstersConfig
@@ -492,6 +493,7 @@ def make_config(
     lobsters: LobstersConfig | None = None,
     huggingface: HuggingfaceConfig | None = None,
     telegram: TelegramConfig | None = None,
+    github_trending: GithubTrendingConfig | None = None,
     rate_limit: float = 0.0,
     proxy_url: str = "",
     browserless_url: str = "",
@@ -509,6 +511,7 @@ def make_config(
         lobsters=lobsters or LobstersConfig(),
         huggingface=huggingface or HuggingfaceConfig(),
         telegram=telegram or TelegramConfig(),
+        github_trending=github_trending or GithubTrendingConfig(),
         settings=Settings(
             hn_rate_limit=rate_limit,
             reddit_rate_limit=rate_limit,

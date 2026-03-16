@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
+from aggre.collectors.github_trending.config import GithubTrendingConfig
 from aggre.collectors.hackernews.config import HackernewsConfig
 from aggre.collectors.huggingface.config import HuggingfaceConfig
 from aggre.collectors.lobsters.config import LobstersConfig
@@ -25,6 +26,7 @@ class AppConfig(BaseModel):
     rss: RssConfig = RssConfig()
     huggingface: HuggingfaceConfig = HuggingfaceConfig()
     telegram: TelegramConfig = TelegramConfig()
+    github_trending: GithubTrendingConfig = GithubTrendingConfig()
     settings: Settings = Settings()
 
 

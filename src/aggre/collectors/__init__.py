@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from aggre.collectors.github_trending.collector import GithubTrendingCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.huggingface.collector import HuggingfaceCollector
 from aggre.collectors.lobsters.collector import LobstersCollector
@@ -18,4 +19,5 @@ COLLECTORS = {
     "rss": RssCollector,
     "huggingface": HuggingfaceCollector,
     "telegram": TelegramCollector,
+    "github_trending": GithubTrendingCollector,
 }

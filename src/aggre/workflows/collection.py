@@ -9,6 +9,7 @@ from hatchet_sdk import Hatchet
 from hatchet_sdk.clients.events import PushEventOptions
 
 from aggre.collectors.arxiv.collector import ArxivCollector
+from aggre.collectors.github_trending.collector import GithubTrendingCollector
 from aggre.collectors.hackernews.collector import HackernewsCollector
 from aggre.collectors.huggingface.collector import HuggingfaceCollector
 from aggre.collectors.lesswrong.collector import LesswrongCollector
@@ -112,6 +113,7 @@ _SOURCES = [
     ("youtube", YoutubeCollector, "0 */6 * * *"),
     ("arxiv", ArxivCollector, "0 */6 * * *"),
     ("lesswrong", LesswrongCollector, "0 */3 * * *"),
+    ("github_trending", GithubTrendingCollector, "0 */6 * * *"),
 ]
 
 

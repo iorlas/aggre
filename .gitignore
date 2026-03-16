@@ -120,3 +120,4 @@ data/
 .planning/verification/ConcurrentJobs.cfg
 .planning/verification/states/
 .planning/verification/*.old
+.dmux/

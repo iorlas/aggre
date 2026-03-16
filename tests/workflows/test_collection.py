@@ -115,6 +115,8 @@ class TestEventEmission:
         mock_disc_row.id = 42
         mock_disc_row.content_id = 100
         mock_disc_row.domain = "example.com"
+        mock_disc_row.text = None
+        mock_disc_row.discussions_searched_at = None
         mock_result = MagicMock()
         mock_result.first.return_value = mock_disc_row
         connect_mock = MagicMock()
@@ -165,6 +167,8 @@ class TestEventEmission:
         mock_disc_row.id = 42
         mock_disc_row.content_id = 100
         mock_disc_row.domain = "example.com"
+        mock_disc_row.text = None
+        mock_disc_row.discussions_searched_at = None
         mock_result = MagicMock()
         mock_result.first.return_value = mock_disc_row
         connect_mock = MagicMock()
@@ -174,7 +178,7 @@ class TestEventEmission:
 
         # Should not raise — event emission failure is logged, not propagated
         result = collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
-        assert result == CollectResult(source="hackernews", succeeded=2, failed=0, total=2, event_errors=2)
+        assert result == CollectResult(source="hackernews", succeeded=2, failed=0, total=2, event_errors=2, events_skipped=0)
 
     def test_no_event_when_content_id_null(self) -> None:
         """No event emitted when discussion has no content_id."""
@@ -201,3 +205,61 @@ class TestEventEmission:
         collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
 
         mock_hatchet.event.push.assert_not_called()
+
+    def test_no_event_when_fully_processed(self) -> None:
+        """No event emitted when content has text AND discussions_searched_at (fully processed)."""
+        cfg = make_config()
+        mock_cls = MagicMock()
+        mock_cls.return_value.collect_discussions.return_value = [
+            {"raw_data": {"id": "1"}, "source_id": 1, "external_id": "ext1"},
+        ]
+
+        mock_hatchet = MagicMock()
+
+        engine = MagicMock()
+        mock_disc_row = MagicMock()
+        mock_disc_row.id = 42
+        mock_disc_row.content_id = 100
+        mock_disc_row.domain = "example.com"
+        mock_disc_row.text = "Some article text"
+        mock_disc_row.discussions_searched_at = "2026-03-16T00:00:00+00:00"
+        mock_result = MagicMock()
+        mock_result.first.return_value = mock_disc_row
+        connect_mock = MagicMock()
+        connect_mock.execute.return_value = mock_result
+        engine.connect.return_value.__enter__ = MagicMock(return_value=connect_mock)
+        engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
+
+        assert result.events_skipped == 1
+        mock_hatchet.event.push.assert_not_called()
+
+    def test_emits_event_for_self_post(self) -> None:
+        """Self-posts have text pre-populated by collector but discussions_searched_at=None.
+        Event must still be emitted so discussion-search and comments run."""
+        cfg = make_config()
+        mock_cls = MagicMock()
+        mock_cls.return_value.collect_discussions.return_value = [
+            {"raw_data": {"id": "1"}, "source_id": 1, "external_id": "ext1"},
+        ]
+
+        mock_hatchet = MagicMock()
+
+        engine = MagicMock()
+        mock_disc_row = MagicMock()
+        mock_disc_row.id = 42
+        mock_disc_row.content_id = 100
+        mock_disc_row.domain = "reddit.com"
+        mock_disc_row.text = "This is a Reddit self-post"
+        mock_disc_row.discussions_searched_at = None  # Not yet searched
+        mock_result = MagicMock()
+        mock_result.first.return_value = mock_disc_row
+        connect_mock = MagicMock()
+        connect_mock.execute.return_value = mock_result
+        engine.connect.return_value.__enter__ = MagicMock(return_value=connect_mock)
+        engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
+
+        mock_hatchet.event.push.assert_called_once()

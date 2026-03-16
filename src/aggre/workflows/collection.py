@@ -46,6 +46,7 @@ def collect_source(
     count = 0
     errors = 0
     event_errors = 0
+    events_skipped = 0
     for ref in refs:
         try:
             with engine.begin() as conn:
@@ -54,16 +55,22 @@ def collect_source(
 
             # Emit event for downstream processing workflows
             if hatchet is not None:
-                if not _emit_item_event(engine, hatchet, ref, name):
+                emit_result = _emit_item_event(engine, hatchet, ref, name)
+                if emit_result == "error":
                     event_errors += 1
+                elif emit_result == "skipped":
+                    events_skipped += 1
         except Exception:
             logger.exception("collect.process_error source=%s external_id=%s", name, ref["external_id"])
             errors += 1
     logger.info(
-        "collect.source_complete source=%s fetched=%d processed=%d errors=%d event_errors=%d",
-        name, len(refs), count, errors, event_errors,
+        "collect.source_complete source=%s fetched=%d processed=%d errors=%d event_errors=%d events_skipped=%d",
+        name, len(refs), count, errors, event_errors, events_skipped,
     )
-    return CollectResult(source=name, succeeded=count, failed=errors, total=len(refs), event_errors=event_errors)
+    return CollectResult(
+        source=name, succeeded=count, failed=errors, total=len(refs),
+        event_errors=event_errors, events_skipped=events_skipped,
+    )
 
 
 def _emit_item_event(
@@ -71,8 +78,11 @@ def _emit_item_event(
     hatchet: Hatchet,
     ref: dict,
     source_name: str,
-) -> bool:
-    """Emit an 'item.new' event for a processed discussion. Returns True on success."""
+) -> str:
+    """Emit an 'item.new' event for a processed discussion.
+
+    Returns "emitted", "skipped" (fully processed, dedup), or "error".
+    """
     try:
         with engine.connect() as conn:
             disc = conn.execute(
@@ -80,6 +90,8 @@ def _emit_item_event(
                     SilverDiscussion.id,
                     SilverDiscussion.content_id,
                     SilverContent.domain,
+                    SilverContent.text,
+                    SilverContent.discussions_searched_at,
                 )
                 .outerjoin(SilverContent, SilverContent.id == SilverDiscussion.content_id)
                 .where(
@@ -89,6 +101,28 @@ def _emit_item_event(
             ).first()
 
         if disc and disc.content_id:
+            # -- Event dedup (Layer 1) --
+            # Skip emitting if the content is fully processed: text extracted/transcribed
+            # AND discussion search completed. This prevents collectors from flooding the
+            # Hatchet queue with redundant events for items seen on every cron cycle.
+            #
+            # We check BOTH columns because self-posts (Reddit selftext, Ask HN,
+            # Telegram messages) pre-populate SilverContent.text at collection time.
+            # Checking text alone would suppress events for self-posts on their very
+            # first collection, preventing discussion-search and comments from running.
+            # The discussions_searched_at column is only set after the discussion-search
+            # workflow completes, so it reliably indicates "all downstream work is done."
+            #
+            # Layer 2 (CANCEL_NEWEST per content_id on each workflow) provides a safety
+            # net for race conditions where an event slips through during the brief
+            # window between collection and workflow completion.
+            if disc.text is not None and disc.discussions_searched_at is not None:
+                logger.info(
+                    "collect.event_skipped_fully_processed source=%s external_id=%s content_id=%s",
+                    source_name, ref["external_id"], disc.content_id,
+                )
+                return "skipped"
+
             event = ItemEvent(
                 content_id=disc.content_id,
                 discussion_id=disc.id,
@@ -96,10 +130,10 @@ def _emit_item_event(
                 domain=disc.domain,
             )
             hatchet.event.push("item.new", event.model_dump(), options=PushEventOptions(scope="default"))
-        return True
+        return "emitted"
     except Exception:
         logger.exception("collect.event_emit_error source=%s external_id=%s", source_name, ref["external_id"])
-        return False
+        return "error"
 
 
 # -- Source configs: (name, collector_class, cron_schedule) --
@@ -133,7 +167,7 @@ def register(h) -> list:  # pragma: no cover — Hatchet wiring
             cfg = load_config()
             engine = get_engine(cfg.settings.database_url)
             result = collect_source(engine, cfg, _name, _cls, hatchet=h)
-            ctx.log(f"Collected {result.succeeded} discussions from {_name} (errors={result.failed}, event_errors={result.event_errors})")
+            ctx.log(f"Collected {result.succeeded} discussions from {_name} (errors={result.failed}, event_errors={result.event_errors}, events_skipped={result.events_skipped})")
             return result
 
         workflows.append(wf)

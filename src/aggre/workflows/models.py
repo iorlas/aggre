@@ -43,6 +43,7 @@ class CollectResult(TaskResult):
 
     source: str = ""
     event_errors: int = 0  # Items processed but failed to emit downstream event
+    events_skipped: int = 0  # Items skipped because already fully processed (dedup)
 
 
 class StepOutput(BaseModel):

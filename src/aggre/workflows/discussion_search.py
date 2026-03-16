@@ -103,11 +103,21 @@ def register(h):  # pragma: no cover — Hatchet wiring
     wf = h.workflow(
         name="process-discussion-search",
         on_events=["item.new"],
-        concurrency=ConcurrencyExpression(
-            expression="'search'",
-            max_runs=5,
-            limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-        ),
+        # Two-layer concurrency:
+        # 1. GROUP_ROUND_ROBIN with static key — global max 5 concurrent searches
+        # 2. CANCEL_NEWEST by content_id — dedup safety net, see event-dedup-design.md
+        concurrency=[
+            ConcurrencyExpression(
+                expression="'search'",
+                max_runs=5,
+                limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+            ),
+            ConcurrencyExpression(
+                expression="string(input.content_id)",
+                max_runs=1,
+                limit_strategy=ConcurrencyLimitStrategy.CANCEL_NEWEST,
+            ),
+        ],
         input_validator=ItemEvent,
         default_filters=[DefaultFilter(expression=_search_filter_expr, scope="default")],
     )

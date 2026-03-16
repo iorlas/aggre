@@ -283,11 +283,25 @@ def register(h):  # pragma: no cover — Hatchet wiring
     wf = h.workflow(
         name="process-webpage",
         on_events=["item.new"],
-        concurrency=ConcurrencyExpression(
-            expression="input.domain",
-            max_runs=3,
-            limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-        ),
+        # Two-layer concurrency:
+        # 1. GROUP_ROUND_ROBIN by domain — fair scheduling across domains, max 3 per domain
+        # 2. CANCEL_NEWEST by content_id — if a run for the same content_id is already
+        #    in-flight (queued or running), the new run is immediately cancelled.
+        #    This is Layer 2 of event dedup: a safety net for race conditions where
+        #    _emit_item_event's check passes but the content gets processed before
+        #    the queued task starts. See docs/superpowers/specs/2026-03-16-event-dedup-design.md
+        concurrency=[
+            ConcurrencyExpression(
+                expression="input.domain",
+                max_runs=3,
+                limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+            ),
+            ConcurrencyExpression(
+                expression="string(input.content_id)",
+                max_runs=1,
+                limit_strategy=ConcurrencyLimitStrategy.CANCEL_NEWEST,
+            ),
+        ],
         input_validator=ItemEvent,
         default_filters=[DefaultFilter(expression=_webpage_filter_expr, scope="default")],
     )

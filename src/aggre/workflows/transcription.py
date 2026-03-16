@@ -209,11 +209,21 @@ def register(h):  # pragma: no cover — Hatchet wiring
     wf = h.workflow(
         name="process-transcription",
         on_events=["item.new"],
-        concurrency=ConcurrencyExpression(
-            expression="'youtube'",
-            max_runs=20,
-            limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-        ),
+        # Two-layer concurrency:
+        # 1. GROUP_ROUND_ROBIN with static key — global max 20 concurrent transcriptions
+        # 2. CANCEL_NEWEST by content_id — dedup safety net, see event-dedup-design.md
+        concurrency=[
+            ConcurrencyExpression(
+                expression="'youtube'",
+                max_runs=20,
+                limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+            ),
+            ConcurrencyExpression(
+                expression="string(input.content_id)",
+                max_runs=1,
+                limit_strategy=ConcurrencyLimitStrategy.CANCEL_NEWEST,
+            ),
+        ],
         input_validator=ItemEvent,
         default_filters=[DefaultFilter(expression="input.domain == 'youtube.com'", scope="default")],
     )

@@ -64,11 +64,21 @@ def register(h):  # pragma: no cover — Hatchet wiring
     wf = h.workflow(
         name="process-comments",
         on_events=["item.new"],
-        concurrency=ConcurrencyExpression(
-            expression="input.source",
-            max_runs=5,
-            limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
-        ),
+        # Two-layer concurrency:
+        # 1. GROUP_ROUND_ROBIN by source — fair scheduling across sources, max 5 per source
+        # 2. CANCEL_NEWEST by content_id — dedup safety net, see event-dedup-design.md
+        concurrency=[
+            ConcurrencyExpression(
+                expression="input.source",
+                max_runs=5,
+                limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
+            ),
+            ConcurrencyExpression(
+                expression="string(input.content_id)",
+                max_runs=1,
+                limit_strategy=ConcurrencyLimitStrategy.CANCEL_NEWEST,
+            ),
+        ],
         input_validator=ItemEvent,
         default_filters=[DefaultFilter(expression=_comments_filter_expr, scope="default")],
     )

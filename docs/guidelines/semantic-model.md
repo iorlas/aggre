@@ -11,7 +11,7 @@ tables:
     description: Configured data sources (RSS feeds, subreddits, YouTube channels, etc.)
     columns:
       id:               { type: serial, pk: true }
-      type:             { type: text, not_null: true, values: [rss, reddit, youtube, hackernews, lobsters, huggingface, telegram] }
+      type:             { type: text, not_null: true, values: [rss, reddit, youtube, hackernews, lobsters, huggingface, telegram, github_trending] }
       name:             { type: text, not_null: true, description: "Human-readable name from config.yaml" }
       config:           { type: text, not_null: true, description: "JSON blob — source-specific config (url, channel_id, subreddit)" }
       enabled:          { type: integer, default: 1, description: "1 = active, 0 = disabled" }
@@ -49,7 +49,7 @@ tables:
       id:                     { type: serial, pk: true }
       source_id:              { type: integer, nullable: true, fk: "sources.id" }
       content_id:             { type: integer, nullable: true, fk: "silver_content.id", description: "Links to SilverContent. Self-posts with text create SilverContent (text pre-populated). NULL only when no external link AND no self-post text." }
-      source_type:            { type: text, not_null: true, values: [rss, reddit, youtube, hackernews, lobsters, huggingface, telegram] }
+      source_type:            { type: text, not_null: true, values: [rss, reddit, youtube, hackernews, lobsters, huggingface, telegram, github_trending] }
       external_id:            { type: text, not_null: true, description: "Source-specific unique ID" }
       title:                  { type: text, nullable: true }
       author:                 { type: text, nullable: true }
@@ -100,6 +100,10 @@ Cast with `meta::jsonb` before querying.
 | rss         | `feed_title`   | string     | RSS feed title                             |
 | telegram    | `forwards`     | int?       | Forward count (only present if > 0)        |
 | telegram    | `media_type`   | string?    | E.g. "MessageMediaPhoto" (only if present) |
+| github_trending | `total_stars` | int | Total stars at time of collection |
+| github_trending | `forks` | int | Total forks at time of collection |
+| github_trending | `language` | string | Primary programming language (or null) |
+| github_trending | `period` | string | Trending period (e.g. "daily", "weekly") |
 
 ### `score` semantics per source_type
 
@@ -112,6 +116,7 @@ Cast with `meta::jsonb` before querying.
 | huggingface | Paper upvotes                    | Number of HF comments      |
 | rss         | NULL (not applicable)            | NULL (not applicable)      |
 | telegram    | View count (`msg.views`)         | Always 0                   |
+| github_trending | Stars gained in period (delta) | NULL (not applicable)      |
 
 ---
 

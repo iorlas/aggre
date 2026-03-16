@@ -104,7 +104,6 @@ mlruns/
 chroma_db/
 tickets.jsonl
 .claude/settings.local.json
-.claude/mcp.json
 .langgraph_api
 data/
 .hypothesis/

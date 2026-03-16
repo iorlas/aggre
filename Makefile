@@ -5,11 +5,13 @@ test:
 	uv run pytest tests/
 
 test-e2e:
-	docker compose -p aggre-test -f docker-compose.test.yml up -d --wait
-	AGGRE_TEST_DATABASE_URL=postgresql+psycopg://aggre:aggre@localhost:5433/aggre_test \
+	$(eval AGGRE_TEST_PORT := $(shell python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"))
+	$(eval AGGRE_TEST_PROJECT := aggre-test-$(shell basename $(CURDIR)))
+	AGGRE_TEST_PORT=$(AGGRE_TEST_PORT) docker compose -p $(AGGRE_TEST_PROJECT) -f docker-compose.test.yml up -d --wait
+	AGGRE_TEST_DATABASE_URL=postgresql+psycopg://aggre:aggre@localhost:$(AGGRE_TEST_PORT)/aggre_test \
 		uv run pytest tests/ ; \
 	EXIT=$$? ; \
-	docker compose -p aggre-test -f docker-compose.test.yml down -v ; \
+	AGGRE_TEST_PORT=$(AGGRE_TEST_PORT) docker compose -p $(AGGRE_TEST_PROJECT) -f docker-compose.test.yml down -v ; \
 	exit $$EXIT
 
 dev-remote:

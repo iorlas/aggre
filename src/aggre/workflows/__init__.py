@@ -45,5 +45,5 @@ def start_worker() -> None:  # pragma: no cover — entry point
             else:
                 workflows.append(result)
 
-    worker = h.worker("aggre-worker", slots=20, workflows=workflows)
+    worker = h.worker("aggre-worker", slots=40, workflows=workflows)
     worker.start()

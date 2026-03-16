@@ -1,7 +1,7 @@
 """Webpage download and extraction workflow.
 
 Two-task DAG: download → extract. Triggered per-item via "item.new" event.
-Hatchet manages concurrency (max 1 per domain) and retry.
+Hatchet manages concurrency (max 3 per domain) and retry.
 """
 
 from __future__ import annotations
@@ -285,7 +285,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         on_events=["item.new"],
         concurrency=ConcurrencyExpression(
             expression="input.domain",
-            max_runs=1,
+            max_runs=3,
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,

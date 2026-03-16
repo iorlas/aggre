@@ -1,7 +1,7 @@
 """Discussion search workflow -- discover cross-source discussions.
 
 Triggered per-item via "item.new" event. Self-filters to searchable domains.
-Hatchet manages concurrency (max 1 search at a time) and retry.
+Hatchet manages concurrency (max 5 searches at a time) and retry.
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         on_events=["item.new"],
         concurrency=ConcurrencyExpression(
             expression="'search'",
-            max_runs=1,
+            max_runs=5,
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,

@@ -116,6 +116,7 @@ data/
 
 # dmux worktrees
 .dmux/
+.dmux-hooks/
 
 # TLA+ auto-generated and runtime artifacts
 .planning/verification/lib/

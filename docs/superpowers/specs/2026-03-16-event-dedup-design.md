@@ -83,33 +83,97 @@ flags would suppress re-processing and should NOT be used in event filters.
 
 ## Architectural Notes for Future Refactoring
 
-The current `item.new` event is generic — every consumer decides independently whether to process.
-This works but has fundamental tensions:
+### Why we need four guardrails (root cause)
 
-1. **Boolean signal flags on a generic event are a poor man's explicit events.** Adding `text_provided`,
-   `has_comments`, `has_search` to `item.new` is logically equivalent to emitting separate events
-   (`text.needed`, `comments.needed`, `search.needed`). The generic event approach encodes the same
-   routing information, just less cleanly.
+The core architecture problem is NOT Hatchet's speed — it's that the `item.new` event is too
+thin for consumers to self-filter without side effects. Every workflow fires for every item,
+queries the DB to discover "not for me", and skips — but only after consuming a scheduler slot.
 
-2. **Snapshot-based flags can suppress re-processing.** Processing-state flags (`has_comments=true`)
-   encode a snapshot at emission time. If new comments appear later, the flag would prevent re-checking.
-   Only structural flags (like `text_provided`) are safe in event filters — processing state belongs
-   inside the workflow task where the DB is the source of truth.
+Hatchet's slowness made the waste visible (52K queue, 48s DAG transitions). But even with a
+fast runtime (Temporal, Celery), the architecture still wastes work: four workflows fire, two
+discover they have nothing to do, two do real work. The guardrails we built mitigate this:
 
-3. **The real problem is slot consumption before filtering.** Hatchet's `default_filters` solve this
-   for event-level properties. But any check that requires DB state (is this content already processed?)
-   currently happens inside the task after a slot is consumed. A proper solution might be:
-   - Explicit event types per action needed (collector decides what processing is required)
-   - Or a pre-queue hook that checks DB state before slot allocation
-   - Or migrating to a platform with native workflow-ID dedup (Temporal)
+1. **Emission check** — compensates for collectors re-seeing old items every cron cycle
+2. **CANCEL_NEWEST** — compensates for duplicate events arriving for in-flight work
+3. **`text_provided` filter** — compensates for thin events that can't distinguish content types
+4. **Task-level guards** — compensates for all of the above failing
 
-4. **Collector-as-orchestrator vs pub/sub.** Today collectors emit generic events and workflows
-   self-filter. The alternative: collectors emit specific events for each needed action. This is
-   tighter coupling but more efficient — no wasted filter evaluations. The right answer depends on
-   how often new workflow types are added vs how often collector behavior changes.
+Every guardrail exists because the event discards information the collector already has.
 
-These are noted for future reference. The current layered approach (emission check + structural
-filter + CANCEL_NEWEST + task-level guard) is pragmatic and effective for the current scale.
+### The `text_provided` semantic gap
+
+`text_provided` is set as `disc.text is not None` at emission time. The comment says "structural
+signal — collector provided the text" but the implementation captures processing state too (text
+previously extracted by the webpage workflow reads as `text_provided=True`). This doesn't cause
+bugs today because the emission-time dedup check (Layer 1) catches fully-processed items before
+`text_provided` is evaluated. But it's a semantic lie that would break if re-fetching were added.
+
+The proper fix: `process_discussion` should return what it created (including whether it set text),
+so the emission code uses the collector's own output rather than re-querying DB state. This is
+prescribed as part of the richer event refactoring below.
+
+### Prescribed refactoring: richer event contract
+
+**The pattern is correct — pub/sub with self-filtering consumers is idiomatic.** The problem is
+that the event doesn't describe the content well enough for consumers to self-select without
+DB queries. The fix is NOT push-driven orchestration (collector says "run webpage, run comments")
+which would couple collectors to downstream workflows.
+
+The fix is a **richer event** where the collector describes what it found, and each workflow
+declares what kinds of content it processes:
+
+```python
+class ItemEvent(BaseModel):
+    content_id: int
+    discussion_id: int
+    source: str
+    domain: str | None = None
+    # Content description — set by collector from its own output
+    has_external_url: bool = True    # False for self-posts, Ask HN, Telegram
+    content_type: str = "link"       # "link", "self_post", "video", "paper", ...
+```
+
+Each workflow's filter becomes a pure declaration over content properties:
+
+```python
+# Webpage: only items with an external URL to fetch
+"input.has_external_url && !(input.domain in [...])"
+
+# Transcription: only video content
+"input.content_type == 'video'"
+
+# Comments: source-based (unchanged)
+"input.source in ['reddit', 'hackernews', 'lobsters']"
+
+# Discussion search: domain-based (unchanged)
+"!(input.domain in [...])"
+```
+
+This preserves pub/sub decoupling: collectors don't know about workflows, workflows don't know
+about collectors. The event contract describes the content, not the required processing.
+
+**Implementation approach:**
+1. Have `process_discussion` return a result object with the content properties it created
+   (content_id, discussion_id, domain, text, content_type, has_external_url, etc.)
+2. The emission code constructs ItemEvent from the collector's return value — no DB re-query
+3. Enrich ItemEvent with content-description fields
+4. Update workflow filters to use the new fields
+5. Remove `text_provided` (subsumed by `has_external_url` / `content_type`)
+6. Emission-time dedup check may still be useful to avoid the gRPC call to Hatchet for
+   fully-processed items seen on every cron cycle — evaluate whether the filter rejection
+   (zero overhead) makes this unnecessary
+
+This eliminates the semantic gap, removes most guardrails, and keeps the architecture idiomatic.
+
+### What NOT to do
+
+- **Don't add processing-state flags** (`has_comments`, `has_search`) to the event. These are
+  snapshots that suppress re-processing. Processing state belongs inside the workflow task
+  where the DB is the source of truth.
+- **Don't make collectors orchestrate** ("run webpage, run comments"). This couples collectors
+  to downstream workflows and breaks pub/sub.
+- **Don't add more guardrails.** The current four are already a sign of architectural tension.
+  The next step should reduce guardrails, not add more.
 
 ## Out of Scope
 

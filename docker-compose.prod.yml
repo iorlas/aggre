@@ -40,6 +40,27 @@ services:
     image: postgres:17-alpine
     networks:
       - aggre-internal
+    command:
+      - postgres
+      # Memory — shen has 29 GB, hatchet-postgres is the primary consumer
+      - -c shared_buffers=2GB
+      - -c work_mem=128MB
+      - -c maintenance_work_mem=2GB
+      - -c effective_cache_size=8GB
+      - -c wal_buffers=64MB
+      - -c max_wal_size=15GB
+      # Autovacuum — aggressive, per Hatchet docs (OLAP tables + TOAST bloat)
+      - -c autovacuum_max_workers=10
+      - -c autovacuum_vacuum_scale_factor=0.1
+      - -c autovacuum_analyze_scale_factor=0.05
+      - -c autovacuum_vacuum_threshold=25
+      - -c autovacuum_analyze_threshold=25
+      - -c autovacuum_vacuum_cost_delay=10ms
+      - -c autovacuum_vacuum_cost_limit=1000
+      # Checkpoints — reduce frequency, smooth writes
+      - -c checkpoint_completion_target=0.9
+      # Planner — SSD-friendly
+      - -c random_page_cost=1.1
     environment:
       POSTGRES_DB: hatchet
       POSTGRES_USER: hatchet
@@ -51,6 +72,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  hatchet-pg-maintenance:
+    image: postgres:17-alpine
+    networks:
+      - aggre-internal
+    # Periodic ANALYZE on partitioned parent tables — PostgreSQL autovacuum
+    # skips these, causing stale planner stats and bad query plans.
+    command: >
+      sh -c 'sleep 60; while true;
+      do psql "$$DATABASE_URL" -c "ANALYZE v1_tasks_olap; ANALYZE v1_runs_olap; ANALYZE v1_dags_olap;" 2>&1;
+      sleep 3600; done'
+    environment:
+      DATABASE_URL: "postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet"
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   hatchet-lite:

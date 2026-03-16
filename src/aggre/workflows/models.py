@@ -25,6 +25,11 @@ class ItemEvent(BaseModel):
     discussion_id: int
     source: str  # "hackernews", "reddit", etc. — for concurrency grouping
     domain: str | None = None  # content domain — for concurrency grouping
+    # Structural signal: True when the collector already provided the content text
+    # (e.g. Reddit self-posts, Ask HN text, Telegram messages). Webpage and transcription
+    # workflows filter on this to avoid queueing for content that has no external page.
+    # This is NOT processing state — it's a property of the content type.
+    text_provided: bool = False
 
 
 # -- Outputs --

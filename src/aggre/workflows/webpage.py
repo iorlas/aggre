@@ -28,7 +28,12 @@ logger = logging.getLogger(__name__)
 SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "m.youtube.com", "v.redd.it", "i.redd.it"})
 SKIP_EXTENSIONS = (".pdf",)
 
-_webpage_filter_expr = "!(" + "input.domain in [" + ", ".join(f"'{d}'" for d in sorted(SKIP_DOMAINS)) + "])"
+# Filter: skip domains that aren't webpages (YouTube, image hosts) AND skip items where
+# the collector already provided the text (self-posts, Ask HN text, Telegram messages).
+# text_provided is a structural signal — it means there's no external page to fetch,
+# NOT that processing is complete. See docs/superpowers/specs/2026-03-16-event-dedup-design.md
+_skip_domain_expr = "input.domain in [" + ", ".join(f"'{d}'" for d in sorted(SKIP_DOMAINS)) + "]"
+_webpage_filter_expr = f"!input.text_provided && !({_skip_domain_expr})"
 
 TEXT_CONTENT_TYPES = frozenset(
     {

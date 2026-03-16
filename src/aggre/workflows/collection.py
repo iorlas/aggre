@@ -128,6 +128,7 @@ def _emit_item_event(
                 discussion_id=disc.id,
                 source=source_name,
                 domain=disc.domain,
+                text_provided=disc.text is not None,
             )
             hatchet.event.push("item.new", event.model_dump(), options=PushEventOptions(scope="default"))
         return "emitted"

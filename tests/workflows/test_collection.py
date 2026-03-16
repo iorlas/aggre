@@ -133,6 +133,7 @@ class TestEventEmission:
                 "discussion_id": 42,
                 "source": "hackernews",
                 "domain": "example.com",
+                "text_provided": False,
             },
             options=PushEventOptions(scope="default"),
         )
@@ -262,4 +263,8 @@ class TestEventEmission:
 
         collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
 
+        # Event emitted with text_provided=True — webpage/transcription filters will skip,
+        # but comments and discussion-search will still process
         mock_hatchet.event.push.assert_called_once()
+        emitted_payload = mock_hatchet.event.push.call_args[0][1]
+        assert emitted_payload["text_provided"] is True

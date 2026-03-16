@@ -6,7 +6,7 @@
     },
     "enabledMcpjsonServers": [
         "context7",
-        "local-postgres"
+        "remote-db"
     ],
     "enableAllProjectMcpServers": true,
     "env": {

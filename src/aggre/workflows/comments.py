@@ -1,7 +1,7 @@
 """Comments workflow -- fetch comments for individual discussions.
 
 Triggered per-item via "item.new" event. Self-filters to comment-supporting sources.
-Hatchet manages concurrency (max 1 per source) and retry.
+Hatchet manages concurrency (max 5 per source) and retry.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         on_events=["item.new"],
         concurrency=ConcurrencyExpression(
             expression="input.source",
-            max_runs=1,
+            max_runs=5,
             limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
         ),
         input_validator=ItemEvent,

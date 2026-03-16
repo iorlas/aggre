@@ -104,7 +104,6 @@ mlruns/
 chroma_db/
 tickets.jsonl
 .claude/settings.local.json
-.claude/mcp.json
 .langgraph_api
 data/
 .hypothesis/
@@ -114,6 +113,10 @@ data/
 
 # Temp directories
 .tmp_dagster_home_*/
+
+# dmux worktrees
+.dmux/
+.dmux-hooks/
 
 # TLA+ auto-generated and runtime artifacts
 .planning/verification/lib/

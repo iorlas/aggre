@@ -115,6 +115,9 @@ data/
 # Temp directories
 .tmp_dagster_home_*/
 
+# dmux worktrees
+.dmux/
+
 # TLA+ auto-generated and runtime artifacts
 .planning/verification/lib/
 .planning/verification/ConcurrentJobs.cfg

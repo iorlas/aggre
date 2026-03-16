@@ -14,7 +14,8 @@ One row per repository URL, deduplicated by `canonical_url`:
 
 - `canonical_url` = `https://github.com/owner/repo`
 - `domain` = `github.com`
-- Created once per repo. Triggers downstream pipelines (webpage fetch, discussion search).
+- Created once per repo via `ensure_content(conn, url)` which returns `content_id`.
+- Triggers downstream pipelines (webpage fetch, discussion search).
 
 ### SilverDiscussion
 
@@ -24,10 +25,11 @@ One row per repo per period per time window:
 |-------|-------|
 | `source_type` | `"github_trending"` |
 | `external_id` | `"owner/repo:daily:2026-03-16"` or `"owner/repo:weekly:2026-W11"` or `"owner/repo:monthly:2026-03"` |
-| `url` | `https://github.com/owner/repo` |
+| `url` | `https://github.com/owner/repo` (same as content URL — no separate discussion page, similar to RSS) |
 | `title` | Repository description |
 | `author` | Repository owner |
-| `score` | Stars gained in period |
+| `score` | Stars gained in period (a delta, not a total — unlike HN points or Reddit upvotes) |
+| `content_id` | FK to SilverContent, obtained from `ensure_content()` |
 | `published_at` | Period start date (daily = that day, weekly = Monday, monthly = 1st of month) |
 | `content_text` | `null` |
 | `meta` | `{"total_stars": 45000, "forks": 1200, "language": "Python", "period": "daily"}` |
@@ -35,14 +37,40 @@ One row per repo per period per time window:
 ### Upsert Semantics
 
 - **Daily**: append-only. New row each day. `external_id` includes the date, so no conflicts. This is the primary discovery signal.
-- **Weekly**: upsert per ISO week. If a repo stays trending, `score` and `published_at` update to current week's values.
+- **Weekly**: upsert per ISO week. If a repo stays trending, `score`, `published_at`, and `meta` update to current values.
 - **Monthly**: upsert per month. Same update behavior as weekly.
 
 ### Source
 
 One row: `type = "github_trending"`, `name = "GitHub Trending"`.
 
-## Collection Approach
+### Documentation Updates
+
+Add `github_trending` to the semantic model (`docs/guidelines/semantic-model.md`):
+- `sources.type` values list
+- `meta` field semantics table
+- `score` semantics table (note: delta, not total)
+
+## Collector Implementation
+
+### collect_discussions / process_discussion Split
+
+Follows the standard two-phase collector pattern:
+
+**`collect_discussions()`:**
+1. Fetch HTML for each period (`daily`, `weekly`, `monthly`) — 3 HTTP requests
+2. Store each raw HTML page as a bronze snapshot via `write_bronze()`
+3. Parse each HTML page with selectolax, extract 25 repo dicts per page
+4. Return a flat list of `DiscussionRef` objects (up to 75 total), each with:
+   - `external_id` = `"owner/repo:period:time_window"`
+   - `raw_data` = parsed repo dict (name, owner, description, stars, stars_in_period, forks, language, period)
+   - `source_id` = from `_ensure_source("GitHub Trending")`
+
+**`process_discussion()`:**
+1. Extract fields from `raw_data`
+2. Call `ensure_content(conn, f"https://github.com/{owner}/{repo}")` → get `content_id`
+3. Build SilverDiscussion values dict
+4. Call `_upsert_discussion(conn, values, update_columns)` — for daily, no updates needed (append-only); for weekly/monthly, update `score`, `published_at`, `meta`
 
 ### Fetching
 
@@ -56,6 +84,8 @@ No authentication required. No JavaScript rendering needed — the page is serve
 
 Each page returns exactly 25 repositories.
 
+Rate limiting is unnecessary given the volume (3 requests per 6 hours), but a brief `time.sleep(1)` between requests is good practice to avoid bursty traffic.
+
 ### Parsing
 
 Use **selectolax** (CSS selector-based HTML parser) to extract repo data from `<article>` elements:
@@ -67,15 +97,23 @@ Use **selectolax** (CSS selector-based HTML parser) to extract repo data from `<
 - Stars gained in period
 - Fork count
 
+**Parse failure detection:** if fewer than 10 repos are extracted from a trending page, log a warning — this likely indicates GitHub changed their HTML structure.
+
 ### Bronze Storage
 
-Raw HTML snapshots saved per fetch:
+Raw HTML snapshots saved per fetch using `write_bronze()`:
 
-- `github_trending/daily/2026-03-16/page.html`
-- `github_trending/weekly/2026-W11/page.html`
-- `github_trending/monthly/2026-03/page.html`
+- `write_bronze("github_trending", "daily:2026-03-16", "page", html_content, "html")`
+- `write_bronze("github_trending", "weekly:2026-W11", "page", html_content, "html")`
+- `write_bronze("github_trending", "monthly:2026-03", "page", html_content, "html")`
 
 No per-item JSON in bronze. If reprocessing is needed, re-parse the HTML snapshot.
+
+**Note on reprocess compatibility:** the existing `reprocess_job` scans for `*/raw.json` files. GitHub Trending uses HTML snapshots, so reprocessing would require a custom scan or a source-specific reprocess method. This is acceptable — reprocessing from HTML is a future concern if needed.
+
+### Error Handling
+
+If one period fetch fails (e.g., weekly returns 500), log the error and continue with the remaining periods. Follow the existing pattern of per-source try/except with `continue`.
 
 ## Downstream Pipeline Behavior
 
@@ -90,6 +128,8 @@ No per-item JSON in bronze. If reprocessing is needed, re-parse the HTML snapsho
 - No value in re-searching discussions for the same URL
 - Weekly/monthly exist purely for tracking trending signal persistence
 
+The collection workflow's event emission (`_emit_item_event`) should only fire for daily period refs. Weekly/monthly refs skip event emission.
+
 ## Volume
 
 - **Daily**: 25 rows/day
@@ -99,7 +139,14 @@ No per-item JSON in bronze. If reprocessing is needed, re-parse the HTML snapsho
 
 ## Configuration
 
-No YAML configuration needed. Periods are hardcoded in the collector: `["daily", "weekly", "monthly"]`. There is only one trending page — no configurable sources like subreddits or channels.
+A minimal `GithubTrendingConfig` is added to `AppConfig` in `src/aggre/config.py` for consistency with the `collect_source()` contract (which calls `getattr(cfg, name)`):
+
+```python
+class GithubTrendingConfig(BaseModel):
+    pass  # No configurable fields — periods are hardcoded
+```
+
+No YAML configuration needed by the user. Periods are hardcoded in the collector: `["daily", "weekly", "monthly"]`.
 
 ## Schedule
 
@@ -115,10 +162,11 @@ All three periods (daily, weekly, monthly) collected in one run.
 
 - `src/aggre/collectors/github_trending/__init__.py`
 - `src/aggre/collectors/github_trending/collector.py`
+- `src/aggre/collectors/github_trending/config.py`
 
 ## New Dependencies
 
-- `selectolax` — CSS selector-based HTML parser
+- `selectolax` — CSS selector-based HTML parser (new direct dependency in `pyproject.toml`)
 
 ## What This Design Does NOT Include
 

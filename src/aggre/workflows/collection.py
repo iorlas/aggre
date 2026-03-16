@@ -167,7 +167,11 @@ def register(h) -> list:  # pragma: no cover — Hatchet wiring
             cfg = load_config()
             engine = get_engine(cfg.settings.database_url)
             result = collect_source(engine, cfg, _name, _cls, hatchet=h)
-            ctx.log(f"Collected {result.succeeded} discussions from {_name} (errors={result.failed}, event_errors={result.event_errors}, events_skipped={result.events_skipped})")
+            ctx.log(
+                f"Collected {result.succeeded} from {_name}"
+                f" (errors={result.failed}, event_errors={result.event_errors},"
+                f" skipped={result.events_skipped})"
+            )
             return result
 
         workflows.append(wf)

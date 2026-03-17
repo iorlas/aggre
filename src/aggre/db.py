@@ -34,7 +34,6 @@ class SilverContent(Base):
     created_at: Mapped[str | None] = mapped_column(sa.Text, server_default=sa.func.now())
     detected_language: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     transcribed_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    discussions_searched_at: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SilverDiscussion(Base):
@@ -62,11 +61,6 @@ class SilverDiscussion(Base):
 # SilverContent indexes
 sa.Index("idx_silver_content_domain", SilverContent.domain, postgresql_where=SilverContent.domain.isnot(None))
 sa.Index("idx_content_text_null", SilverContent.id, postgresql_where=SilverContent.text.is_(None))
-sa.Index(
-    "idx_content_needs_discussion_search",
-    SilverContent.id,
-    postgresql_where=sa.and_(SilverContent.discussions_searched_at.is_(None), SilverContent.text.isnot(None)),
-)
 
 # SilverDiscussion indexes
 sa.Index("idx_silver_discussions_source_type", SilverDiscussion.source_type)

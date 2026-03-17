@@ -35,7 +35,7 @@ HATCHET_TOKEN = (
 )
 SSH_CMD = ["ssh", "iorlas@shen.iorlas.net", "-p", "2201"]
 PAGE_SIZE = 100
-PROCESSED_IDS_FILE = "/tmp/processed_content_ids.json"
+PROCESSED_IDS_FILE = "/tmp/processed_content_ids_v2.json"
 
 
 def load_processed_content_ids() -> set[int]:
@@ -124,56 +124,68 @@ def get_hatchet_admin_password() -> str:
 
 
 def cancel_tasks_on_shen(task_ids: list[str], password: str) -> tuple[int, int]:
-    """Cancel tasks via SSH to shen using admin login cookie."""
-    remote_script = textwrap.dedent("""\
-        import json, sys, urllib.request, http.cookiejar
+    """Cancel tasks via SSH to shen using bulk V1 task cancel API.
+
+    Uses POST /api/v1/stable/tenants/{tenant}/tasks/cancel with admin session.
+    Sends batches of IDs in a single API call (much faster than per-task cancel).
+    """
+    tenant = TENANT
+    remote_script_template = textwrap.dedent("""\
+        import json, urllib.request, http.cookiejar
+
+        PAYLOAD = __PAYLOAD__
+
+        task_ids = PAYLOAD["task_ids"]
+        password = PAYLOAD["password"]
+        tenant = PAYLOAD["tenant"]
 
         HATCHET = "http://hatchet.ts.shen.iorlas.net"
-        task_ids = json.loads(sys.stdin.read())
 
         cj = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
 
         login_data = json.dumps({
             "email": "admin@example.com",
-            "password": __PASSWORD__
+            "password": password,
         }).encode()
         req = urllib.request.Request(
-            f"{HATCHET}/api/v1/users/login",
+            HATCHET + "/api/v1/users/login",
             data=login_data,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         opener.open(req)
 
-        cancelled = 0
-        errors = 0
-        for tid in task_ids:
-            try:
-                req = urllib.request.Request(
-                    f"{HATCHET}/api/v1/stable/workflow-runs/{tid}/cancel",
-                    data=b"{}",
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                opener.open(req)
-                cancelled += 1
-            except Exception as e:
-                errors += 1
-        print(json.dumps({"cancelled": cancelled, "errors": errors}))
-    """).replace("__PASSWORD__", repr(password))
+        cancel_data = json.dumps({"externalIds": task_ids}).encode()
+        req = urllib.request.Request(
+            HATCHET + "/api/v1/stable/tenants/" + tenant + "/tasks/cancel",
+            data=cancel_data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            resp = opener.open(req)
+            body = json.loads(resp.read().decode())
+            cancelled = len(body.get("ids", []))
+            print(json.dumps({"cancelled": cancelled, "errors": 0}))
+        except Exception as e:
+            print(json.dumps({"cancelled": 0, "errors": len(task_ids), "error": str(e)}))
+    """)
 
     total_cancelled = 0
     total_errors = 0
-    batch_size = 50
+    batch_size = 200  # Bulk API handles larger batches efficiently
 
     pbar = tqdm(total=len(task_ids), desc="Cancelling")
     for i in range(0, len(task_ids), batch_size):
         batch = task_ids[i : i + batch_size]
 
+        payload = json.dumps({"password": password, "task_ids": batch, "tenant": tenant})
+        remote_script = remote_script_template.replace("__PAYLOAD__", payload)
+
         result = subprocess.run(
-            SSH_CMD + ["python3", "-c", remote_script],
-            input=json.dumps(batch),
+            SSH_CMD + ["python3"],
+            input=remote_script,
             capture_output=True, text=True,
         )
 
@@ -188,7 +200,7 @@ def cancel_tasks_on_shen(task_ids: list[str], password: str) -> tuple[int, int]:
                 total_cancelled += batch_ok
                 total_errors += batch_err
                 if batch_err:
-                    tqdm.write(f"  Batch had {batch_err} cancel errors")
+                    tqdm.write(f"  Batch had {batch_err} errors: {info.get('error', '')[:100]}")
             except json.JSONDecodeError:
                 tqdm.write(f"  Unexpected: {result.stdout[:200]}")
                 total_errors += len(batch)

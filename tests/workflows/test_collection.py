@@ -116,7 +116,6 @@ class TestEventEmission:
         mock_disc_row.content_id = 100
         mock_disc_row.domain = "example.com"
         mock_disc_row.text = None
-        mock_disc_row.discussions_searched_at = None
         mock_result = MagicMock()
         mock_result.first.return_value = mock_disc_row
         connect_mock = MagicMock()
@@ -169,7 +168,6 @@ class TestEventEmission:
         mock_disc_row.content_id = 100
         mock_disc_row.domain = "example.com"
         mock_disc_row.text = None
-        mock_disc_row.discussions_searched_at = None
         mock_result = MagicMock()
         mock_result.first.return_value = mock_disc_row
         connect_mock = MagicMock()
@@ -208,7 +206,7 @@ class TestEventEmission:
         mock_hatchet.event.push.assert_not_called()
 
     def test_no_event_when_fully_processed(self) -> None:
-        """No event emitted when content has text AND discussions_searched_at (fully processed)."""
+        """No event emitted when content already has text (fully processed)."""
         cfg = make_config()
         mock_cls = MagicMock()
         mock_cls.return_value.collect_discussions.return_value = [
@@ -223,7 +221,6 @@ class TestEventEmission:
         mock_disc_row.content_id = 100
         mock_disc_row.domain = "example.com"
         mock_disc_row.text = "Some article text"
-        mock_disc_row.discussions_searched_at = "2026-03-16T00:00:00+00:00"
         mock_result = MagicMock()
         mock_result.first.return_value = mock_disc_row
         connect_mock = MagicMock()
@@ -236,9 +233,9 @@ class TestEventEmission:
         assert result.events_skipped == 1
         mock_hatchet.event.push.assert_not_called()
 
-    def test_emits_event_for_self_post(self) -> None:
-        """Self-posts have text pre-populated by collector but discussions_searched_at=None.
-        Event must still be emitted so discussion-search and comments run."""
+    def test_no_event_for_self_post(self) -> None:
+        """Self-posts have text pre-populated by collector — already fully processed,
+        no event needed (webpage/transcription will skip, comments use their own query)."""
         cfg = make_config()
         mock_cls = MagicMock()
         mock_cls.return_value.collect_discussions.return_value = [
@@ -253,7 +250,6 @@ class TestEventEmission:
         mock_disc_row.content_id = 100
         mock_disc_row.domain = "reddit.com"
         mock_disc_row.text = "This is a Reddit self-post"
-        mock_disc_row.discussions_searched_at = None  # Not yet searched
         mock_result = MagicMock()
         mock_result.first.return_value = mock_disc_row
         connect_mock = MagicMock()
@@ -261,10 +257,7 @@ class TestEventEmission:
         engine.connect.return_value.__enter__ = MagicMock(return_value=connect_mock)
         engine.connect.return_value.__exit__ = MagicMock(return_value=False)
 
-        collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
+        result = collect_source(engine, cfg, "hackernews", mock_cls, hatchet=mock_hatchet)
 
-        # Event emitted with text_provided=True — webpage/transcription filters will skip,
-        # but comments and discussion-search will still process
-        mock_hatchet.event.push.assert_called_once()
-        emitted_payload = mock_hatchet.event.push.call_args[0][1]
-        assert emitted_payload["text_provided"] is True
+        assert result.events_skipped == 1
+        mock_hatchet.event.push.assert_not_called()

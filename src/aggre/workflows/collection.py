@@ -91,7 +91,6 @@ def _emit_item_event(
                     SilverDiscussion.content_id,
                     SilverContent.domain,
                     SilverContent.text,
-                    SilverContent.discussions_searched_at,
                 )
                 .outerjoin(SilverContent, SilverContent.id == SilverDiscussion.content_id)
                 .where(
@@ -102,21 +101,15 @@ def _emit_item_event(
 
         if disc and disc.content_id:
             # -- Event dedup (Layer 1) --
-            # Skip emitting if the content is fully processed: text extracted/transcribed
-            # AND discussion search completed. This prevents collectors from flooding the
-            # Hatchet queue with redundant events for items seen on every cron cycle.
+            # Skip emitting if the content already has text (extracted, transcribed,
+            # or pre-populated by the collector for self-posts). This prevents
+            # collectors from flooding the Hatchet queue with redundant events for
+            # items seen on every cron cycle.
             #
-            # We check BOTH columns because self-posts (Reddit selftext, Ask HN,
-            # Telegram messages) pre-populate SilverContent.text at collection time.
-            # Checking text alone would suppress events for self-posts on their very
-            # first collection, preventing discussion-search and comments from running.
-            # The discussions_searched_at column is only set after the discussion-search
-            # workflow completes, so it reliably indicates "all downstream work is done."
-            #
-            # Layer 2 (CANCEL_NEWEST per content_id on each workflow) provides a safety
-            # net for race conditions where an event slips through during the brief
-            # window between collection and workflow completion.
-            if disc.text is not None and disc.discussions_searched_at is not None:
+            # Layer 2 (CANCEL_NEWEST per content_id on each workflow) provides a
+            # safety net for race conditions where an event slips through during
+            # the brief window between collection and workflow completion.
+            if disc.text is not None:
                 logger.info(
                     "collect.event_skipped_fully_processed source=%s external_id=%s content_id=%s",
                     source_name, ref["external_id"], disc.content_id,

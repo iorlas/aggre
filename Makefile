@@ -23,10 +23,16 @@ dev-remote:
 coverage-diff:
 	uv run diff-cover coverage.xml --compare-branch=origin/main --fail-under=95
 
-lint:
-	uv run ruff check src tests
-	uv run ruff format --check src tests
-	uv run ty check src tests
+lint:  ## Check only — safe for AI, CI, pre-commit. Never modifies files.
+	@uv run ruff format --check || (echo "Formatting issues found. Run 'make fix' to auto-fix." && exit 1)
+	@uv run ruff check || (echo "Lint issues found. Fixable ones can be resolved with 'make fix'." && exit 1)
+	@uv run ty check
+	@uv run yamllint -c .yamllint.yml .
+	@uv run python scripts/check-json.py
+
+fix:  ## Auto-fix formatting and import sorting. Modifies files.
+	uv run ruff check --fix
+	uv run ruff format
 
 worker:
 	uv run python -m aggre.workflows

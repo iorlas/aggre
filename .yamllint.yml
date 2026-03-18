@@ -1,0 +1,21 @@
+extends: default
+
+ignore: |
+  node_modules/
+  .venv/
+  .dmux/
+  data/
+  tests/collectors/cassettes/
+  .git/
+
+rules:
+  line-length:
+    max: 200
+  truthy:
+    check-keys: false
+  document-start: disable
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+  indentation: disable

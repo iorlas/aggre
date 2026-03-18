@@ -71,7 +71,7 @@ URL matching already works via `content_id` — when multiple sources collect st
 **Keep:** `fetch_discussion_comments()` — actively used by comments workflow for fetching comment trees.
 
 **Clean up docs (explicit list):**
-- `docs/guidelines/semantic-model.md` — remove `discussions_searched_at` column reference (line 36), `idx_content_needs_discussion_search` index (line 40), and "Discussion search coverage" query recipe (lines 369-386). Column was dropped in migration 011.
+- `docs/guidelines/semantic-model.md` — remove `discussions_searched_at` column reference, `idx_content_needs_discussion_search` index definition, and "Discussion search coverage" query recipe. Search for these strings to find them (line numbers may drift). Column was dropped in migration 011.
 - `.planning/codebase/STRUCTURE.md` — remove reference to `src/aggre/dagster_defs/discussion_search/`
 - `.planning/codebase/INTEGRATIONS.md` — update "Enrichment" section that references discussion search
 - `.planning/codebase/TESTING.md` — remove reference to `test_discussion_search.py`
@@ -125,7 +125,7 @@ Add `yamllint` to dev dependencies (already done). Keep `check-jsonschema` for f
 #### E4. Pre-commit
 
 Replace `.pre-commit-config.yaml` contents with two hooks:
-1. `make fix` — auto-fix stage (prek/pre-commit handles re-staging modified files automatically)
+1. `make fix` — auto-fix stage (prek auto-restages modified files; stock pre-commit requires manual `git add` and re-commit)
 2. `make lint` — check stage (fails commit if unfixable issues remain)
 
 Fix `uvx ty check .` → eliminated (now runs through `make lint` which uses `uv run`).

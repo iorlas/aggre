@@ -22,9 +22,9 @@ def register(h):  # pragma: no cover — Hatchet wiring
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         single_config = RssConfig(sources=[RssSource(name=input.name, url=input.url)])
-        count = collect_source(engine, cfg, "rss", RssCollector, source_config=single_config, hatchet=h)
-        ctx.log(f"Collected {count} from {input.name}")
-        return CollectResult(source=f"rss:{input.name}", succeeded=count, total=count)
+        result = collect_source(engine, cfg, "rss", RssCollector, source_config=single_config, hatchet=h)
+        ctx.log(f"Collected {result.succeeded} from {input.name}")
+        return result
 
     parent_wf = h.workflow(name="collect-rss", on_crons=["0 */2 * * *"])
 

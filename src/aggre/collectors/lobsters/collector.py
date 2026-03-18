@@ -52,10 +52,12 @@ class LobstersCollector(BaseCollector):
                 urls: list[str] = []
                 if lob_source.tags:
                     for tag in lob_source.tags:
-                        urls.append(f"{LOBSTERS_BASE}/t/{tag}.json")
+                        for page in range(1, config.pages + 1):
+                            urls.append(f"{LOBSTERS_BASE}/t/{tag}.json?page={page}")
                 else:
-                    urls.append(f"{LOBSTERS_BASE}/hottest.json")
-                    urls.append(f"{LOBSTERS_BASE}/newest.json")
+                    for page in range(1, config.pages + 1):
+                        urls.append(f"{LOBSTERS_BASE}/hottest.json?page={page}")
+                        urls.append(f"{LOBSTERS_BASE}/newest.json?page={page}")
 
                 stories_by_id: dict[str, dict[str, object]] = {}
                 for url in urls:

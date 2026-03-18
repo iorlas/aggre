@@ -13,4 +13,5 @@ class LobstersSource(BaseModel):
 class LobstersConfig(BaseModel):
     fetch_limit: int = 50
     init_fetch_limit: int = 200
+    pages: int = 4
     sources: list[LobstersSource] = []

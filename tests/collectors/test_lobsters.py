@@ -34,7 +34,7 @@ class TestLobstersCollectorDiscussions:
         mock_http.get(url__regex=r"newest\.json").respond(json=[story])  # same story, should dedup
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")], pages=1))
             count = collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         assert count == 1
@@ -60,7 +60,7 @@ class TestLobstersCollectorDiscussions:
         mock_http.get(url__regex=r"newest\.json").respond(json=[])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")], pages=1))
             count1 = collect(LobstersCollector(), engine, config.lobsters, config.settings)
             count2 = collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
@@ -74,7 +74,7 @@ class TestLobstersCollectorDiscussions:
         mock_http.get(url__regex=r"newest\.json").respond(json=[story2])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")], pages=1))
             count = collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         assert count == 2
@@ -85,7 +85,7 @@ class TestLobstersCollectorDiscussions:
         python_route = mock_http.get(url__regex=r"t/python\.json").respond(json=[])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters", tags=["rust", "python"])]))
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters", tags=["rust", "python"])], pages=1))
             count = collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         assert count == 1
@@ -97,20 +97,47 @@ class TestLobstersCollectorDiscussions:
         assert not any("hottest.json" in u for u in called_urls)
 
     def test_no_config_returns_zero(self, engine):
-        config = AppConfig(lobsters=LobstersConfig(sources=[]), settings=Settings(lobsters_rate_limit=0.0))
+        config = AppConfig(lobsters=LobstersConfig(sources=[], pages=1), settings=Settings(lobsters_rate_limit=0.0))
         collector = LobstersCollector()
         assert collect(collector, engine, config.lobsters, config.settings) == 0
+
+    def test_paginates_multiple_pages(self, engine, mock_http):
+        """Collector fetches multiple pages when config.pages > 1."""
+        story_p1 = lobsters_story(short_id="page1")
+        story_p2 = lobsters_story(short_id="page2")
+
+        mock_http.get(url__regex=r"hottest\.json\?page=1").respond(json=[story_p1])
+        mock_http.get(url__regex=r"hottest\.json\?page=2").respond(json=[story_p2])
+        mock_http.get(url__regex=r"newest\.json\?page=1").respond(json=[])
+        mock_http.get(url__regex=r"newest\.json\?page=2").respond(json=[])
+
+        with patch("aggre.collectors.lobsters.collector.time.sleep"):
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")], pages=2))
+            count = collect(LobstersCollector(), engine, config.lobsters, config.settings)
+
+        assert count == 2
+
+    def test_tag_urls_paginated(self, engine, mock_http):
+        """Tag URLs are also paginated."""
+        story = lobsters_story()
+
+        mock_http.get(url__regex=r"t/rust\.json\?page=1").respond(json=[story])
+        mock_http.get(url__regex=r"t/rust\.json\?page=2").respond(json=[])
+
+        with patch("aggre.collectors.lobsters.collector.time.sleep"):
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters", tags=["rust"])], pages=2))
+            count = collect(LobstersCollector(), engine, config.lobsters, config.settings)
+
+        assert count == 1
 
 
 class TestLobstersCollectorFetchDiscussionComments:
     def test_sets_comments_fetched_at_on_success(self, engine, mock_http):
-        config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
+        config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")], pages=1))
         collector = LobstersCollector()
 
         content_id = seed_content(engine, "https://example.com/lob-fetch-test", domain="example.com")
-        discussion_id = seed_discussion(
-            engine, source_type="lobsters", external_id="abc123", content_id=content_id
-        )
+        discussion_id = seed_discussion(engine, source_type="lobsters", external_id="abc123", content_id=content_id)
 
         comment = lobsters_comment(short_id="com1", comment="Nice!")
         detail = lobsters_story_detail(short_id="abc123", comments=[comment])
@@ -120,9 +147,7 @@ class TestLobstersCollectorFetchDiscussionComments:
             collector.fetch_discussion_comments(engine, discussion_id, "abc123", None, config.settings)
 
         with engine.connect() as conn:
-            row = conn.execute(
-                sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)
-            ).first()
+            row = conn.execute(sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)).first()
         assert row.comments_fetched_at is not None
 
 
@@ -211,7 +236,7 @@ class TestLobstersSource:
         mock_http.get(url__regex=r"newest\.json").respond(json=[])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")], pages=1))
             collect(LobstersCollector(), engine, config.lobsters, config.settings)
 
         rows = get_sources(engine)
@@ -224,7 +249,7 @@ class TestLobstersSource:
         mock_http.get(url__regex=r"newest\.json").respond(json=[])
 
         with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
+            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")], pages=1))
             collect(LobstersCollector(), engine, config.lobsters, config.settings)
             collect(LobstersCollector(), engine, config.lobsters, config.settings)
 

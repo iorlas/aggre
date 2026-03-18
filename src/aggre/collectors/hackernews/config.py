@@ -10,6 +10,6 @@ class HackernewsSource(BaseModel):
 
 
 class HackernewsConfig(BaseModel):
-    fetch_limit: int = 100
+    fetch_limit: int = 1000
     init_fetch_limit: int = 200
     sources: list[HackernewsSource] = []

@@ -165,6 +165,27 @@ class TestHackernewsCollectorDiscussions:
         assert count == 0
         assert len(get_discussions(engine)) == 0
 
+    def test_fetches_all_stories_not_just_front_page(self, engine, mock_http):
+        """Collector uses tags=story (not story,front_page) to catch all stories."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+        )
+        collector = HackernewsCollector()
+
+        hit = hn_hit()
+        route = mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
+
+        with patch("aggre.collectors.hackernews.collector.time.sleep"):
+            collect(collector, engine, config.hackernews, config.settings)
+
+        # Verify the query used tags=story (not story,front_page)
+        request = route.calls[0].request
+        assert "tags=story" in str(request.url)
+        assert "front_page" not in str(request.url)
+
 
 class TestHackernewsCollectorFetchDiscussionComments:
     def test_sets_comments_fetched_at_on_success(self, engine, mock_http):
@@ -186,9 +207,7 @@ class TestHackernewsCollectorFetchDiscussionComments:
             collector.fetch_discussion_comments(engine, discussion_id, "12345", None, config.settings)
 
         with engine.connect() as conn:
-            row = conn.execute(
-                sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)
-            ).first()
+            row = conn.execute(sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)).first()
         assert row.comments_fetched_at is not None
 
 

@@ -52,7 +52,7 @@ class HackernewsCollector(BaseCollector):
                     resp = client.get(
                         f"{HN_ALGOLIA_BASE}/search_by_date",
                         params={
-                            "tags": "story,front_page",
+                            "tags": "story",
                             "hitsPerPage": config.fetch_limit,
                         },
                     )

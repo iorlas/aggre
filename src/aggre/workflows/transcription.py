@@ -19,7 +19,7 @@ from aggre.db import SilverContent, SilverDiscussion, update_content
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
 from aggre.utils.whisper_client import parse_endpoints, transcribe_audio
-from aggre.utils.ytdlp import VideoUnavailable, download_audio
+from aggre.utils.ytdlp import VideoUnavailableError, download_audio
 from aggre.workflows.models import ItemEvent, StepOutput
 
 logger = logging.getLogger(__name__)
@@ -162,8 +162,7 @@ def transcribe_one(
                 SilverContent.canonical_url,
                 SilverContent.text,
                 SilverContent.domain,
-            )
-            .where(SilverContent.id == content_id, SilverContent.domain == "youtube.com")
+            ).where(SilverContent.id == content_id, SilverContent.domain == "youtube.com")
         ).first()
 
     if not row:
@@ -179,13 +178,12 @@ def transcribe_one(
     # Fetch title and meta from any associated discussion (for logging/duration)
     with engine.connect() as conn:
         disc = conn.execute(
-            sa.select(SilverDiscussion.title, SilverDiscussion.meta)
-            .where(SilverDiscussion.content_id == content_id)
-            .limit(1)
+            sa.select(SilverDiscussion.title, SilverDiscussion.meta).where(SilverDiscussion.content_id == content_id).limit(1)
         ).first()
 
     # Build a lightweight row-like object for _transcribe_one
     from types import SimpleNamespace
+
     item = SimpleNamespace(
         id=row.id,
         canonical_url=row.canonical_url,
@@ -197,7 +195,7 @@ def transcribe_one(
 
     try:
         return _transcribe_one(engine, config, item)
-    except VideoUnavailable as e:
+    except VideoUnavailableError as e:
         return StepOutput(status="skipped", reason="video_unavailable", url=item.canonical_url, detail={"message": str(e)})
 
 

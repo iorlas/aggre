@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 
 # -- Exceptions ---------------------------------------------------------------
 
+
 class YtDlpError(Exception):
     """Transient yt-dlp failure — Hatchet will retry with backoff."""
 
 
-class VideoUnavailable(YtDlpError):
+class VideoUnavailableError(YtDlpError):
     """Permanent — video deleted, private, region-blocked. Safe to skip."""
 
 
@@ -42,7 +43,7 @@ def _run_ytdlp(args: list[str], *, timeout: float | None = None) -> subprocess.C
     """Run yt-dlp CLI via subprocess.
 
     Parses stderr for known error patterns.
-    Raises VideoUnavailable for permanent failures, YtDlpError for transient.
+    Raises VideoUnavailableError for permanent failures, YtDlpError for transient.
     """
     cmd = ["uv", "run", "yt-dlp", *args]
     logger.debug("ytdlp.run cmd=%s", " ".join(cmd))
@@ -62,7 +63,7 @@ def _run_ytdlp(args: list[str], *, timeout: float | None = None) -> subprocess.C
 
     for pattern in _PERMANENT_PATTERNS:
         if pattern.search(stderr):
-            raise VideoUnavailable(stderr)
+            raise VideoUnavailableError(stderr)
 
     raise YtDlpError(stderr)
 
@@ -83,12 +84,17 @@ def extract_channel_info(
     Pass fetch_limit=None for backfill (no limit).
     """
     args = [
-        "--impersonate", "chrome",
-        "--proxy", proxy_url,
-        "--source-address", "0.0.0.0",
-        "--quiet", "--no-warnings",
+        "--impersonate",
+        "chrome",
+        "--proxy",
+        proxy_url,
+        "--source-address",
+        "0.0.0.0",
+        "--quiet",
+        "--no-warnings",
         "--ignore-errors",
-        "--flat-playlist", "-J",
+        "--flat-playlist",
+        "-J",
     ]
     if fetch_limit is not None:
         args.extend(["--playlist-end", str(fetch_limit)])
@@ -119,14 +125,24 @@ def download_audio(
     output_template = str(output_dir / f"{video_id}.%(ext)s")
 
     args = [
-        "--impersonate", "chrome",
-        "--proxy", proxy_url,
-        "--source-address", "0.0.0.0",
-        "--quiet", "--no-warnings",
+        "--impersonate",
+        "chrome",
+        "--proxy",
+        proxy_url,
+        "--source-address",
+        "0.0.0.0",
+        "--quiet",
+        "--no-warnings",
         "--no-playlist",
-        "-f", "bestaudio/best",
-        "-x", "--audio-format", "opus", "--audio-quality", "48K",
-        "-o", output_template,
+        "-f",
+        "bestaudio/best",
+        "-x",
+        "--audio-format",
+        "opus",
+        "--audio-quality",
+        "48K",
+        "-o",
+        output_template,
         f"https://www.youtube.com/watch?v={video_id}",
     ]
 

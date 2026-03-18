@@ -11,7 +11,7 @@ from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.collectors.youtube.config import YoutubeConfig
 from aggre.settings import Settings
 from aggre.urls import ensure_content
-from aggre.utils.ytdlp import YtDlpError, VideoUnavailable, extract_channel_info
+from aggre.utils.ytdlp import VideoUnavailableError, YtDlpError, extract_channel_info
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class YoutubeCollector(BaseCollector):
                 logger.info("youtube.fetching name=%s limit=%s", yt_source.name, fetch_limit)
                 entries = extract_channel_info(url, proxy_url=settings.proxy_url, fetch_limit=fetch_limit)
                 logger.info("youtube.fetched name=%s entries=%d", yt_source.name, len(entries))
-            except (VideoUnavailable, YtDlpError):
+            except (VideoUnavailableError, YtDlpError):
                 logger.exception("youtube.fetch_error channel=%s", yt_source.name)
                 continue
 

@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from aggre.utils.ytdlp import (
-    VideoUnavailable,
+    VideoUnavailableError,
     YtDlpError,
     _run_ytdlp,
     download_audio,
@@ -45,7 +44,7 @@ class TestRunYtdlp:
     def test_permanent_patterns_raise_video_unavailable(self, stderr_msg):
         result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr_msg)
         with patch("aggre.utils.ytdlp.subprocess.run", return_value=result):
-            with pytest.raises(VideoUnavailable):
+            with pytest.raises(VideoUnavailableError):
                 _run_ytdlp(["https://youtube.com/watch?v=xxx"])
 
     def test_transient_error_raises_ytdlp_error(self):
@@ -59,7 +58,7 @@ class TestRunYtdlp:
         with patch("aggre.utils.ytdlp.subprocess.run", return_value=result):
             with pytest.raises(YtDlpError) as exc_info:
                 _run_ytdlp(["https://youtube.com/watch?v=xxx"])
-            assert not isinstance(exc_info.value, VideoUnavailable)
+            assert not isinstance(exc_info.value, VideoUnavailableError)
 
     def test_timeout_passed_to_subprocess(self):
         result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
@@ -177,7 +176,7 @@ class TestDownloadAudio:
         assert "--audio-quality" in cmd
         assert "48K" in cmd
         assert "-o" in cmd
-        assert f"https://www.youtube.com/watch?v=vid123" in cmd
+        assert "https://www.youtube.com/watch?v=vid123" in cmd
 
         # Should have been renamed to audio.opus
         assert path == tmp_path / "audio.opus"

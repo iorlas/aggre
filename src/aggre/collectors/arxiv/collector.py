@@ -12,9 +12,9 @@ import sqlalchemy as sa
 from aggre.collectors.arxiv.config import ArxivConfig
 from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.settings import Settings
-from aggre.utils.http import create_http_client
 from aggre.urls import ensure_content
 from aggre.utils.bronze import url_hash
+from aggre.utils.http import create_http_client
 
 logger = logging.getLogger(__name__)
 

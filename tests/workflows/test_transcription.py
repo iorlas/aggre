@@ -6,7 +6,6 @@ Uses real PostgreSQL engine for DB queries, mocks whisper.cpp server via transcr
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -15,7 +14,7 @@ import sqlalchemy as sa
 
 from aggre.db import SilverContent
 from aggre.utils.whisper_client import TranscriptionResult
-from aggre.utils.ytdlp import VideoUnavailable, YtDlpError
+from aggre.utils.ytdlp import VideoUnavailableError, YtDlpError
 from aggre.workflows.transcription import _extract_video_id, transcribe_one
 from tests.factories import make_config, seed_content, seed_discussion
 
@@ -230,7 +229,7 @@ class TestTranscribeOne:
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
     @patch("aggre.workflows.transcription.download_audio")
     def test_video_unavailable_returns_skipped(self, mock_download, mock_read_or_none, mock_get_store, mock_write, engine, tmp_path):
-        """VideoUnavailable is caught and returns skipped status."""
+        """VideoUnavailableError is caught and returns skipped status."""
         config = make_config()
 
         audio_file = tmp_path / "nonexistent_audio.opus"
@@ -238,7 +237,7 @@ class TestTranscribeOne:
         mock_store.local_path.return_value = audio_file
         mock_get_store.return_value = mock_store
 
-        mock_download.side_effect = VideoUnavailable("Video unavailable")
+        mock_download.side_effect = VideoUnavailableError("Video unavailable")
 
         result = transcribe_one(engine, config, _seed_youtube(engine, external_id="unavail01"))
         assert result.status == "skipped"

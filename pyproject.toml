@@ -60,6 +60,7 @@ prerelease = "allow"
 target-version = "py312"
 line-length = 140
 output-format = "concise"
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]

@@ -35,9 +35,10 @@ lint:  ## Check only — safe for AI, CI, pre-commit. Never modifies files.
 	@uv run yamllint -c .yamllint.yml .
 	@uv run python scripts/check-json.py
 
-fix:  ## Auto-fix formatting and import sorting. Modifies files.
+fix:  ## Auto-fix formatting and import sorting, then verify with lint.
 	uv run ruff check --fix
 	uv run ruff format
+	$(MAKE) lint
 
 worker:
 	uv run python -m aggre.workflows

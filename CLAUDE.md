@@ -31,6 +31,7 @@ Read the relevant docs first:
 - Run migrations: `alembic upgrade head`
 - Lint: `make lint` (check only, never modifies files — safe for AI to run anytime)
 - Fix: `make fix` (auto-fix formatting and import sorting, then runs `make lint` to verify)
+- Audit: `make audit` (check dependencies for known vulnerabilities — run after adding/updating deps, requires network)
 - Hatchet worker: `uv run python -m aggre.workflows` (or `make worker`)
 - Hatchet UI: http://localhost:8888 (via docker-compose)
 - Verify TLA+ specs: `make verify` (requires Java)

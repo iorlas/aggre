@@ -32,7 +32,7 @@ jobs:
               env:
                   MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
                   MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-              run: uv run modal deploy src/aggre/modal_apps/transcription.py
+              run: uv run python -m modal deploy src/aggre/modal_apps/transcription.py
 
     build-and-push:
         runs-on: ubuntu-latest

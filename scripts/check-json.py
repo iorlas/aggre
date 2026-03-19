@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 import sys
 
-EXCLUDES = {"node_modules", ".venv", ".dmux", "data", ".git"}
+# Use git ls-files to find tracked JSON files (fast, respects .gitignore)
+result = subprocess.run(["git", "ls-files", "*.json", "**/*.json"], capture_output=True, text=True)
+files = [pathlib.Path(f) for f in result.stdout.strip().splitlines() if f]
 
 errors = []
-for p in pathlib.Path(".").rglob("*.json"):
-    if any(part in EXCLUDES for part in p.parts):
-        continue
+for p in files:
     try:
         json.loads(p.read_text())
     except json.JSONDecodeError as e:

@@ -127,14 +127,10 @@ class TestRedditCollectorFetchDiscussionComments:
         mock_http.get(url__regex=r".*/comments/abc123\.json.*").respond(json=comment_response)
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
-            collector.fetch_discussion_comments(
-                engine, discussion_id, "t3_abc123", '{"subreddit": "python"}', config.settings
-            )
+            collector.fetch_discussion_comments(engine, discussion_id, "t3_abc123", '{"subreddit": "python"}', config.settings)
 
         with engine.connect() as conn:
-            row = conn.execute(
-                sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)
-            ).first()
+            row = conn.execute(sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)).first()
         assert row.comments_fetched_at is not None
 
 

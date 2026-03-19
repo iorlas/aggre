@@ -20,25 +20,13 @@ depends_on = None
 
 def upgrade() -> None:
     # Rename the partial index on silver_content
-    op.execute(
-        "ALTER INDEX idx_content_needs_enrich "
-        "RENAME TO idx_content_needs_discussion_search"
-    )
+    op.execute("ALTER INDEX idx_content_needs_enrich RENAME TO idx_content_needs_discussion_search")
 
     # Update existing stage_tracking rows
-    op.execute(
-        "UPDATE stage_tracking SET stage = 'discussion_search' "
-        "WHERE stage = 'enrich'"
-    )
+    op.execute("UPDATE stage_tracking SET stage = 'discussion_search' WHERE stage = 'enrich'")
 
 
 def downgrade() -> None:
-    op.execute(
-        "UPDATE stage_tracking SET stage = 'enrich' "
-        "WHERE stage = 'discussion_search'"
-    )
+    op.execute("UPDATE stage_tracking SET stage = 'enrich' WHERE stage = 'discussion_search'")
 
-    op.execute(
-        "ALTER INDEX idx_content_needs_discussion_search "
-        "RENAME TO idx_content_needs_enrich"
-    )
+    op.execute("ALTER INDEX idx_content_needs_discussion_search RENAME TO idx_content_needs_enrich")

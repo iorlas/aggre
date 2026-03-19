@@ -1,3 +1,8 @@
+bootstrap:  ## Set up dev environment (run once after clone)
+	uv sync
+	@command -v prek >/dev/null 2>&1 && prek install || (command -v pre-commit >/dev/null 2>&1 && pre-commit install || echo "⚠ Install prek (brew install prek) or pre-commit for git hooks")
+	@echo "✓ Dev environment ready. Run 'make lint' to verify."
+
 dev:
 	docker compose -f docker-compose.local.yml up --build --watch
 

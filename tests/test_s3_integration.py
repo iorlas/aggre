@@ -153,6 +153,7 @@ class TestTranscriptionViaS3:
         # download_audio creates the file and returns its path
         def fake_download(video_id, output_dir, *, proxy_url):
             from pathlib import Path
+
             dest = Path(output_dir)
             dest.mkdir(parents=True, exist_ok=True)
             audio_path = dest / "audio.opus"

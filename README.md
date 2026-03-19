@@ -1,26 +1,27 @@
 # Aggre
 
-Content aggregation system. Polls RSS feeds, Reddit, and YouTube channels, storing content in a local SQLite database.
+Content aggregation system. Collects discussions from Hacker News, Reddit, Lobsters, RSS, YouTube, HuggingFace, Telegram, and more. Fetches linked content, discovers cross-source discussions via URL matching, and processes content for analysis.
 
-## Setup
-
-```bash
-uv sync
-uv run alembic upgrade head
-```
-
-## Usage
+## Quick Start
 
 ```bash
-aggre fetch                          # Poll all sources once
-aggre fetch --source reddit          # Poll only Reddit
-aggre fetch --loop --interval 3600   # Poll every hour
-aggre transcribe                     # Transcribe pending YouTube videos
-aggre status                         # Show fetch times, queue sizes
+make bootstrap    # Install deps, set up git hooks
+cp .env.example .env  # Configure database URL and API keys
+make dev          # Start local dev environment (Docker)
 ```
 
-## Docker
+## Dev Commands
 
 ```bash
-docker-compose up -d
+make lint         # Check only — never modifies files (safe for AI)
+make fix          # Auto-fix formatting and import sorting
+make test-e2e     # Run full test suite (spins up ephemeral postgres)
+make worker       # Start Hatchet worker
+make dev          # Local dev with Docker Compose
 ```
+
+## Prerequisites
+
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/)
+- Docker (for local dev and tests)
+- [prek](https://github.com/j178/prek) (recommended) or pre-commit for git hooks: `brew install prek`

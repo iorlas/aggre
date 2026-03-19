@@ -58,15 +58,17 @@ def parse_trending_page(html: str) -> list[dict[str, object]]:
         if period_el:
             stars_in_period = _parse_number(period_el.text(strip=True))
 
-        repos.append({
-            "owner": owner,
-            "name": name,
-            "description": description,
-            "language": language,
-            "total_stars": total_stars,
-            "forks": forks,
-            "stars_in_period": stars_in_period,
-        })
+        repos.append(
+            {
+                "owner": owner,
+                "name": name,
+                "description": description,
+                "language": language,
+                "total_stars": total_stars,
+                "forks": forks,
+                "stars_in_period": stars_in_period,
+            }
+        )
 
     if 0 < len(repos) < 10:
         logger.warning(

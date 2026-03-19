@@ -64,11 +64,13 @@ class GithubTrendingCollector(BaseCollector):
                 for repo in repos:
                     external_id = _make_external_id(repo["owner"], repo["name"], period)
                     raw_data = {**repo, "period": period}
-                    refs.append(DiscussionRef(
-                        external_id=external_id,
-                        raw_data=raw_data,
-                        source_id=source_id,
-                    ))
+                    refs.append(
+                        DiscussionRef(
+                            external_id=external_id,
+                            raw_data=raw_data,
+                            source_id=source_id,
+                        )
+                    )
 
         self._update_last_fetched(engine, source_id)
         return refs
@@ -86,12 +88,14 @@ class GithubTrendingCollector(BaseCollector):
         repo_url = f"https://github.com/{owner}/{name}"
         content_id = ensure_content(conn, repo_url)
 
-        meta = json.dumps({
-            "total_stars": ref_data.get("total_stars", 0),
-            "forks": ref_data.get("forks", 0),
-            "language": ref_data.get("language", ""),
-            "period": period,
-        })
+        meta = json.dumps(
+            {
+                "total_stars": ref_data.get("total_stars", 0),
+                "forks": ref_data.get("forks", 0),
+                "language": ref_data.get("language", ""),
+                "period": period,
+            }
+        )
 
         values = dict(
             source_id=source_id,

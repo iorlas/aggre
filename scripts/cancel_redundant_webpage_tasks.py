@@ -76,9 +76,7 @@ def fetch_queued_webpage_tasks(client: httpx.Client) -> list[dict]:
     return all_tasks
 
 
-def classify_tasks(
-    tasks: list[dict], processed_ids: set[int]
-) -> tuple[list[str], list[str]]:
+def classify_tasks(tasks: list[dict], processed_ids: set[int]) -> tuple[list[str], list[str]]:
     """Split tasks into (to_cancel, to_keep) by content_id processing state."""
     to_cancel: list[str] = []
     to_keep: list[str] = []
@@ -110,11 +108,9 @@ def classify_tasks(
 def get_hatchet_admin_password() -> str:
     """Get the Hatchet admin password from the container on shen."""
     result = subprocess.run(
-        SSH_CMD + [
-            "docker exec $(docker ps --filter name=hatchet-lite -q | head -1)"
-            " printenv SEED_DEFAULT_ADMIN_PASSWORD"
-        ],
-        capture_output=True, text=True,
+        SSH_CMD + ["docker exec $(docker ps --filter name=hatchet-lite -q | head -1) printenv SEED_DEFAULT_ADMIN_PASSWORD"],
+        capture_output=True,
+        text=True,
     )
     pwd = result.stdout.strip()
     if not pwd:
@@ -186,7 +182,8 @@ def cancel_tasks_on_shen(task_ids: list[str], password: str) -> tuple[int, int]:
         result = subprocess.run(
             SSH_CMD + ["python3"],
             input=remote_script,
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
         if result.returncode != 0:

@@ -97,7 +97,9 @@ class TestGithubTrendingCollectDiscussions:
 
     def test_stores_meta_with_total_stars_forks_language_period(self, engine, mock_http, collector):
         repo_html = github_trending_repo_html(
-            language="Python", total_stars="45,231", forks="1,234",
+            language="Python",
+            total_stars="45,231",
+            forks="1,234",
         )
         page = github_trending_page(repo_html)
         _mock_trending_responses(mock_http, daily_html=page, weekly_html=page, monthly_html=page)
@@ -181,10 +183,14 @@ class TestGithubTrendingUpsertSemantics:
 
     def test_weekly_upserts_score_and_published_at(self, engine, mock_http, collector):
         repo_html_v1 = github_trending_repo_html(
-            owner="openai", name="codex", stars_in_period="500 stars this week",
+            owner="openai",
+            name="codex",
+            stars_in_period="500 stars this week",
         )
         repo_html_v2 = github_trending_repo_html(
-            owner="openai", name="codex", stars_in_period="800 stars this week",
+            owner="openai",
+            name="codex",
+            stars_in_period="800 stars this week",
         )
 
         _mock_trending_responses(
@@ -250,28 +256,33 @@ class TestGithubTrendingHelpers:
 
     def test_make_external_id_daily(self):
         from aggre.collectors.github_trending.collector import _make_external_id
+
         result = _make_external_id("openai", "codex", "daily")
         today = date.today().isoformat()
         assert result == f"openai/codex:daily:{today}"
 
     def test_make_external_id_weekly(self):
         from aggre.collectors.github_trending.collector import _make_external_id
+
         result = _make_external_id("openai", "codex", "weekly")
         iso_year, iso_week, _ = date.today().isocalendar()
         assert result == f"openai/codex:weekly:{iso_year}-W{iso_week:02d}"
 
     def test_make_external_id_monthly(self):
         from aggre.collectors.github_trending.collector import _make_external_id
+
         result = _make_external_id("openai", "codex", "monthly")
         assert result == f"openai/codex:monthly:{date.today().strftime('%Y-%m')}"
 
     def test_published_at_daily(self):
         from aggre.collectors.github_trending.collector import _published_at
+
         result = _published_at("daily")
         assert date.today().isoformat() in result
 
     def test_published_at_weekly_is_monday(self):
         from aggre.collectors.github_trending.collector import _published_at
+
         result = _published_at("weekly")
         today = date.today()
         monday = today - timedelta(days=today.weekday())
@@ -279,6 +290,7 @@ class TestGithubTrendingHelpers:
 
     def test_published_at_monthly_is_first(self):
         from aggre.collectors.github_trending.collector import _published_at
+
         result = _published_at("monthly")
         first = date.today().replace(day=1)
         assert first.isoformat() in result

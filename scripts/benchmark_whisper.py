@@ -8,7 +8,6 @@ import tempfile
 import time
 from pathlib import Path
 
-
 DEFAULT_MODELS = ["large-v3", "medium", "small", "base"]
 MODEL_CACHE = "./data/models"
 
@@ -20,12 +19,7 @@ def pick_random_video(database_url: str) -> str:
     from aggre.db import SilverDiscussion, get_engine
 
     engine = get_engine(database_url)
-    query = (
-        sa.select(SilverDiscussion.external_id)
-        .where(SilverDiscussion.source_type == "youtube")
-        .order_by(sa.func.random())
-        .limit(1)
-    )
+    query = sa.select(SilverDiscussion.external_id).where(SilverDiscussion.source_type == "youtube").order_by(sa.func.random()).limit(1)
     with engine.connect() as conn:
         row = conn.execute(query).fetchone()
     if row is None:
@@ -79,9 +73,7 @@ def fmt_duration(seconds: float) -> str:
     return f"{m}m {s:02d}s"
 
 
-def benchmark_model(
-    model_name: str, audio_path: Path
-) -> dict:
+def benchmark_model(model_name: str, audio_path: Path) -> dict:
     """Load a model, transcribe, and return timing + results."""
     from faster_whisper import WhisperModel
 

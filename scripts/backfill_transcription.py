@@ -1,13 +1,12 @@
 """One-off: emit item.new events for untranscribed YouTube videos."""
 
 import sqlalchemy as sa
+from hatchet_sdk.clients.events import PushEventOptions
 
 from aggre.config import load_config
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.utils.db import get_engine
 from aggre.workflows import get_hatchet
-from hatchet_sdk.clients.events import PushEventOptions
-
 from aggre.workflows.models import ItemEvent
 
 cfg = load_config()

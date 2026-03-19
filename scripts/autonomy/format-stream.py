@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Real-time formatter for Claude Code stream-json output."""
+
 import json
 import sys
 
@@ -13,6 +14,7 @@ RESET = "\033[0m"
 
 last_kind = None  # "action" | "text" | None
 
+
 def sep(new_kind):
     """Print blank line on action↔text transitions."""
     global last_kind
@@ -20,11 +22,13 @@ def sep(new_kind):
         print(flush=True)
     last_kind = new_kind
 
+
 def truncate(text, max_len=300):
     text = text.strip()
     if len(text) > max_len:
-        return text[:max_len - 3] + "..."
+        return text[: max_len - 3] + "..."
     return text
+
 
 for line in sys.stdin:
     line = line.strip()

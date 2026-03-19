@@ -65,11 +65,20 @@ def collect_source(
             errors += 1
     logger.info(
         "collect.source_complete source=%s fetched=%d processed=%d errors=%d event_errors=%d events_skipped=%d",
-        name, len(refs), count, errors, event_errors, events_skipped,
+        name,
+        len(refs),
+        count,
+        errors,
+        event_errors,
+        events_skipped,
     )
     return CollectResult(
-        source=name, succeeded=count, failed=errors, total=len(refs),
-        event_errors=event_errors, events_skipped=events_skipped,
+        source=name,
+        succeeded=count,
+        failed=errors,
+        total=len(refs),
+        event_errors=event_errors,
+        events_skipped=events_skipped,
     )
 
 
@@ -112,7 +121,9 @@ def _emit_item_event(
             if disc.text is not None:
                 logger.info(
                     "collect.event_skipped_fully_processed source=%s external_id=%s content_id=%s",
-                    source_name, ref["external_id"], disc.content_id,
+                    source_name,
+                    ref["external_id"],
+                    disc.content_id,
                 )
                 return "skipped"
 

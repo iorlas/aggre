@@ -4,7 +4,11 @@ import modal
 
 app = modal.App("aggre-transcription")
 
-image = modal.Image.debian_slim(python_version="3.12").apt_install("ffmpeg").pip_install("faster-whisper>=1.1")
+image = (
+    modal.Image.from_registry("nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04", add_python="3.12")
+    .apt_install("ffmpeg")
+    .pip_install("faster-whisper>=1.1")
+)
 
 
 @app.cls(image=image, gpu="A10G", timeout=600)
@@ -20,23 +24,30 @@ class Transcriber:
         )
 
     @modal.method()
-    def transcribe(self, audio_bytes: bytes) -> dict:
+    def transcribe(self, audio_bytes: bytes, format_hint: str = "opus") -> dict:
         """Transcribe audio bytes, return {"text": ..., "language": ...}."""
+        import subprocess
         import tempfile
         from pathlib import Path
 
-        with tempfile.NamedTemporaryFile(suffix=".opus", delete=False) as f:
-            f.write(audio_bytes)
-            tmp_path = f.name
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            input_path = Path(tmp_dir) / f"input.{format_hint}"
+            wav_path = Path(tmp_dir) / "audio.wav"
 
-        try:
+            input_path.write_bytes(audio_bytes)
+
+            # Convert any audio format to 16kHz mono wav (what Whisper expects)
+            subprocess.run(
+                ["ffmpeg", "-i", str(input_path), "-ar", "16000", "-ac", "1", str(wav_path)],
+                check=True,
+                capture_output=True,
+            )
+
             segments, info = self.model.transcribe(
-                tmp_path,
+                str(wav_path),
                 beam_size=5,
                 temperature=0.0,
             )
             text = " ".join(seg.text.strip() for seg in segments)
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
 
         return {"text": text, "language": info.language}

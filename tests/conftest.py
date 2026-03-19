@@ -32,7 +32,8 @@ def clean_tables(request):
 
     Skipped for contract tests (they don't use a database).
     """
-    if "contract" in {m.name for m in request.node.iter_markers()}:
+    markers = {m.name for m in request.node.iter_markers()}
+    if markers & {"contract", "unit"}:
         yield
         return
     engine = request.getfixturevalue("engine")

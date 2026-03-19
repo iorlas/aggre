@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from aggre.transcriber import (
     AllTranscribersFailedError,
+    ModalTranscriber,
     QuotaExceededError,
     TranscriptResult,
+    WhisperTranscriber,
+    build_transcribers,
+    transcribe_with_fallback,
 )
+from aggre.utils.whisper_client import Endpoint, TranscriptionResult
+from tests.factories import make_config
 
 pytestmark = pytest.mark.unit
 
@@ -17,7 +25,7 @@ class TestTranscriptResult:
     def test_frozen(self):
         r = TranscriptResult(text="hello", language="en", transcribed_by="test")
         with pytest.raises(AttributeError):
-            r.text = "changed"
+            r.text = "changed"  # type: ignore[invalid-assignment]
 
     def test_fields(self):
         r = TranscriptResult(text="hello", language="en", transcribed_by="modal-a10g")
@@ -32,9 +40,6 @@ class TestExceptions:
 
     def test_all_transcribers_failed_is_exception(self):
         assert issubclass(AllTranscribersFailedError, Exception)
-
-
-from aggre.transcriber import transcribe_with_fallback
 
 
 class TestTranscribeWithFallback:
@@ -68,6 +73,7 @@ class TestTranscribeWithFallback:
 
     def test_does_not_fall_back_on_transcription_error(self):
         """Non-fallback errors (bad audio, model failure) propagate immediately."""
+
         def failing(audio: bytes, format_hint: str = "opus") -> TranscriptResult:
             raise ValueError("bad audio format")
 
@@ -99,21 +105,13 @@ class TestTranscribeWithFallback:
         assert received["format_hint"] == "wav"
 
 
-from unittest.mock import MagicMock, patch
-
-from aggre.transcriber import WhisperTranscriber
-from aggre.utils.whisper_client import Endpoint, TranscriptionResult
-
-
 class TestWhisperTranscriber:
     def _make_endpoint(self) -> Endpoint:
         return Endpoint(url="http://test:8090", weight=1, api_format="whisper-cpp", name="test-whisper", max_concurrent=1)
 
     @patch("aggre.transcriber.transcribe_audio")
     def test_transcribes_and_maps_result(self, mock_transcribe, tmp_path):
-        mock_transcribe.return_value = TranscriptionResult(
-            text="Hello world", language="en", server_name="test-whisper"
-        )
+        mock_transcribe.return_value = TranscriptionResult(text="Hello world", language="en", server_name="test-whisper")
         endpoints = [self._make_endpoint()]
         whisper = WhisperTranscriber(endpoints=endpoints, model="large-v3-turbo", timeout=300.0)
 
@@ -131,12 +129,8 @@ class TestWhisperTranscriber:
 
     @patch("aggre.transcriber.transcribe_audio")
     def test_format_hint_used_as_extension(self, mock_transcribe):
-        mock_transcribe.return_value = TranscriptionResult(
-            text="ok", language="en", server_name="test"
-        )
-        whisper = WhisperTranscriber(
-            endpoints=[self._make_endpoint()], model="large-v3-turbo", timeout=300.0
-        )
+        mock_transcribe.return_value = TranscriptionResult(text="ok", language="en", server_name="test")
+        whisper = WhisperTranscriber(endpoints=[self._make_endpoint()], model="large-v3-turbo", timeout=300.0)
 
         whisper(b"fake", "wav")
 
@@ -146,15 +140,10 @@ class TestWhisperTranscriber:
     @patch("aggre.transcriber.transcribe_audio")
     def test_connection_error_propagates(self, mock_transcribe):
         mock_transcribe.side_effect = ConnectionError("All endpoints failed")
-        whisper = WhisperTranscriber(
-            endpoints=[self._make_endpoint()], model="large-v3-turbo", timeout=300.0
-        )
+        whisper = WhisperTranscriber(endpoints=[self._make_endpoint()], model="large-v3-turbo", timeout=300.0)
 
         with pytest.raises(ConnectionError):
             whisper(b"fake", "opus")
-
-
-from aggre.transcriber import ModalTranscriber
 
 
 class TestModalTranscriber:
@@ -203,3 +192,37 @@ class TestModalTranscriber:
         transcriber = ModalTranscriber(app_name="aggre-transcription")
         with pytest.raises(ConnectionError):
             transcriber(b"fake audio", "opus")
+
+
+class TestBuildTranscribers:
+    @patch("aggre.transcriber.modal")
+    def test_both_configured(self, _mock_modal):
+        config = make_config(
+            modal_app_name="aggre-transcription",
+            whisper_endpoints="http://test:8090:1:whisper-cpp:test:1",
+        )
+        transcribers = build_transcribers(config.settings)
+        assert len(transcribers) == 2
+        assert isinstance(transcribers[0], ModalTranscriber)
+        assert isinstance(transcribers[1], WhisperTranscriber)
+
+    def test_only_whisper(self):
+        config = make_config(
+            modal_app_name="",
+            whisper_endpoints="http://test:8090:1:whisper-cpp:test:1",
+        )
+        transcribers = build_transcribers(config.settings)
+        assert len(transcribers) == 1
+        assert isinstance(transcribers[0], WhisperTranscriber)
+
+    @patch("aggre.transcriber.modal")
+    def test_only_modal(self, _mock_modal):
+        config = make_config(modal_app_name="aggre-transcription", whisper_endpoints="")
+        transcribers = build_transcribers(config.settings)
+        assert len(transcribers) == 1
+        assert isinstance(transcribers[0], ModalTranscriber)
+
+    def test_nothing_configured(self):
+        config = make_config(modal_app_name="", whisper_endpoints="")
+        transcribers = build_transcribers(config.settings)
+        assert len(transcribers) == 0

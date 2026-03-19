@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     whisper_model: str = "deepdml/faster-whisper-large-v3-turbo-ct2"
     whisper_endpoints: str = ""
     whisper_server_timeout: float = 300.0
+    modal_app_name: str = ""
     proxy_url: str = ""
     browserless_url: str = ""
     # Bronze storage backend

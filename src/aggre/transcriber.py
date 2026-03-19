@@ -11,7 +11,8 @@ from typing import Protocol
 
 import modal
 
-from aggre.utils.whisper_client import Endpoint, transcribe_audio
+from aggre.settings import Settings
+from aggre.utils.whisper_client import Endpoint, parse_endpoints, transcribe_audio
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +49,7 @@ def transcribe_with_fallback(
         except (QuotaExceededError, ConnectionError) as exc:
             logger.warning("transcriber.fallback backend=%s error=%s", type(transcriber).__name__, exc)
             last_error = exc
-    raise AllTranscribersFailedError(
-        f"All {len(transcribers)} transcription backends failed"
-    ) from last_error
+    raise AllTranscribersFailedError(f"All {len(transcribers)} transcription backends failed") from last_error
 
 
 class WhisperTranscriber:
@@ -101,3 +100,20 @@ class ModalTranscriber:
             language=result["language"],
             transcribed_by="modal",
         )
+
+
+def build_transcribers(settings: Settings) -> list[Transcriber]:
+    """Build transcriber list from settings. Modal first (if configured), then Whisper."""
+    transcribers: list[Transcriber] = []
+    if settings.modal_app_name:
+        transcribers.append(ModalTranscriber(app_name=settings.modal_app_name))
+    endpoints = parse_endpoints(settings.whisper_endpoints)
+    if endpoints:
+        transcribers.append(
+            WhisperTranscriber(
+                endpoints=endpoints,
+                model=settings.whisper_model,
+                timeout=settings.whisper_server_timeout,
+            )
+        )
+    return transcribers

@@ -23,12 +23,12 @@
 │   │   └── urls.py               # URL utilities (extract_domain, strip_tracking_params)
 │   ├── collectors/               # Source-specific collector plugins
 │   │   ├── __init__.py           # COLLECTORS registry dict
-│   │   ├── base.py               # BaseCollector shared helpers, Collector/SearchableCollector protocols
-│   │   ├── hackernews/           # Hacker News collector (Algolia API, searchable)
+│   │   ├── base.py               # BaseCollector shared helpers, Collector protocol
+│   │   ├── hackernews/           # Hacker News collector (Algolia API)
 │   │   ├── reddit/               # Reddit collector (HTTP API)
 │   │   ├── rss/                  # RSS/Atom collector (feedparser)
 │   │   ├── youtube/              # YouTube collector (yt-dlp)
-│   │   ├── lobsters/             # Lobsters collector (HTTP API, searchable)
+│   │   ├── lobsters/             # Lobsters collector (HTTP API)
 │   │   ├── huggingface/          # HuggingFace Papers collector (HTTP API)
 │   │   └── telegram/             # Telegram collector (Telethon async)
 │   └── dagster_defs/             # Dagster orchestration definitions
@@ -46,10 +46,6 @@
 │       │   ├── __init__.py
 │       │   ├── job.py            # webpage_job (download + extract) + business logic
 │       │   └── sensor.py         # webpage_sensor (watches pending downloads)
-│       ├── discussion_search/    # Discussion search domain
-│       │   ├── __init__.py
-│       │   ├── job.py            # discussion_search_job (HN/Lobsters search) + business logic
-│       │   └── sensor.py         # discussion_search_sensor (watches unsearched content)
 │       ├── reprocess/            # Bronze reprocessing domain
 │       │   ├── __init__.py
 │       │   └── job.py            # reprocess_job (rebuild silver from bronze)
@@ -61,7 +57,6 @@
 │   ├── conftest.py               # pytest fixtures (PostgreSQL test engine, table cleanup)
 │   ├── test_urls.py              # URL normalization and ensure_content tests
 │   ├── test_webpage.py           # Webpage downloader/extractor state transitions
-│   ├── test_discussion_search.py # Discussion search pipeline tests
 │   ├── test_bronze.py            # Bronze filesystem writer tests
 │   ├── test_bronze_http.py       # Bronze HTTP wrapper tests
 │   ├── test_hackernews.py        # HackerNews collector tests
@@ -110,7 +105,7 @@
 - Purpose: Source-specific API clients
 - Contains: One package per source type (hackernews, reddit, rss, youtube, lobsters, huggingface, telegram)
 - Pattern: All inherit from BaseCollector, implement Collector protocol
-- Each implements: `collect_discussions(config, settings, log)` + `process_discussion(raw_data, conn, source_id, log)` (required), `search_by_url()` (optional for discussion search)
+- Each implements: `collect_discussions(config, settings, log)` + `process_discussion(raw_data, conn, source_id, log)` (required)
 
 **`src/aggre/dagster_defs/`:**
 - Purpose: Dagster orchestration layer
@@ -138,7 +133,6 @@
 **Content Processing (in dagster_defs):**
 - `src/aggre/dagster_defs/webpage/job.py`: HTTP download + text extraction (download_content, extract_html_text)
 - `src/aggre/dagster_defs/transcription/job.py`: YouTube video transcription (transcribe)
-- `src/aggre/dagster_defs/discussion_search/job.py`: Cross-source discussion search (search_content_discussions)
 
 **Collector Infrastructure:**
 - `src/aggre/collectors/base.py`: BaseCollector with shared methods (_ensure_source, _upsert_discussion, etc.)
@@ -159,11 +153,10 @@
 2. Inherit from BaseCollector, implement Collector protocol
 3. `def collect_discussions(config, settings, log) -> list[DiscussionRef]` (required)
 4. `def process_discussion(raw_data, conn, source_id, log) -> None` (required)
-5. `def search_by_url(url, engine, config, settings, log) -> int:` (optional, for discussion search)
-6. Register in `src/aggre/collectors/__init__.py` COLLECTORS dict
-7. Add Dagster ops to collection job or create new domain package in dagster_defs/
-8. Add config model in `src/aggre/config.py`
-9. Add tests in `tests/test_[source_type].py`
+5. Register in `src/aggre/collectors/__init__.py` COLLECTORS dict
+6. Add Dagster ops to collection job or create new domain package in dagster_defs/
+7. Add config model in `src/aggre/config.py`
+8. Add tests in `tests/test_[source_type].py`
 
 **New Content Processing Stage:**
 1. Add business logic functions directly in `src/aggre/dagster_defs/[domain]/job.py`

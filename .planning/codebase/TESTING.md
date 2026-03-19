@@ -72,7 +72,6 @@ tests/
 │   ├── test_comments.py               # fetch_comments orchestration tests
 │   ├── test_webpage.py                # Webpage download/extract pipeline tests
 │   ├── test_transcription.py          # YouTube transcription pipeline tests
-│   ├── test_discussion_search.py      # Cross-source discussion search tests
 │   └── test_reprocess.py              # Reprocess workflow tests
 ├── tracking/                          # Stage tracking module tests
 │   ├── test_ops.py                    # Unit tests for upsert_done/failed/skipped, retry_filter

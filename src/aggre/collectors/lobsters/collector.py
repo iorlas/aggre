@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from urllib.parse import urlparse
 
 import sqlalchemy as sa
 
@@ -28,9 +27,6 @@ class LobstersCollector(BaseCollector):
     """Collect stories and comments from Lobsters via the JSON API."""
 
     source_type = "lobsters"
-
-    def __init__(self) -> None:
-        self._domain_cache: dict[str, list[dict[str, object]]] = {}
 
     def collect_discussions(
         self,
@@ -149,58 +145,3 @@ class LobstersCollector(BaseCollector):
             write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
             comments = data.get("comments", [])
             self._mark_comments_done(engine, discussion_id, json.dumps(comments), len(comments))
-
-    def search_by_url(
-        self,
-        url: str,
-        engine: sa.engine.Engine,
-        config: LobstersConfig,
-        settings: Settings,
-    ) -> int:
-        parsed = urlparse(url)
-        domain = parsed.netloc
-        if not domain:
-            return 0
-
-        # Use cached domain stories, or fetch and cache
-        if domain not in self._domain_cache:
-            rate_limit = settings.lobsters_rate_limit
-            try:
-                with create_http_client(proxy_url=settings.proxy_url or None) as client:
-                    search_url = f"{LOBSTERS_BASE}/domains/{domain}.json"
-                    time.sleep(rate_limit)
-
-                    resp = client.get(search_url)
-                    if resp.status_code in (404, 429):
-                        self._domain_cache[domain] = []
-                        if resp.status_code == 429:
-                            logger.warning("lobsters.rate_limited domain=%s", domain)
-                        return 0
-                    resp.raise_for_status()
-                    self._domain_cache[domain] = resp.json()
-            except Exception:  # pragma: no cover — network error during domain search
-                self._domain_cache[domain] = []
-                raise
-
-        stories = self._domain_cache[domain]
-        if not stories:
-            return 0
-
-        new_count = 0
-        source_id = self._ensure_source(engine, "Lobsters")
-
-        with engine.begin() as conn:
-            for story in stories:
-                story_url = story.get("url", "")
-                if story_url != url:
-                    continue
-
-                short_id = story.get("short_id")
-                if not short_id:  # pragma: no cover — malformed API response
-                    continue
-
-                self._write_bronze(short_id, story)
-                self.process_discussion(story, conn, source_id)
-                new_count += 1
-
-        return new_count

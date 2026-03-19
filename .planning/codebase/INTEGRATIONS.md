@@ -164,13 +164,6 @@
 - State tracked via null-check pattern (`text IS NULL AND error IS NULL AND domain = 'youtube.com'`)
 - Implementation: `src/aggre/dagster_defs/transcription/job.py`
 
-**Enrichment:**
-- Discovers cross-source discussions for known content URLs
-- Queries each source API for discussions about a URL (SearchableCollector pattern)
-- Updates `SilverDiscussion` records with content_id foreign key
-- Domain skip list (`DISCUSSION_SEARCH_SKIP_DOMAINS`): `youtube.com`, `m.youtube.com`, `youtu.be`, `i.redd.it`, `v.redd.it`, `linkedin.com`, `www.linkedin.com`
-- Implementation: `src/aggre/dagster_defs/discussion_search/job.py`
-
 ---
 
 *Integration audit: 2026-03-01*

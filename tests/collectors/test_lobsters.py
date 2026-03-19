@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from unittest.mock import patch
 
 import pytest
@@ -149,85 +148,6 @@ class TestLobstersCollectorFetchDiscussionComments:
         with engine.connect() as conn:
             row = conn.execute(sa.select(SilverDiscussion.comments_fetched_at).where(SilverDiscussion.id == discussion_id)).first()
         assert row.comments_fetched_at is not None
-
-
-class TestLobstersSearchByUrl:
-    def test_search_finds_and_stores(self, engine, mock_http):
-        story = lobsters_story(short_id="found1", url="https://example.com/article")
-        mock_http.get(url__regex=r"domains/example\.com\.json").respond(json=[story])
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collector = LobstersCollector()
-            found = collector.search_by_url("https://example.com/article", engine, config.lobsters, config.settings)
-
-        assert found == 1
-
-        items = get_discussions(engine)
-        assert len(items) == 1
-        assert items[0].source_type == "lobsters"
-
-    def test_search_filters_by_exact_url(self, engine, mock_http):
-        story_match = lobsters_story(short_id="match", url="https://example.com/target")
-        story_other = lobsters_story(short_id="other", url="https://example.com/other")
-        mock_http.get(url__regex=r"domains/example\.com\.json").respond(json=[story_match, story_other])
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collector = LobstersCollector()
-            found = collector.search_by_url("https://example.com/target", engine, config.lobsters, config.settings)
-
-        assert found == 1
-
-    def test_search_dedup(self, engine, mock_http):
-        story = lobsters_story(short_id="dup1", url="https://example.com/article")
-        mock_http.get(url__regex=r"domains/example\.com\.json").respond(json=[story])
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collector = LobstersCollector()
-            found1 = collector.search_by_url("https://example.com/article", engine, config.lobsters, config.settings)
-            found2 = collector.search_by_url("https://example.com/article", engine, config.lobsters, config.settings)
-
-        assert found1 == 1
-        assert found2 == 1  # search_by_url returns all API items; dedup is in upsert
-
-    def test_search_caches_domain_lookups(self, engine, mock_http):
-        story1 = lobsters_story(short_id="s1", url="https://example.com/article-1")
-        story2 = lobsters_story(short_id="s2", url="https://example.com/article-2")
-        domain_route = mock_http.get(url__regex=r"domains/example\.com\.json").respond(json=[story1, story2])
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collector = LobstersCollector()
-            found1 = collector.search_by_url("https://example.com/article-1", engine, config.lobsters, config.settings)
-            found2 = collector.search_by_url("https://example.com/article-2", engine, config.lobsters, config.settings)
-
-        assert found1 == 1
-        assert found2 == 1
-        # Only 1 HTTP request — second call uses cached domain data
-        assert domain_route.call_count == 1
-
-    def test_search_no_domain_returns_zero(self, engine):
-        config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-        collector = LobstersCollector()
-        assert collector.search_by_url("not-a-url", engine, config.lobsters, config.settings) == 0
-
-    def test_search_caches_429_response(self, engine, mock_http, caplog):
-        domain_route = mock_http.get(url__regex=r"domains/example\.com\.json").respond(status_code=429)
-
-        with patch("aggre.collectors.lobsters.collector.time.sleep"):
-            config = make_config(lobsters=LobstersConfig(sources=[LobstersSource(name="Lobsters")]))
-            collector = LobstersCollector()
-            with caplog.at_level(logging.WARNING, logger="aggre.collectors.lobsters.collector"):
-                found1 = collector.search_by_url("https://example.com/article-1", engine, config.lobsters, config.settings)
-                found2 = collector.search_by_url("https://example.com/article-2", engine, config.lobsters, config.settings)
-
-        assert found1 == 0
-        assert found2 == 0
-        # Only 1 HTTP request — second call uses cached empty result from 429
-        assert domain_route.call_count == 1
-        assert any(r.levelno >= logging.WARNING for r in caplog.records)
 
 
 class TestLobstersSource:

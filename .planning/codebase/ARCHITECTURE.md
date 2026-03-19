@@ -8,17 +8,17 @@
 
 ```
   Schedule (hourly)          Sensors (30-60s poll)
-       |                /       |        \        \
-  collect_job     webpage  transcribe  discussion_search  comments
-       |            job      job        job      job
-       v            v        v          v        v
-  [Collectors]  [Download→ [yt-dlp→  [Search  [Fetch HN/
-   HN/Reddit/   Extract]   Whisper]   HN+Lob]  Reddit/Lob
-   RSS/YT/etc]      |         |         |      comments]
-       |            v         v         v        v
-       v        SilverContent           SC    SilverDisc
-  SilverDisc       .text       .text  .discussion_searched  .comments_json
-  + SilverContent .title   .detected_lang  _at
+       |                /       |        \
+  collect_job     webpage  transcribe  comments
+       |            job      job        job
+       v            v        v          v
+  [Collectors]  [Download→ [yt-dlp→  [Fetch HN/
+   HN/Reddit/   Extract]   Whisper]   Reddit/Lob
+   RSS/YT/etc]      |         |        comments]
+       |            v         v         v
+       v        SilverContent        SilverDisc
+  SilverDisc       .text       .text  .comments_json
+  + SilverContent .title   .detected_lang
     (via ensure_content)
 
   Manual trigger: reprocess_job (rebuild silver from bronze)
@@ -27,7 +27,7 @@
 **Key Characteristics:**
 - Dagster-first orchestration: jobs, sensors, schedules, resource injection
 - Framework-first architecture: business logic lives in dagster_defs ops/jobs, no separate pipeline layer
-- Domain-aligned dagster_defs packages (collection, comments, webpage, discussion_searchment, reprocess, transcription)
+- Domain-aligned dagster_defs packages (collection, comments, webpage, reprocess, transcription)
 - Immutable raw data in bronze filesystem (JSON files)
 - Parsed discussions (SilverDiscussion) with optional mutable field updates
 - Content-independent entity (SilverContent) linked from multiple discussions
@@ -39,7 +39,7 @@
 **Orchestration (Dagster):**
 - Purpose: Job scheduling, sensor-driven triggers, resource management
 - Location: `src/aggre/dagster_defs/`
-- Contains: Domain-aligned packages with jobs, sensors, schedules
+- Contains: Domain-aligned packages (collection, comments, webpage, reprocess, transcription) with jobs, sensors, schedules
 - Resources: `DatabaseResource` (ConfigurableResource wrapping SQLAlchemy engine)
 - Entry: `dagster dev` or `dagster definitions validate`
 
@@ -66,7 +66,7 @@
 - Location: `src/aggre/collectors/`
 - Contains: BaseCollector shared helpers, individual collectors (HackerNews, Reddit, RSS, YouTube, Lobsters, HuggingFace, Telegram)
 - Depends on: db, config, urls, utils/http
-- Used by: Dagster collection job, discussion_searchment module
+- Used by: Dagster collection job
 
 **Utilities:**
 - Purpose: Generic reusable helpers with zero Aggre-specific logic
@@ -120,14 +120,6 @@
    - Success: store `text` (transcript) + `detected_language`
    - Failure: set `error` with error message
 
-**Discussion Search Flow (Dagster discussion_search_job, triggered by discussion_searchment_sensor):**
-
-1. `discussion_searchment_sensor` watches for SilverContent where `text IS NOT NULL AND canonical_url IS NOT NULL AND discussion_searched_at IS NULL`
-2. `discussion_search_job` runs:
-   - HackernewsCollector.search_by_url() → discover HN discussions
-   - LobstersCollector.search_by_url() → discover Lobsters discussions
-   - After both succeed: SilverContent.discussion_searched_at = now()
-
 **Reprocess Flow (Dagster reprocess_job, manual trigger):**
 
 1. Triggered manually (no sensor/schedule)
@@ -148,9 +140,9 @@
 
 Three independent processing flows tracked via data presence, not status enums:
 
-1. **Content (article/paper):** `text IS NULL AND error IS NULL` → needs processing; `text IS NOT NULL` → done; `error IS NOT NULL` → failed/skipped
+1. **Content (article/paper):** `text IS NULL` → needs processing; `text IS NOT NULL` → done
 2. **Transcription (video):** Same pattern, routed by join to SilverDiscussion where `source_type = 'youtube'`
-3. **Comments (discussion threads):** `comments_json IS NULL AND error IS NULL` → needs fetching; `comments_json IS NOT NULL` → done
+3. **Comments (discussion threads):** `comments_json IS NULL` → needs fetching; `comments_json IS NOT NULL` → done
 
 ## Key Abstractions
 
@@ -163,7 +155,6 @@ Three independent processing flows tracked via data presence, not status enums:
 - `collect_discussions(config, settings, log) -> list[DiscussionRef]` — fetch feed, write bronze, return discussion refs (no DB access)
 - `process_discussion(raw_data, conn, source_id, log) -> None` — normalize one bronze discussion into silver rows
 - `collect_comments(engine, config, settings, log) -> int` — optional source-specific method; fetches and stores comment threads (only HN, Reddit, Lobsters implement it)
-- SearchableCollector extends: `def search_by_url(url, engine, config, settings, log) -> int`
 - The split enables `reprocess_job` to rebuild silver from bronze without hitting APIs
 
 **DatabaseResource:**
@@ -217,7 +208,6 @@ Pipeline concurrency invariants (sensor exclusion, state transitions, null-check
 **Idempotency:**
 - Duplicates: SilverDiscussion dedup via (source_type, external_id) unique constraint
 - Score/title updates: SilverDiscussion upserts mutable fields on re-insert
-- Content discussion_searchment: Tracked via discussion_searched_at flag to avoid re-searching
 
 ---
 

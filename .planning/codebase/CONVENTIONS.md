@@ -25,7 +25,7 @@
 - Classes use PascalCase: `BronzeDiscussion`, `SilverDiscussion`, `SilverContent`, `Source` (database models in `src/aggre/db.py`)
 - Enums use PascalCase and derive from `StrEnum` when needed (processing state uses null-check pattern instead of enums)
 - Pydantic models use PascalCase: `Settings`, `AppConfig`, `RssSource`, `RedditSource` (see `src/aggre/config.py`)
-- Protocol classes use PascalCase: `Collector`, `SearchableCollector` (see `src/aggre/collectors/base.py`)
+- Protocol classes use PascalCase: `Collector` (see `src/aggre/collectors/base.py`)
 
 ## Code Style
 

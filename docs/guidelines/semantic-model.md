@@ -33,11 +33,9 @@ tables:
       created_at:             { type: text, default: "now()", description: "ISO 8601 timestamp" }
       detected_language:      { type: text, nullable: true, description: "ISO language code from whisper" }
       transcribed_by:         { type: text, nullable: true, description: "Transcription model identifier (e.g. whisper model name)" }
-      discussions_searched_at: { type: text, nullable: true, description: "ISO 8601 — when discussion search was last run for this URL. NULL = never searched." }
     indexes:
       - idx_silver_content_domain: { columns: [domain], where: "domain IS NOT NULL" }
       - idx_content_text_null: { columns: [id], where: "text IS NULL" }
-      - idx_content_needs_discussion_search: { columns: [id], where: "discussions_searched_at IS NULL AND text IS NOT NULL" }
 
   silver_discussions:
     description: >
@@ -141,8 +139,6 @@ Cast with `meta::jsonb` before querying.
 6. **`score` means different things** per platform — see the score semantics table above. Do not compare scores across source_types directly.
 
 7. **YouTube `score` is NULL** — YouTube view counts are in `meta::jsonb->>'view_count'`, not in the `score` column.
-
-8. **Discussion search creates discussions** — the discussion search process searches HN and Lobsters for existing discussions about collected URLs, creating new `silver_discussions` rows. Check `silver_content.discussions_searched_at IS NOT NULL` to find content that has been searched.
 
 ---
 
@@ -320,17 +316,6 @@ LIMIT 20;
 
 **Content processing status (null-check pattern):**
 ```sql
--- Processing state overview
-SELECT
-  CASE
-    WHEN text IS NOT NULL AND discussions_searched_at IS NOT NULL THEN 'processed_and_searched'
-    WHEN text IS NOT NULL THEN 'processed_pending_search'
-    ELSE 'pending'
-  END AS state,
-  COUNT(*) AS count
-FROM silver_content
-GROUP BY state;
-
 -- Content still pending text processing
 SELECT canonical_url, domain, created_at
 FROM silver_content
@@ -364,25 +349,6 @@ GROUP BY state;
 
 -- Discussions per source
 SELECT source_type, COUNT(*) FROM silver_discussions GROUP BY source_type ORDER BY count DESC;
-```
-
-**Discussion search coverage:**
-```sql
--- How many content URLs have been searched for discussions
-SELECT
-  CASE WHEN discussions_searched_at IS NOT NULL THEN 'searched' ELSE 'not_searched' END AS status,
-  COUNT(*)
-FROM silver_content
-GROUP BY status;
-
--- Content searched but no cross-platform discussions found
-SELECT sc.canonical_url, sc.domain, sc.title
-FROM silver_content sc
-LEFT JOIN silver_discussions sd ON sd.content_id = sc.id
-WHERE sc.discussions_searched_at IS NOT NULL
-GROUP BY sc.id
-HAVING COUNT(DISTINCT sd.source_type) <= 1
-LIMIT 20;
 ```
 
 **Data freshness — latest collection per source:**

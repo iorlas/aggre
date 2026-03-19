@@ -152,3 +152,54 @@ class TestWhisperTranscriber:
 
         with pytest.raises(ConnectionError):
             whisper(b"fake", "opus")
+
+
+from aggre.transcriber import ModalTranscriber
+
+
+class TestModalTranscriber:
+    @patch("aggre.transcriber.modal")
+    def test_transcribes_via_modal_sdk(self, mock_modal):
+        mock_cls = MagicMock()
+        mock_instance = MagicMock()
+        mock_modal.Cls.from_name.return_value = mock_cls
+        mock_cls.return_value = mock_instance
+        mock_instance.transcribe.remote.return_value = {"text": "Hello", "language": "en"}
+
+        transcriber = ModalTranscriber(app_name="aggre-transcription")
+        result = transcriber(b"fake audio", "opus")
+
+        assert result.text == "Hello"
+        assert result.language == "en"
+        assert result.transcribed_by == "modal"
+        mock_modal.Cls.from_name.assert_called_once_with("aggre-transcription", "Transcriber")
+        mock_instance.transcribe.remote.assert_called_once_with(b"fake audio", format_hint="opus")
+
+    @patch("aggre.transcriber.modal")
+    def test_quota_error_mapped(self, mock_modal):
+        """Modal billing/quota errors are mapped to QuotaExceededError."""
+        mock_cls = MagicMock()
+        mock_instance = MagicMock()
+        mock_modal.Cls.from_name.return_value = mock_cls
+        mock_cls.return_value = mock_instance
+        mock_modal.exception.InvalidError = type("InvalidError", (BaseException,), {})
+        mock_instance.transcribe.remote.side_effect = mock_modal.exception.InvalidError("quota exceeded")
+
+        transcriber = ModalTranscriber(app_name="aggre-transcription")
+        with pytest.raises(QuotaExceededError):
+            transcriber(b"fake audio", "opus")
+
+    @patch("aggre.transcriber.modal")
+    def test_connection_error_on_network_failure(self, mock_modal):
+        """Modal connection failures raise ConnectionError for fallback."""
+        mock_cls = MagicMock()
+        mock_instance = MagicMock()
+        mock_modal.Cls.from_name.return_value = mock_cls
+        mock_cls.return_value = mock_instance
+        mock_modal.exception.InvalidError = type("InvalidError", (BaseException,), {})
+        mock_modal.exception.ConnectionError = type("ConnectionError", (BaseException,), {})
+        mock_instance.transcribe.remote.side_effect = mock_modal.exception.ConnectionError("timeout")
+
+        transcriber = ModalTranscriber(app_name="aggre-transcription")
+        with pytest.raises(ConnectionError):
+            transcriber(b"fake audio", "opus")

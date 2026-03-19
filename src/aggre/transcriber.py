@@ -9,6 +9,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 
+import modal
+
 from aggre.utils.whisper_client import Endpoint, transcribe_audio
 
 logger = logging.getLogger(__name__)
@@ -77,3 +79,25 @@ class WhisperTranscriber:
             )
         finally:
             tmp_path.unlink(missing_ok=True)
+
+
+class ModalTranscriber:
+    """Calls the deployed Modal transcription app via SDK."""
+
+    def __init__(self, *, app_name: str) -> None:
+        self._app_name = app_name
+        self._cls = modal.Cls.from_name(app_name, "Transcriber")
+
+    def __call__(self, audio: bytes, format_hint: str = "opus") -> TranscriptResult:
+        try:
+            instance = self._cls()
+            result = instance.transcribe.remote(audio, format_hint=format_hint)
+        except modal.exception.InvalidError as exc:
+            raise QuotaExceededError(str(exc)) from exc
+        except modal.exception.ConnectionError as exc:
+            raise ConnectionError(str(exc)) from exc
+        return TranscriptResult(
+            text=result["text"],
+            language=result["language"],
+            transcribed_by="modal",
+        )

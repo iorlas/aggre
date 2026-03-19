@@ -18,6 +18,22 @@ env:
     IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+    deploy-modal:
+        if: github.event_name != 'pull_request'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
+
+            - name: Deploy Modal app
+              env:
+                  MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+                  MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+              run: uv run modal deploy src/aggre/modal_apps/transcription.py
+
     build-and-push:
         runs-on: ubuntu-latest
         permissions:
@@ -82,6 +98,8 @@ jobs:
                 AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
                 HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
                 HATCHET_ADMIN_PASSWORD: ${{ secrets.HATCHET_ADMIN_PASSWORD }}
+                MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+                MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
                 DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
                 DOKPLOY_AUTH_TOKEN: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
                 DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
@@ -94,6 +112,8 @@ jobs:
                   "AGGRE_BRONZE_S3_SECRET_KEY=${AGGRE_BRONZE_S3_SECRET_KEY}" \
                   "HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN}" \
                   "HATCHET_ADMIN_PASSWORD=${HATCHET_ADMIN_PASSWORD}" \
+                  "MODAL_TOKEN_ID=${MODAL_TOKEN_ID}" \
+                  "MODAL_TOKEN_SECRET=${MODAL_TOKEN_SECRET}" \
                   "AGGRE_PROXY_URL=socks5h://shen.shrimp-boa.ts.net:1080" \
                   "TAILSCALE_IP=100.65.108.29" \
                   "IMAGE_TAG=${IMAGE_TAG}")

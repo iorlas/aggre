@@ -114,9 +114,9 @@ def _seed_youtube(engine, external_id="abc123", title="Test Video", meta=None):
 
 
 def _mock_transcribe(transcript_text="This is the transcript", language="en"):
-    from aggre.utils.whisper_client import TranscriptionResult
+    from aggre.transcriber import TranscriptResult
 
-    return TranscriptionResult(text=transcript_text, language=language, server_name="test-whisper")
+    return TranscriptResult(text=transcript_text, language=language, transcribed_by="test-whisper")
 
 
 class TestTranscriptionViaS3:
@@ -138,9 +138,9 @@ class TestTranscriptionViaS3:
             assert row.text == "S3 cached transcript"
             assert row.detected_language == "fr"
 
-    @patch("aggre.workflows.transcription.transcribe_audio")
+    @patch("aggre.workflows.transcription.transcribe_with_fallback")
     @patch("aggre.workflows.transcription.download_audio")
-    def test_audio_uploaded_to_s3_after_download(self, mock_download, mock_transcribe_audio, engine, s3_backend, tmp_path):
+    def test_audio_uploaded_to_s3_after_download(self, mock_download, mock_transcribe, engine, s3_backend, tmp_path):
         """After downloading audio, it's uploaded to S3 for persistence."""
         from aggre.workflows.transcription import transcribe_one
 
@@ -148,7 +148,7 @@ class TestTranscriptionViaS3:
         config = make_config(proxy_url="")
         # Point youtube_temp_dir to a real tmp directory
         config.settings.youtube_temp_dir = str(tmp_path / "videos")
-        mock_transcribe_audio.return_value = _mock_transcribe()
+        mock_transcribe.return_value = _mock_transcribe()
 
         # download_audio creates the file and returns its path
         def fake_download(video_id, output_dir, *, proxy_url):
@@ -169,15 +169,15 @@ class TestTranscriptionViaS3:
         audio_bytes = s3_backend.read_bytes("youtube/up01/audio.opus")
         assert audio_bytes == b"fake opus audio"
 
-    @patch("aggre.workflows.transcription.transcribe_audio")
-    def test_audio_downloaded_from_s3_skips_yt_dlp(self, mock_transcribe_audio, engine, s3_backend, tmp_path):
+    @patch("aggre.workflows.transcription.transcribe_with_fallback")
+    def test_audio_downloaded_from_s3_skips_yt_dlp(self, mock_transcribe, engine, s3_backend, tmp_path):
         """When audio exists in S3, download_audio is NOT called."""
         from aggre.workflows.transcription import transcribe_one
 
         content_id = _seed_youtube(engine, external_id="s3aud01")
         config = make_config()
         config.settings.youtube_temp_dir = str(tmp_path / "videos")
-        mock_transcribe_audio.return_value = _mock_transcribe(transcript_text="From S3 audio")
+        mock_transcribe.return_value = _mock_transcribe(transcript_text="From S3 audio")
 
         # Pre-upload audio to S3
         s3_backend.write_bytes("youtube/s3aud01/audio.opus", b"s3 cached audio")

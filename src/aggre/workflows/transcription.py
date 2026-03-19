@@ -16,9 +16,9 @@ from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, Default
 
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion, update_content
+from aggre.transcriber import build_transcribers, transcribe_with_fallback
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
-from aggre.utils.whisper_client import parse_endpoints, transcribe_audio
 from aggre.utils.ytdlp import VideoUnavailableError, download_audio
 from aggre.workflows.models import ItemEvent, StepOutput
 
@@ -101,14 +101,9 @@ def _transcribe_one(
             logger.warning("transcription.audio_too_large external_id=%s size_mb=%s", external_id, file_size / (1024 * 1024))
             raise ValueError(f"Audio file exceeds 500MB limit ({file_size / (1024 * 1024):.0f}MB)")
 
-        # Transcribe via whisper server
-        endpoints = parse_endpoints(config.settings.whisper_endpoints)
-        result = transcribe_audio(
-            audio_dest,
-            endpoints=endpoints,
-            model=config.settings.whisper_model,
-            timeout=config.settings.whisper_server_timeout,
-        )
+        # Transcribe via configured backends (Modal → Whisper fallback)
+        transcribers = build_transcribers(config.settings)
+        result = transcribe_with_fallback(transcribers, audio_dest.read_bytes(), format_hint="opus")
         transcript = result.text
         language = result.language
 
@@ -117,10 +112,10 @@ def _transcribe_one(
         write_bronze("youtube", external_id, "whisper", json.dumps(whisper_output, ensure_ascii=False), "json")
 
         # Store result on SilverContent
-        update_content(engine, content_id, text=transcript, detected_language=language, transcribed_by=result.server_name)
+        update_content(engine, content_id, text=transcript, detected_language=language, transcribed_by=result.transcribed_by)
 
         logger.info("transcription.transcribed external_id=%s", external_id)
-        detail = {"transcriber": result.server_name, "language": language}
+        detail = {"transcriber": result.transcribed_by, "language": language}
         if duration_meta:
             detail["duration"] = f"{duration_meta // 60}m{duration_meta % 60}s"
         return StepOutput(status="transcribed", url=url, detail=detail)
@@ -152,8 +147,8 @@ def transcribe_one(
     content_id: int,
 ) -> StepOutput:
     """Transcribe a single YouTube video by content_id. Returns StepOutput."""
-    if not config.settings.whisper_endpoints:
-        raise RuntimeError("AGGRE_WHISPER_ENDPOINTS not configured")
+    if not config.settings.whisper_endpoints and not config.settings.modal_app_name:
+        raise RuntimeError("No transcription backend configured (set AGGRE_WHISPER_ENDPOINTS or AGGRE_MODAL_APP_NAME)")
 
     with engine.connect() as conn:
         row = conn.execute(

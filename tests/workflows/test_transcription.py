@@ -8,12 +8,11 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import httpx
 import pytest
 import sqlalchemy as sa
 
 from aggre.db import SilverContent
-from aggre.utils.whisper_client import TranscriptionResult
+from aggre.transcriber import AllTranscribersFailedError, TranscriptResult
 from aggre.utils.ytdlp import VideoUnavailableError, YtDlpError
 from aggre.workflows.transcription import _extract_video_id, transcribe_one
 from tests.factories import make_config, seed_content, seed_discussion
@@ -144,7 +143,7 @@ class TestTranscribeOne:
         assert row.text == "Cached transcript"
         assert row.detected_language == "fr"
 
-    @patch("aggre.workflows.transcription.transcribe_audio")
+    @patch("aggre.workflows.transcription.transcribe_with_fallback")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
@@ -163,7 +162,7 @@ class TestTranscribeOne:
         content_id = _seed_youtube(engine, external_id="vid001")
         config = make_config()
 
-        mock_transcribe.return_value = TranscriptionResult(text="This is the transcript", language="en", server_name="test-whisper")
+        mock_transcribe.return_value = TranscriptResult(text="This is the transcript", language="en", transcribed_by="test-whisper")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio data")
@@ -182,7 +181,7 @@ class TestTranscribeOne:
         assert row.detected_language == "en"
         assert row.transcribed_by == "test-whisper"
 
-    @patch("aggre.workflows.transcription.transcribe_audio")
+    @patch("aggre.workflows.transcription.transcribe_with_fallback")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
@@ -191,7 +190,7 @@ class TestTranscribeOne:
         content_id = _seed_youtube(engine, external_id="audio01")
         config = make_config()
 
-        mock_transcribe.return_value = TranscriptionResult(text="Transcribed from cache", language="en", server_name="test-whisper")
+        mock_transcribe.return_value = TranscriptResult(text="Transcribed from cache", language="en", transcribed_by="test-whisper")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake cached audio")
@@ -271,7 +270,7 @@ class TestTranscribeOne:
         result = transcribe_one(engine, config, content_id)
         assert result.status == "cached"
 
-    @patch("aggre.workflows.transcription.transcribe_audio")
+    @patch("aggre.workflows.transcription.transcribe_with_fallback")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
@@ -290,7 +289,7 @@ class TestTranscribeOne:
         content_id = _seed_youtube(engine, external_id="bronze01")
         config = make_config()
 
-        mock_transcribe.return_value = TranscriptionResult(text="Hello world", language="de", server_name="test-whisper")
+        mock_transcribe.return_value = TranscriptResult(text="Hello world", language="de", transcribed_by="test-whisper")
 
         audio_file = tmp_path / "audio.opus"
         audio_file.write_bytes(b"fake audio")
@@ -345,12 +344,12 @@ class TestTranscribeOne:
         with pytest.raises(ConnectionError, match="S3 unreachable"):
             transcribe_one(engine, config, content_id)
 
-    @patch("aggre.workflows.transcription.transcribe_audio")
+    @patch("aggre.workflows.transcription.transcribe_with_fallback")
     @patch("aggre.workflows.transcription.write_bronze")
     @patch("aggre.workflows.transcription.get_store")
     @patch("aggre.workflows.transcription.read_bronze_or_none", return_value=None)
     @patch("aggre.workflows.transcription.download_audio")
-    def test_transcription_server_error_propagates(
+    def test_transcription_all_backends_fail_propagates(
         self,
         mock_download,
         mock_read_or_none,
@@ -360,7 +359,7 @@ class TestTranscribeOne:
         engine,
         tmp_path,
     ):
-        """whisper.cpp server failure propagates for Hatchet retry."""
+        """All transcription backends failing propagates for Hatchet retry."""
         content_id = _seed_youtube(engine, external_id="terr01")
         config = make_config()
 
@@ -372,15 +371,27 @@ class TestTranscribeOne:
 
         mock_download.return_value = audio_file
 
-        mock_transcribe.side_effect = httpx.ConnectError("server down")
+        mock_transcribe.side_effect = AllTranscribersFailedError("All 1 transcription backends failed")
 
-        with pytest.raises(httpx.ConnectError, match="server down"):
+        with pytest.raises(AllTranscribersFailedError, match="All 1 transcription backends failed"):
             transcribe_one(engine, config, content_id)
 
-    def test_empty_whisper_endpoints_raises(self, engine):
-        """When whisper_endpoints is empty, transcription raises RuntimeError (Hatchet retries)."""
+    def test_no_backend_configured_raises(self, engine):
+        """When neither whisper_endpoints nor modal_app_name is set, raises RuntimeError."""
         content_id = _seed_youtube(engine, external_id="nourl01")
-        config = make_config(whisper_endpoints="")
+        config = make_config(whisper_endpoints="", modal_app_name="")
 
-        with pytest.raises(RuntimeError, match="AGGRE_WHISPER_ENDPOINTS not configured"):
+        with pytest.raises(RuntimeError, match="No transcription backend configured"):
             transcribe_one(engine, config, content_id)
+
+    @patch("aggre.workflows.transcription.read_bronze_or_none")
+    def test_modal_only_config_does_not_raise(self, mock_read_or_none, engine):
+        """When only modal_app_name is set (no whisper), guard clause passes."""
+        content_id = _seed_youtube(engine, external_id="modal01")
+        config = make_config(whisper_endpoints="", modal_app_name="aggre-transcription")
+
+        cached_data = json.dumps({"transcript": "Modal transcript", "language": "en"})
+        mock_read_or_none.return_value = cached_data
+
+        result = transcribe_one(engine, config, content_id)
+        assert result.status == "cached"

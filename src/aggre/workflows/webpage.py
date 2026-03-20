@@ -150,12 +150,13 @@ def _fetch_via_browserless(browserless_url: str, fetch_url: str, proxy_url: str 
     Raises httpx.HTTPStatusError if the target page returns HTTP >= 400.
     """
     code = _BROWSERLESS_FN.replace("URL", json.dumps(fetch_url))
-    payload: dict[str, object] = {"code": code}
+    params: dict[str, str] = {}
     if proxy_url:
-        payload["launch"] = {"args": [f"--proxy-server={proxy_url}"]}
+        params["launch"] = json.dumps({"args": [f"--proxy-server={proxy_url}"]})
     resp = httpx.post(
         f"{browserless_url}/chromium/function",
-        json=payload,
+        params=params,
+        json={"code": code},
         timeout=60.0,
     )
     if resp.status_code >= 400:

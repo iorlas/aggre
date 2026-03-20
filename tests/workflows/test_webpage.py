@@ -190,7 +190,7 @@ class TestBrowserlessDownload:
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_browserless_sends_proxy_launch_arg(self, _mock_bronze, engine, mock_http):
-        """When proxy_url is set, launch.args includes --proxy-server for chromium."""
+        """When proxy_url is set, launch args are passed as query parameter."""
         config = make_config(browserless_url="http://browserless:3000", proxy_url="socks5://proxy:1080")
         content_id = seed_content(engine, "https://example.com/proxy-test", domain="example.com")
 
@@ -202,12 +202,13 @@ class TestBrowserlessDownload:
 
         import json as _json
 
-        body = _json.loads(route.calls[0].request.content)
-        assert body.get("launch", {}).get("args") == ["--proxy-server=socks5://proxy:1080"]
+        url = route.calls[0].request.url
+        launch_param = _json.loads(str(url.params.get("launch")))
+        assert launch_param["args"] == ["--proxy-server=socks5://proxy:1080"]
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_browserless_no_launch_arg_without_proxy(self, _mock_bronze, engine, mock_http):
-        """When proxy_url is empty, no launch key is sent to browserless."""
+        """When proxy_url is empty, no launch query param is sent to browserless."""
         config = make_config(browserless_url="http://browserless:3000")
         content_id = seed_content(engine, "https://example.com/no-proxy-test", domain="example.com")
 
@@ -217,10 +218,8 @@ class TestBrowserlessDownload:
 
         assert download_one(engine, config, content_id).status == "downloaded"
 
-        import json as _json
-
-        body = _json.loads(route.calls[0].request.content)
-        assert "launch" not in body
+        url = route.calls[0].request.url
+        assert "launch" not in str(url)
 
 
 class TestExtractOne:

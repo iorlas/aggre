@@ -44,7 +44,7 @@ class TestLoadConfig:
 
         cfg = load_config(str(tmp_path / "nonexistent.yaml"))
 
-        assert cfg.hackernews.fetch_limit == 100
+        assert cfg.hackernews.fetch_limit == 1000
         assert cfg.reddit.fetch_limit == 100
         assert cfg.youtube.fetch_limit == 10
         assert cfg.lobsters.fetch_limit == 50
@@ -60,7 +60,7 @@ class TestLoadConfig:
 
         cfg = load_config(str(config_file))
 
-        assert cfg.hackernews.fetch_limit == 100
+        assert cfg.hackernews.fetch_limit == 1000
         assert cfg.reddit.sources == []
         assert cfg.youtube.sources == []
 

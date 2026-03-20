@@ -158,7 +158,13 @@ def _fetch_via_browserless(browserless_url: str, fetch_url: str, proxy_url: str 
         json=payload,
         timeout=60.0,
     )
-    resp.raise_for_status()  # Browserless service error
+    if resp.status_code >= 400:
+        body = resp.text[:500]
+        raise httpx.HTTPStatusError(
+            f"Browserless error {resp.status_code}: {body}",
+            request=resp.request,
+            response=resp,
+        )
 
     data = resp.json()["data"]
 

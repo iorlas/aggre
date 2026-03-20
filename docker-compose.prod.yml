@@ -149,7 +149,7 @@ services:
   browserless:
     image: ghcr.io/browserless/chromium
     environment:
-      CONCURRENT: "3"
+      CONCURRENT: "10"
       TIMEOUT: "60000"
     networks:
       - dokploy-network

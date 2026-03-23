@@ -102,6 +102,8 @@ services:
       SERVER_GRPC_PORT: "7077"
       SERVER_URL: http://localhost:8888
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
+      SERVER_ENABLE_DATA_RETENTION: "true"
+      SERVER_LIMITS_DEFAULT_TENANT_RETENTION_PERIOD: "720h"
       SEED_DEFAULT_ADMIN_EMAIL: "admin@example.com"
       SEED_DEFAULT_ADMIN_PASSWORD: "Admin123!!"
     volumes:

@@ -16,7 +16,7 @@ from aggre.config import load_config
 from aggre.db import SilverDiscussion
 from aggre.settings import Settings
 from aggre.utils.db import get_engine
-from aggre.workflows.models import ItemEvent, StepOutput
+from aggre.workflows.models import SilverContentRef, StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +79,12 @@ def register(h):  # pragma: no cover — Hatchet wiring
                 limit_strategy=ConcurrencyLimitStrategy.CANCEL_NEWEST,
             ),
         ],
-        input_validator=ItemEvent,
+        input_validator=SilverContentRef,
         default_filters=[DefaultFilter(expression=_comments_filter_expr, scope="default")],
     )
 
     @wf.task(execution_timeout="5m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
-    def comments_task(input: ItemEvent, ctx) -> StepOutput:
+    def comments_task(input: SilverContentRef, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = fetch_one_comments(engine, input.discussion_id, input.source, cfg.settings)

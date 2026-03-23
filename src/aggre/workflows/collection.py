@@ -20,7 +20,7 @@ from aggre.collectors.youtube.collector import YoutubeCollector
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.utils.db import get_engine
-from aggre.workflows.models import CollectResult, ItemEvent
+from aggre.workflows.models import CollectResult, SilverContentRef
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ def _emit_item_event(
                 )
                 return "skipped"
 
-            event = ItemEvent(
+            event = SilverContentRef(
                 content_id=disc.content_id,
                 discussion_id=disc.id,
                 source=source_name,

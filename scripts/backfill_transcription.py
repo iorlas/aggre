@@ -7,7 +7,7 @@ from aggre.config import load_config
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.utils.db import get_engine
 from aggre.workflows import get_hatchet
-from aggre.workflows.models import ItemEvent
+from aggre.workflows.models import SilverContentRef
 
 cfg = load_config()
 engine = get_engine(cfg.settings.database_url)
@@ -30,7 +30,7 @@ with engine.connect() as conn:
     ).all()
 
 for row in rows:
-    event = ItemEvent(
+    event = SilverContentRef(
         content_id=row.content_id,
         discussion_id=row.id,
         source="youtube",

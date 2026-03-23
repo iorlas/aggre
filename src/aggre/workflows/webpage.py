@@ -20,7 +20,7 @@ from aggre.db import SilverContent, update_content
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.utils.db import get_engine
 from aggre.utils.http import create_http_client
-from aggre.workflows.models import ItemEvent, StepOutput
+from aggre.workflows.models import SilverContentRef, StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -314,12 +314,12 @@ def register(h):  # pragma: no cover — Hatchet wiring
                 limit_strategy=ConcurrencyLimitStrategy.CANCEL_NEWEST,
             ),
         ],
-        input_validator=ItemEvent,
+        input_validator=SilverContentRef,
         default_filters=[DefaultFilter(expression=_webpage_filter_expr, scope="default")],
     )
 
     @wf.task(execution_timeout="5m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
-    def download_task(input: ItemEvent, ctx) -> StepOutput:
+    def download_task(input: SilverContentRef, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = download_one(engine, cfg, input.content_id)
@@ -334,7 +334,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         backoff_factor=4,
         backoff_max_seconds=3600,
     )
-    def extract_task(input: ItemEvent, ctx) -> StepOutput:
+    def extract_task(input: SilverContentRef, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = extract_one(engine, input.content_id)

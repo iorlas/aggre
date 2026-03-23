@@ -20,7 +20,7 @@ from aggre.transcriber import build_transcribers, transcribe_with_fallback
 from aggre.utils.bronze import get_store, read_bronze_or_none, write_bronze
 from aggre.utils.db import get_engine
 from aggre.utils.ytdlp import VideoUnavailableError, download_audio
-from aggre.workflows.models import ItemEvent, StepOutput
+from aggre.workflows.models import SilverContentRef, StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -217,13 +217,13 @@ def register(h):  # pragma: no cover — Hatchet wiring
                 limit_strategy=ConcurrencyLimitStrategy.CANCEL_NEWEST,
             ),
         ],
-        input_validator=ItemEvent,
+        input_validator=SilverContentRef,
         # Only YouTube content that doesn't already have text from the collector
         default_filters=[DefaultFilter(expression="input.domain == 'youtube.com' && !input.text_provided", scope="default")],
     )
 
     @wf.task(execution_timeout="30m", schedule_timeout="720h", retries=7, backoff_factor=4, backoff_max_seconds=3600)
-    def transcribe_task(input: ItemEvent, ctx) -> StepOutput:
+    def transcribe_task(input: SilverContentRef, ctx) -> StepOutput:
         cfg = load_config()
         engine = get_engine(cfg.settings.database_url)
         result = transcribe_one(engine, cfg, input.content_id)

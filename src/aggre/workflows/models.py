@@ -14,11 +14,15 @@ class RssSourceInput(BaseModel):
     url: str
 
 
-class ItemEvent(BaseModel):
-    """Per-item event payload for downstream processing workflows.
+class SilverContentRef(BaseModel):
+    """Compact reference to a silver_content row for event dispatch.
 
-    Emitted by collectors after each discussion is processed.
-    Subscribers query DB for full data — this only carries IDs + concurrency keys.
+    Mirrors DB columns — no derived fields.
+    Workflows must re-fetch from DB for processing.
+
+    Note: ``text_provided`` is defense-in-depth only. Due to Layer 1 emission-time
+    dedup, any event that reaches construction will have text_provided=False.
+    CEL filters on this field guard against future relaxation of Layer 1.
     """
 
     content_id: int

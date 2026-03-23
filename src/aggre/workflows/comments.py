@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import sqlalchemy as sa
 from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, DefaultFilter
 
-from aggre.collectors import COLLECTORS
+from aggre.collectors.registry import COLLECTORS
 from aggre.config import load_config
 from aggre.db import SilverDiscussion
 from aggre.utils.db import get_engine

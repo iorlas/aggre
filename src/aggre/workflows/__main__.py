@@ -1,5 +1,5 @@
 """Entry point for Hatchet worker."""
 
-from aggre.workflows import start_worker
+from aggre.workflows.worker import start_worker
 
 start_worker()

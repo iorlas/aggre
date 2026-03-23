@@ -9,7 +9,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from aggre.collectors import COLLECTORS
+from aggre.collectors.registry import COLLECTORS
 from aggre.config import load_config
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, _store_for
 from aggre.utils.db import get_engine

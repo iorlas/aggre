@@ -52,7 +52,7 @@ def s3_backend(s3_store, monkeypatch):
     import aggre.utils.bronze as bronze_mod
 
     monkeypatch.setattr(bronze_mod, "_store", s3_store)
-    yield s3_store
+    return s3_store
 
 
 # ---------------------------------------------------------------------------

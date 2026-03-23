@@ -16,6 +16,7 @@ import json
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import httpx
 from tqdm import tqdm
@@ -40,7 +41,7 @@ PROCESSED_IDS_FILE = "/tmp/processed_content_ids_v2.json"
 
 def load_processed_content_ids() -> set[int]:
     """Load processed content_ids from pre-generated JSON file."""
-    with open(PROCESSED_IDS_FILE) as f:
+    with Path(PROCESSED_IDS_FILE).open() as f:
         return set(json.load(f))
 
 
@@ -108,7 +109,7 @@ def classify_tasks(tasks: list[dict], processed_ids: set[int]) -> tuple[list[str
 def get_hatchet_admin_password() -> str:
     """Get the Hatchet admin password from the container on shen."""
     result = subprocess.run(
-        SSH_CMD + ["docker exec $(docker ps --filter name=hatchet-lite -q | head -1) printenv SEED_DEFAULT_ADMIN_PASSWORD"],
+        [*SSH_CMD, "docker exec $(docker ps --filter name=hatchet-lite -q | head -1) printenv SEED_DEFAULT_ADMIN_PASSWORD"],
         capture_output=True,
         text=True,
     )
@@ -180,7 +181,7 @@ def cancel_tasks_on_shen(task_ids: list[str], password: str) -> tuple[int, int]:
         remote_script = remote_script_template.replace("__PAYLOAD__", payload)
 
         result = subprocess.run(
-            SSH_CMD + ["python3"],
+            [*SSH_CMD, "python3"],
             input=remote_script,
             capture_output=True,
             text=True,

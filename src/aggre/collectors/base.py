@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Protocol, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
 import sqlalchemy as sa
-from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from aggre.db import SilverContent, SilverDiscussion, Source
-from aggre.settings import Settings
 from aggre.urls import normalize_url
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, write_bronze_json
 from aggre.utils.db import now_iso
 from aggre.utils.urls import extract_domain
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+
+    from pydantic import BaseModel
+
+    from aggre.settings import Settings
 
 
 class DiscussionRef(TypedDict):

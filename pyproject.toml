@@ -64,8 +64,107 @@ output-format = "concise"
 extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
-ignore = []
+select = [
+    # PREVENT: hard errors, no ambiguity
+    "F",         # pyflakes — undefined names, unused imports
+    "S",         # flake8-bandit — security: hardcoded passwords, SQL injection
+    "T10",       # flake8-debugger — leftover pdb/breakpoint()
+    "T20",       # flake8-print — leftover print() debug statements
+    "BLE",       # flake8-blind-except — bare except: hides all errors
+    "PGH",       # pygrep-hooks — blanket type: ignore, eval()
+    # ENFORCE: deterministic style, auto-fixable
+    "E", "W",    # pycodestyle
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "C4",        # flake8-comprehensions
+    "PIE",       # flake8-pie
+    "TC",        # flake8-type-checking
+    "PTH",       # flake8-use-pathlib
+    "FURB",      # refurb
+    "RUF",       # ruff-specific
+    # DETECT: flags potential problems
+    "B",         # flake8-bugbear
+    "A",         # flake8-builtins
+    "DTZ",       # flake8-datetimez
+    "ISC",       # flake8-implicit-str-concat
+    "RET",       # flake8-return
+    "SIM",       # flake8-simplify
+    "ARG",       # flake8-unused-arguments
+    "PERF",      # perflint
+    "LOG",       # flake8-logging
+    "G",         # flake8-logging-format
+    "SLF",       # flake8-self
+    "TID",       # flake8-tidy-imports
+    "PL",        # pylint subset
+    # STRUCTURE: clean architecture enforcement
+    "C90",       # mccabe — cyclomatic complexity
+    "EM",        # flake8-errmsg
+    "FBT",       # flake8-boolean-trap
+    "PT",        # flake8-pytest-style
+]
+ignore = [
+    # Readability — rewrites hurt more than they help
+    "SIM108",    # ternary — often hurts readability
+    "SIM110",    # any() rewrite
+    "RUF001",    # ambiguous unicode
+    "RUF015",    # next(iter()) vs [0]
+    # Too strict — valid patterns flagged
+    "EM101",     # string literal in exception
+    "EM102",     # f-string in exception
+    "FBT001",    # boolean positional arg def
+    "FBT002",    # boolean default value
+    "PLR0913",   # too many arguments
+    "PLR2004",   # magic value comparison
+    "ARG001",    # unused function argument — fixtures, callbacks
+    # Agent-hostile
+    "A002",      # function argument shadows builtin — Hatchet step signatures use `input`
+    "A003",      # class attribute shadows builtin — Pydantic uses id, type, input
+    "PT001",     # @pytest.fixture() vs @pytest.fixture
+    "PT023",     # @pytest.mark.unit() vs @pytest.mark.unit
+    "PERF203",   # try/except in loop — conflicts with per-item processing
+    "RET504",    # unnecessary assignment before return
+    "PLW2901",   # loop variable overwritten
+    "PLC0415",   # import not at top-level — lazy imports in CLI, factories, Modal runtime
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-statements = 50
+max-branches = 10
+max-returns = 6
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",      # assert — standard in tests
+    "S106",      # hardcoded passwords — test fixtures
+    "S108",      # temp file paths — test fixtures
+    "E402",      # import order — tests set env vars before imports
+    "ARG001",    # unused arguments — pytest fixtures
+    "ARG002",    # unused method arguments — pytest fixtures
+    "PLR2004",   # magic values — test assertions
+    "SLF001",    # private member access — testing internals
+    "PT011",     # pytest.raises too broad
+    "PT019",     # fixture without value as parameter — common pattern
+    "PLR0915",   # too many statements — long test scenarios
+    "DTZ011",    # date.today() — matching production code patterns in tests
+    "SIM117",    # nested with — test readability with mock contexts
+    "RUF003",    # ambiguous unicode in comments — test data
+]
+"scripts/**" = [
+    "T201",      # print — scripts use print for output
+    "PLC0415",   # import not at top-level — scripts use conditional imports
+    "S603",      # subprocess — scripts call subprocesses intentionally
+    "S607",      # partial executable path — scripts use standard tools
+    "S104",      # bind to all interfaces — intentional in dev scripts
+    "S105",      # hardcoded password — dev config, not production
+    "S108",      # temp file — dev scripts, not production
+    "PLW1510",   # subprocess.run without check — handled by scripts
+    "PLW0603",   # global statement — acceptable in simple scripts
+]
 
 [tool.ty.environment]
 python-version = "3.12"

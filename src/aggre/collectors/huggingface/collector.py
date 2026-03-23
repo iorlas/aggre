@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-
-import sqlalchemy as sa
+from typing import TYPE_CHECKING
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.huggingface.config import HuggingfaceConfig
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.http import create_http_client
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.huggingface.config import HuggingfaceConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -98,18 +101,18 @@ class HuggingfaceCollector(BaseCollector):
             }
         )
 
-        values = dict(
-            source_id=source_id,
-            source_type="huggingface",
-            external_id=paper_id,
-            title=paper.get("title"),
-            content_text=summary,
-            author=author_names,
-            url=hf_url,
-            published_at=paper.get("publishedAt"),
-            meta=meta,
-            content_id=content_id,
-            score=paper.get("upvotes", 0),
-            comment_count=ref_data.get("numComments", 0),
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": "huggingface",
+            "external_id": paper_id,
+            "title": paper.get("title"),
+            "content_text": summary,
+            "author": author_names,
+            "url": hf_url,
+            "published_at": paper.get("publishedAt"),
+            "meta": meta,
+            "content_id": content_id,
+            "score": paper.get("upvotes", 0),
+            "comment_count": ref_data.get("numComments", 0),
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

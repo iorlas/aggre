@@ -7,9 +7,12 @@ import dataclasses
 import logging
 import random
 import threading
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +123,7 @@ def _weighted_shuffle(endpoints: list[Endpoint]) -> list[Endpoint]:
     result: list[Endpoint] = []
     while remaining:
         weights = [ep.weight for ep in remaining]
-        chosen = random.choices(range(len(remaining)), weights=weights, k=1)[0]
+        chosen = random.choices(range(len(remaining)), weights=weights, k=1)[0]  # noqa: S311 — weighted shuffle for load balancing, not security
         result.append(remaining.pop(chosen))
     return result
 

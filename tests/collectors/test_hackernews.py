@@ -308,12 +308,12 @@ class TestBaseCollectorEdgeCases:
         with engine.begin() as conn:
             collector._upsert_discussion(
                 conn,
-                dict(
-                    source_type="hackernews",
-                    external_id="99",
-                    title="Updated Title",
-                    source_id=get_sources(engine)[0].id,
-                ),
+                {
+                    "source_type": "hackernews",
+                    "external_id": "99",
+                    "title": "Updated Title",
+                    "source_id": get_sources(engine)[0].id,
+                },
                 update_columns=None,
             )
 

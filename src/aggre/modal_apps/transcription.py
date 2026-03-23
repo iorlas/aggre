@@ -37,8 +37,8 @@ class Transcriber:
             input_path.write_bytes(audio_bytes)
 
             # Convert any audio format to 16kHz mono wav (what Whisper expects)
-            subprocess.run(
-                ["ffmpeg", "-i", str(input_path), "-ar", "16000", "-ac", "1", str(wav_path)],
+            subprocess.run(  # noqa: S603 — trusted ffmpeg invocation with controlled args
+                ["ffmpeg", "-i", str(input_path), "-ar", "16000", "-ac", "1", str(wav_path)],  # noqa: S607 — ffmpeg is a known system binary
                 check=True,
                 capture_output=True,
             )

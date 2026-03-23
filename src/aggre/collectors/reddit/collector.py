@@ -6,9 +6,9 @@ import json
 import logging
 import time
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import httpx
-import sqlalchemy as sa
 from tenacity import (
     RetryCallState,
     retry,
@@ -17,11 +17,15 @@ from tenacity import (
 )
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.reddit.config import RedditConfig
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.reddit.config import RedditConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -161,20 +165,20 @@ class RedditCollector(BaseCollector):
             }
         )
 
-        values = dict(
-            source_id=source_id,
-            source_type="reddit",
-            external_id=ext_id,
-            title=post_data.get("title"),
-            author=post_data.get("author"),
-            url=permalink,
-            content_text=post_data.get("selftext", ""),
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-            score=post_data.get("score", 0),
-            comment_count=post_data.get("num_comments", 0),
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": "reddit",
+            "external_id": ext_id,
+            "title": post_data.get("title"),
+            "author": post_data.get("author"),
+            "url": permalink,
+            "content_text": post_data.get("selftext", ""),
+            "published_at": published_at,
+            "meta": meta,
+            "content_id": content_id,
+            "score": post_data.get("score", 0),
+            "comment_count": post_data.get("num_comments", 0),
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
     def fetch_discussion_comments(

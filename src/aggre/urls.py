@@ -15,7 +15,7 @@ from aggre.utils.urls import extract_domain, strip_tracking_params
 _DOMAIN_OWNED_QUERY = frozenset({"arxiv.org", "youtube.com", "github.com", "reddit.com", "news.ycombinator.com"})
 
 
-def normalize_url(url: str | None) -> str | None:
+def normalize_url(url: str | None) -> str | None:  # noqa: C901, PLR0912, PLR0915 — URL normalization is inherently branchy
     """Normalize a URL to a canonical form for deduplication."""
     if not url:
         return None

@@ -29,8 +29,7 @@ def extract_domain(url: str | None) -> str | None:
         return None
     parsed = urlparse(url)
     netloc = parsed.netloc.lower()
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
+    netloc = netloc.removeprefix("www.")
     return netloc or None
 
 

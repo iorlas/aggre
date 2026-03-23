@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
-
-import httpx
+from typing import TYPE_CHECKING
 
 from aggre.utils.bronze import (
     DEFAULT_BRONZE_ROOT,
@@ -15,6 +13,11 @@ from aggre.utils.bronze import (
     write_bronze_by_url,
     write_bronze_json,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import httpx
 
 logger = logging.getLogger(__name__)
 

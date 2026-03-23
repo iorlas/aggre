@@ -5,15 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import time
-
-import sqlalchemy as sa
+from typing import TYPE_CHECKING
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.lobsters.config import LobstersConfig
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.lobsters.config import LobstersConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +31,7 @@ class LobstersCollector(BaseCollector):
 
     source_type = "lobsters"
 
-    def collect_discussions(
+    def collect_discussions(  # noqa: C901, PLR0912 — multi-source collection with tag/page iteration
         self,
         engine: sa.engine.Engine,
         config: LobstersConfig,
@@ -48,8 +51,7 @@ class LobstersCollector(BaseCollector):
                 urls: list[str] = []
                 if lob_source.tags:
                     for tag in lob_source.tags:
-                        for page in range(1, config.pages + 1):
-                            urls.append(f"{LOBSTERS_BASE}/t/{tag}.json?page={page}")
+                        urls.extend(f"{LOBSTERS_BASE}/t/{tag}.json?page={page}" for page in range(1, config.pages + 1))
                 else:
                     for page in range(1, config.pages + 1):
                         urls.append(f"{LOBSTERS_BASE}/hottest.json?page={page}")
@@ -107,23 +109,23 @@ class LobstersCollector(BaseCollector):
             }
         )
 
-        values = dict(
-            source_id=source_id,
-            source_type="lobsters",
-            external_id=short_id,
-            title=story.get("title"),
-            author=(
+        values = {
+            "source_id": source_id,
+            "source_type": "lobsters",
+            "external_id": short_id,
+            "title": story.get("title"),
+            "author": (
                 story.get("submitter_user", {}).get("username")
                 if isinstance(story.get("submitter_user"), dict)
                 else story.get("submitter_user")
             ),
-            url=story_url,
-            published_at=story.get("created_at"),
-            meta=meta,
-            content_id=content_id,
-            score=story.get("score", 0),
-            comment_count=story.get("comment_count", 0),
-        )
+            "url": story_url,
+            "published_at": story.get("created_at"),
+            "meta": meta,
+            "content_id": content_id,
+            "score": story.get("score", 0),
+            "comment_count": story.get("comment_count", 0),
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
     def fetch_discussion_comments(
@@ -131,7 +133,7 @@ class LobstersCollector(BaseCollector):
         engine: sa.engine.Engine,
         discussion_id: int,
         external_id: str,
-        meta_json: str | None,
+        meta_json: str | None,  # noqa: ARG002 — required by BaseCollector interface
         settings: Settings,
     ) -> None:
         """Fetch and store comments for a single discussion."""

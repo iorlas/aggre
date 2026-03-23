@@ -148,12 +148,11 @@ class TestEndpointSlot:
 
     def test_multiple_slots(self) -> None:
         ep = _ep(max_concurrent=2, name="multi-slot")
-        with _endpoint_slot(ep):
-            with _endpoint_slot(ep):
-                # Both slots taken, third should fail
-                with pytest.raises(EndpointBusyError):
-                    with _endpoint_slot(ep):
-                        pass  # pragma: no cover
+        with _endpoint_slot(ep), _endpoint_slot(ep):
+            # Both slots taken, third should fail
+            with pytest.raises(EndpointBusyError):
+                with _endpoint_slot(ep):
+                    pass  # pragma: no cover
 
 
 class TestTranscribeAudio:

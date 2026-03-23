@@ -5,15 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import time
-
-import sqlalchemy as sa
+from typing import TYPE_CHECKING
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.hackernews.config import HackernewsConfig
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.hackernews.config import HackernewsConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -112,23 +115,23 @@ class HackernewsCollector(BaseCollector):
             content_id = self._ensure_self_post_content(conn, hn_url, story_text)
 
         created_at_str = hit.get("created_at")
-        published_at = created_at_str if created_at_str else None
+        published_at = created_at_str or None
 
         meta = json.dumps({"hn_url": hn_url})
 
-        values = dict(
-            source_id=source_id,
-            source_type="hackernews",
-            external_id=ext_id,
-            title=hit.get("title"),
-            author=hit.get("author"),
-            url=story_url,
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-            score=hit.get("points", 0),
-            comment_count=hit.get("num_comments", 0),
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": "hackernews",
+            "external_id": ext_id,
+            "title": hit.get("title"),
+            "author": hit.get("author"),
+            "url": story_url,
+            "published_at": published_at,
+            "meta": meta,
+            "content_id": content_id,
+            "score": hit.get("points", 0),
+            "comment_count": hit.get("num_comments", 0),
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)
 
     def fetch_discussion_comments(
@@ -136,7 +139,7 @@ class HackernewsCollector(BaseCollector):
         engine: sa.engine.Engine,
         discussion_id: int,
         external_id: str,
-        meta_json: str | None,
+        meta_json: str | None,  # noqa: ARG002 — required by BaseCollector interface
         settings: Settings,
     ) -> None:
         """Fetch and store comments for a single discussion."""

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from hatchet_sdk import Hatchet
 from hatchet_sdk.clients.events import PushEventOptions
 
 from aggre.collectors.arxiv.collector import ArxivCollector
@@ -21,6 +21,9 @@ from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.utils.db import get_engine
 from aggre.workflows.models import CollectResult, SilverContentRef
+
+if TYPE_CHECKING:
+    from hatchet_sdk import Hatchet
 
 logger = logging.getLogger(__name__)
 

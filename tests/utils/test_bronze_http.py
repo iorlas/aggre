@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import httpx
@@ -12,6 +12,9 @@ import pytest
 
 from aggre.utils.bronze import url_hash, write_bronze, write_bronze_json
 from aggre.utils.bronze_http import fetch_item_json, fetch_url_text
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = pytest.mark.unit
 

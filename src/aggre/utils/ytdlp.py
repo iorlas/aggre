@@ -10,7 +10,10 @@ import json
 import logging
 import re
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +51,7 @@ def _run_ytdlp(args: list[str], *, timeout: float | None = None) -> subprocess.C
     cmd = ["uv", "run", "yt-dlp", *args]
     logger.debug("ytdlp.run cmd=%s", " ".join(cmd))
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603, PLW1510 — trusted yt-dlp invocation, exit code checked below
         cmd,
         capture_output=True,
         text=True,
@@ -89,7 +92,7 @@ def extract_channel_info(
         "--proxy",
         proxy_url,
         "--source-address",
-        "0.0.0.0",
+        "0.0.0.0",  # noqa: S104 — yt-dlp source address for proxy routing, not a bind
         "--quiet",
         "--no-warnings",
         "--ignore-errors",
@@ -130,7 +133,7 @@ def download_audio(
         "--proxy",
         proxy_url,
         "--source-address",
-        "0.0.0.0",
+        "0.0.0.0",  # noqa: S104 — yt-dlp source address for proxy routing, not a bind
         "--quiet",
         "--no-warnings",
         "--no-playlist",

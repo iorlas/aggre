@@ -17,7 +17,7 @@ class TestNormalizeUrl:
         assert normalize_url("  HTTP://WWW.Example.COM/page/  ") == "https://example.com/page"
 
     @pytest.mark.parametrize(
-        "input_url,expected",
+        ("input_url", "expected"),
         [
             ("https://example.com/page?utm_source=twitter&utm_medium=social&real=1", "https://example.com/page?real=1"),
             ("https://example.com/page?fbclid=abc123", "https://example.com/page"),
@@ -49,7 +49,7 @@ class TestNormalizeUrl:
         assert normalize_url("mailto:user@example.com") is None
 
     @pytest.mark.parametrize(
-        "input_url,expected",
+        ("input_url", "expected"),
         [
             ("https://arxiv.org/abs/2301.12345v2", "https://arxiv.org/abs/2301.12345"),
             ("https://arxiv.org/abs/2301.12345?context=cs", "https://arxiv.org/abs/2301.12345"),
@@ -92,7 +92,7 @@ class TestNormalizeUrl:
 
 class TestExtractDomain:
     @pytest.mark.parametrize(
-        "url,expected",
+        ("url", "expected"),
         [
             ("https://example.com/page", "example.com"),
             ("https://www.example.com/page", "example.com"),

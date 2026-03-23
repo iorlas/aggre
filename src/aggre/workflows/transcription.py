@@ -25,7 +25,7 @@ from aggre.workflows.models import SilverContentRef, StepOutput
 logger = logging.getLogger(__name__)
 
 
-def _transcribe_one(
+def _transcribe_one(  # noqa: C901, PLR0912, PLR0915 — sequential transcription pipeline, splitting would obscure flow
     engine: sa.engine.Engine,
     config: AppConfig,
     item: sa.engine.Row,

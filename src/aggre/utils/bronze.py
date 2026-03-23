@@ -191,14 +191,13 @@ class S3Store:
             if continuation_token:
                 kwargs["ContinuationToken"] = continuation_token
             resp = self._s3.list_objects_v2(**kwargs)
-            for obj in resp.get("Contents", []):
-                keys.append(obj["Key"])
+            keys.extend(obj["Key"] for obj in resp.get("Contents", []))
             if not resp.get("IsTruncated"):
                 break
             continuation_token = resp["NextContinuationToken"]
         return keys
 
-    def local_path(self, key: str) -> Path | None:
+    def local_path(self, key: str) -> Path | None:  # noqa: ARG002 — required by BronzeStore interface
         return None
 
 

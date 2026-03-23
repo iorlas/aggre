@@ -5,14 +5,17 @@ from __future__ import annotations
 import dataclasses
 import logging
 import tempfile
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import modal
 
-from aggre.settings import Settings
 from aggre.utils.whisper_client import Endpoint, parse_endpoints, transcribe_audio
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 

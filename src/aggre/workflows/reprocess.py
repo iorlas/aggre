@@ -7,15 +7,18 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
-
-import sqlalchemy as sa
+from typing import TYPE_CHECKING
 
 from aggre.collectors import COLLECTORS
 from aggre.config import load_config
 from aggre.utils.bronze import DEFAULT_BRONZE_ROOT, _store_for
 from aggre.utils.db import get_engine
 from aggre.workflows.models import TaskResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import sqlalchemy as sa
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,7 @@ def reprocess_from_bronze(
     store = _store_for(bronze_root)
     total = 0
 
-    for config_name, collector_cls in COLLECTORS.items():
+    for collector_cls in COLLECTORS.values():
         collector = collector_cls()
         source_type = collector.source_type
 
@@ -44,7 +47,7 @@ def reprocess_from_bronze(
             continue
 
         # Ensure source row exists
-        source_id = collector._ensure_source(engine, source_type)
+        source_id = collector._ensure_source(engine, source_type)  # noqa: SLF001 — reprocess needs direct access to collector internals
 
         reprocessed = 0
         for key in raw_keys:

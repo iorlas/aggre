@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-
-import sqlalchemy as sa
+from typing import TYPE_CHECKING
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.youtube.config import YoutubeConfig
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.ytdlp import VideoUnavailableError, YtDlpError, extract_channel_info
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.youtube.config import YoutubeConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -134,14 +137,14 @@ class YoutubeCollector(BaseCollector):
             }
         )
 
-        values = dict(
-            source_id=source_id,
-            source_type="youtube",
-            external_id=external_id,
-            title=ref_data.get("title"),
-            url=video_url,
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": "youtube",
+            "external_id": external_id,
+            "title": ref_data.get("title"),
+            "url": video_url,
+            "published_at": published_at,
+            "meta": meta,
+            "content_id": content_id,
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

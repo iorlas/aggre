@@ -6,16 +6,19 @@ import json
 import logging
 import time
 from datetime import UTC, date, datetime, timedelta
-
-import sqlalchemy as sa
+from typing import TYPE_CHECKING
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.github_trending.config import GithubTrendingConfig
 from aggre.collectors.github_trending.parser import parse_trending_page
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.github_trending.config import GithubTrendingConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,7 @@ class GithubTrendingCollector(BaseCollector):
     def collect_discussions(
         self,
         engine: sa.engine.Engine,
-        config: GithubTrendingConfig,
+        config: GithubTrendingConfig,  # noqa: ARG002 — required by BaseCollector interface
         settings: Settings,
     ) -> list[DiscussionRef]:
         source_id = self._ensure_source(engine, "GitHub Trending")
@@ -97,18 +100,18 @@ class GithubTrendingCollector(BaseCollector):
             }
         )
 
-        values = dict(
-            source_id=source_id,
-            source_type=self.source_type,
-            external_id=_make_external_id(owner, name, period),
-            title=ref_data.get("description", ""),
-            author=str(owner),
-            url=repo_url,
-            published_at=_published_at(period),
-            meta=meta,
-            content_id=content_id,
-            score=ref_data.get("stars_in_period", 0),
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": self.source_type,
+            "external_id": _make_external_id(owner, name, period),
+            "title": ref_data.get("description", ""),
+            "author": str(owner),
+            "url": repo_url,
+            "published_at": _published_at(period),
+            "meta": meta,
+            "content_id": content_id,
+            "score": ref_data.get("stars_in_period", 0),
+        }
 
         # Daily = append-only (no update columns), weekly/monthly = upsert
         update_columns = _UPSERT_COLS if period != "daily" else None
@@ -117,19 +120,19 @@ class GithubTrendingCollector(BaseCollector):
 
 def _make_external_id(owner: str, name: str, period: str) -> str:
     """Build the external_id for a trending discussion."""
-    today = date.today()
+    today = date.today()  # noqa: DTZ011 — date-only, timezone not needed
     if period == "daily":
         return f"{owner}/{name}:daily:{today.isoformat()}"
-    elif period == "weekly":
+    if period == "weekly":
         iso_year, iso_week, _ = today.isocalendar()
         return f"{owner}/{name}:weekly:{iso_year}-W{iso_week:02d}"
-    else:  # monthly
-        return f"{owner}/{name}:monthly:{today.strftime('%Y-%m')}"
+    # monthly
+    return f"{owner}/{name}:monthly:{today.strftime('%Y-%m')}"
 
 
 def _published_at(period: str) -> str:
     """Return the published_at timestamp for a given period."""
-    today = date.today()
+    today = date.today()  # noqa: DTZ011 — date-only, converted to tz-aware datetime below
     if period == "daily":
         dt = today
     elif period == "weekly":
@@ -142,11 +145,10 @@ def _published_at(period: str) -> str:
 
 def _bronze_key(period: str) -> str:
     """Build the bronze storage key for a period snapshot."""
-    today = date.today()
+    today = date.today()  # noqa: DTZ011 — date-only, timezone not needed
     if period == "daily":
         return f"daily:{today.isoformat()}"
-    elif period == "weekly":
+    if period == "weekly":
         iso_year, iso_week, _ = today.isocalendar()
         return f"weekly:{iso_year}-W{iso_week:02d}"
-    else:
-        return f"monthly:{today.strftime('%Y-%m')}"
+    return f"monthly:{today.strftime('%Y-%m')}"

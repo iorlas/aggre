@@ -5,16 +5,20 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import TYPE_CHECKING
 
 import feedparser
-import sqlalchemy as sa
 
-from aggre.collectors.arxiv.config import ArxivConfig
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.bronze import url_hash
 from aggre.utils.http import create_http_client
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.arxiv.config import ArxivConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -118,16 +122,16 @@ class ArxivCollector(BaseCollector):
         # Create content for the paper page (webpage pipeline will fetch it)
         content_id = ensure_content(conn, str(link)) if link else None
 
-        values = dict(
-            source_id=source_id,
-            source_type="arxiv",
-            external_id=external_id,
-            title=ref_data.get("title"),
-            author=ref_data.get("author", ""),
-            url=str(link),
-            content_text=str(content_text),
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": "arxiv",
+            "external_id": external_id,
+            "title": ref_data.get("title"),
+            "author": ref_data.get("author", ""),
+            "url": str(link),
+            "content_text": str(content_text),
+            "published_at": published_at,
+            "meta": meta,
+            "content_id": content_id,
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

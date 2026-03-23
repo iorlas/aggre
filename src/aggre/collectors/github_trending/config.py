@@ -7,5 +7,3 @@ from pydantic import BaseModel
 
 class GithubTrendingConfig(BaseModel):
     """No user-configurable fields — periods are hardcoded in the collector."""
-
-    pass

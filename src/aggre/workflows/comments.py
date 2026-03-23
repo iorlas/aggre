@@ -7,6 +7,7 @@ Hatchet manages concurrency (max 5 per source) and retry.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, DefaultFilter
@@ -14,9 +15,11 @@ from hatchet_sdk import ConcurrencyExpression, ConcurrencyLimitStrategy, Default
 from aggre.collectors import COLLECTORS
 from aggre.config import load_config
 from aggre.db import SilverDiscussion
-from aggre.settings import Settings
 from aggre.utils.db import get_engine
 from aggre.workflows.models import SilverContentRef, StepOutput
+
+if TYPE_CHECKING:
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 

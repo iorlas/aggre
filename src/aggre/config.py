@@ -35,7 +35,7 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
     data: dict = {}
     path = Path(config_path)
     if path.exists():
-        with open(path) as f:
+        with path.open() as f:
             data = yaml.safe_load(f) or {}
 
     # Remove any leftover settings block from YAML — env vars are the source of truth

@@ -162,7 +162,7 @@ class TestBrowserlessDownload:
             json=self._fn_response(403, "<html>Forbidden</html>"),
         )
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match=r"Forbidden|403"):
             download_one(engine, config, content_id)
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)

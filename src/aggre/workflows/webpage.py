@@ -67,7 +67,7 @@ def _fetch_via_wayback(client: httpx.Client, url: str) -> str | None:  # pragma:
         html_resp = client.get(archive_url, timeout=30.0)
         html_resp.raise_for_status()
         return html_resp.text
-    except Exception:
+    except Exception:  # noqa: BLE001 — Wayback is best-effort, any failure returns None
         logger.debug("wayback.unavailable url=%s", url)
         return None
 
@@ -270,7 +270,7 @@ def extract_one(
         try:
             extracted = future.result(timeout=90)
         except concurrent.futures.TimeoutError:  # pragma: no cover — trafilatura hang safety net
-            raise TimeoutError("Content extraction timed out after 90s")
+            raise TimeoutError("Content extraction timed out after 90s") from None
 
     if extracted is None:
         logger.warning("webpage_extractor.no_content url=%s", url)

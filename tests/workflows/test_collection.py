@@ -28,7 +28,7 @@ def engine():
 @pytest.fixture(autouse=True)
 def clean_tables():
     """No-op override of the autouse table-truncation fixture."""
-    yield
+    return
 
 
 class TestCollectSource:

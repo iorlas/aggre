@@ -179,7 +179,8 @@ class TestRedditCollectorRateLimit:
         # Every "get" must be immediately preceded by "sleep"
         for i, entry in enumerate(call_order):
             if entry == "get":
-                assert i > 0 and call_order[i - 1] == "sleep", (
+                assert i > 0, f"HTTP request at index {i} has no preceding call. Full sequence: {call_order}"
+                assert call_order[i - 1] == "sleep", (
                     f"HTTP request at index {i} was not preceded by rate-limit sleep. Full sequence: {call_order}"
                 )
 
@@ -251,7 +252,7 @@ class TestRetryAfter429:
 
         with patch("aggre.collectors.reddit.collector.time.sleep"):
             with caplog.at_level(logging.WARNING, logger="aggre.collectors.reddit.collector"):
-                data, resp = _fetch_json(client, "http://example.com")
+                data, _resp = _fetch_json(client, "http://example.com")
 
         assert data == {"data": "ok"}
         assert any("429_retry_after" in r.message for r in caplog.records)

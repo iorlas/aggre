@@ -43,15 +43,13 @@ class TestRunYtdlp:
     )
     def test_permanent_patterns_raise_video_unavailable(self, stderr_msg):
         result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr_msg)
-        with patch("aggre.utils.ytdlp.subprocess.run", return_value=result):
-            with pytest.raises(VideoUnavailableError):
-                _run_ytdlp(["https://youtube.com/watch?v=xxx"])
+        with patch("aggre.utils.ytdlp.subprocess.run", return_value=result), pytest.raises(VideoUnavailableError):
+            _run_ytdlp(["https://youtube.com/watch?v=xxx"])
 
     def test_transient_error_raises_ytdlp_error(self):
         result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="ERROR: unable to download webpage")
-        with patch("aggre.utils.ytdlp.subprocess.run", return_value=result):
-            with pytest.raises(YtDlpError):
-                _run_ytdlp(["https://youtube.com/watch?v=xxx"])
+        with patch("aggre.utils.ytdlp.subprocess.run", return_value=result), pytest.raises(YtDlpError):
+            _run_ytdlp(["https://youtube.com/watch?v=xxx"])
 
     def test_transient_error_is_not_video_unavailable(self):
         result = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="ERROR: connection timed out")
@@ -127,12 +125,11 @@ class TestExtractChannelInfo:
     def test_invalid_json_raises_ytdlp_error(self):
         result = subprocess.CompletedProcess(args=[], returncode=0, stdout="not json", stderr="")
 
-        with patch("aggre.utils.ytdlp.subprocess.run", return_value=result):
-            with pytest.raises(YtDlpError, match="Failed to parse"):
-                extract_channel_info(
-                    "https://www.youtube.com/channel/UC_test/videos",
-                    proxy_url="socks5://proxy:1080",
-                )
+        with patch("aggre.utils.ytdlp.subprocess.run", return_value=result), pytest.raises(YtDlpError, match="Failed to parse"):
+            extract_channel_info(
+                "https://www.youtube.com/channel/UC_test/videos",
+                proxy_url="socks5://proxy:1080",
+            )
 
     def test_missing_entries_key_returns_empty(self):
         json_output = '{"_type": "playlist"}'

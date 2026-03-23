@@ -5,14 +5,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from typing import TYPE_CHECKING
 
-import sqlalchemy as sa
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
-from aggre.settings import Settings
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.telegram.config import TelegramConfig, TelegramSource
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -129,17 +133,17 @@ class TelegramCollector(BaseCollector):
         if media_type:
             meta_dict["media_type"] = media_type
 
-        values = dict(
-            source_id=source_id,
-            source_type="telegram",
-            external_id=external_id,
-            title=title,
-            content_text=text,
-            url=url,
-            author=source_name,
-            published_at=ref_data.get("date"),
-            score=ref_data.get("views") or 0,
-            comment_count=0,
-            meta=json.dumps(meta_dict) if meta_dict else None,
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": "telegram",
+            "external_id": external_id,
+            "title": title,
+            "content_text": text,
+            "url": url,
+            "author": source_name,
+            "published_at": ref_data.get("date"),
+            "score": ref_data.get("views") or 0,
+            "comment_count": 0,
+            "meta": json.dumps(meta_dict) if meta_dict else None,
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

@@ -5,14 +5,17 @@ from __future__ import annotations
 import json
 import logging
 import time
-
-import sqlalchemy as sa
+from typing import TYPE_CHECKING
 
 from aggre.collectors.base import BaseCollector, DiscussionRef
-from aggre.collectors.lesswrong.config import LesswrongConfig
-from aggre.settings import Settings
 from aggre.urls import ensure_content
 from aggre.utils.http import create_http_client
+
+if TYPE_CHECKING:
+    import sqlalchemy as sa
+
+    from aggre.collectors.lesswrong.config import LesswrongConfig
+    from aggre.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -150,17 +153,17 @@ class LesswrongCollector(BaseCollector):
 
         author = (post.get("user") or {}).get("displayName", "")
 
-        values = dict(
-            source_id=source_id,
-            source_type="lesswrong",
-            external_id=ext_id,
-            title=post.get("title"),
-            author=author,
-            url=page_url,
-            published_at=published_at,
-            meta=meta,
-            content_id=content_id,
-            score=post.get("baseScore", 0),
-            comment_count=post.get("commentCount", 0),
-        )
+        values = {
+            "source_id": source_id,
+            "source_type": "lesswrong",
+            "external_id": ext_id,
+            "title": post.get("title"),
+            "author": author,
+            "url": page_url,
+            "published_at": published_at,
+            "meta": meta,
+            "content_id": content_id,
+            "score": post.get("baseScore", 0),
+            "comment_count": post.get("commentCount", 0),
+        }
         self._upsert_discussion(conn, values, update_columns=_UPSERT_COLS)

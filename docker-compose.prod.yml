@@ -121,7 +121,7 @@ services:
       SERVER_URL: "http://hatchet.ts.shen.iorlas.net"
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
       SEED_DEFAULT_ADMIN_EMAIL: "admin@example.com"
-      SEED_DEFAULT_ADMIN_PASSWORD: ${HATCHET_ADMIN_PASSWORD}
+      SEED_DEFAULT_ADMIN_PASSWORD: "AggReHatchet-Admin-2026"
     volumes:
       - hatchet-config:/config
     labels:

@@ -79,6 +79,18 @@ sources.id              <--  silver_discussions.source_id
 silver_content.id       <--  silver_discussions.content_id   (the cross-source pivot)
 ```
 
+### Column Ownership by Processing Stage
+
+Each workflow stage owns specific columns. Concurrent stages write different columns on the same row — safe without locking because PostgreSQL row-level locks during UPDATE are brief and non-conflicting for different columns.
+
+| Stage | Table | Columns | Partition Key |
+|-------|-------|---------|--------------|
+| Webpage | `silver_content` | `text`, `title` | `domain NOT IN (youtube.com, ...)` |
+| Transcription | `silver_content` | `text`, `detected_language`, `transcribed_by` | `domain = youtube.com` |
+| Comments | `silver_discussions` | `comments_json`, `comments_fetched_at` | `source IN (reddit, hackernews, lobsters)` |
+
+**Rule:** New stages must own their columns exclusively. If two stages would write the same column on the same row, use `SELECT ... FOR UPDATE` or create a separate output table.
+
 ### `silver_discussions.meta` — JSON keys per source_type
 
 Cast with `meta::jsonb` before querying.

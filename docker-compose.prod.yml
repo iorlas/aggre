@@ -137,7 +137,7 @@ services:
       SERVER_URL: "http://hatchet.ts.shen.iorlas.net"
       SERVER_AUTH_SET_EMAIL_VERIFIED: "t"
       SERVER_ENABLE_DATA_RETENTION: "true"
-      SERVER_LIMITS_DEFAULT_TENANT_RETENTION_PERIOD: "720h"
+      SERVER_LIMITS_DEFAULT_TENANT_RETENTION_PERIOD: "240h"
       SEED_DEFAULT_ADMIN_EMAIL: "admin@example.com"
       SEED_DEFAULT_ADMIN_PASSWORD: "AggReHatchet-Admin-2026"
     volumes:
@@ -219,7 +219,7 @@ services:
     stop_grace_period: 300s
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'aggre.workflows' || exit 1"]
+      test: ["CMD", "python", "-c", "import os,sys;any('aggre' in open(f'/proc/{p}/cmdline','rb').read().decode('utf-8','ignore') for p in os.listdir('/proc') if p.isdigit()) or sys.exit(1)"]
       interval: 30s
       timeout: 5s
       retries: 3

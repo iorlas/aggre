@@ -236,9 +236,9 @@ def show_problem_logs(base_url: str, token: str, containers: list[dict], app_nam
             continue
 
         _error(f"\n--- {short} ({state}, {status}) ---")
-        lines = fetch_container_logs(base_url, token, cid, tail=50, since="5m", recv_timeout=3)
+        lines = fetch_container_logs(base_url, token, cid, tail=200, since="10m", recv_timeout=5)
         for line in lines:
-            _error(f"  {line.rstrip()[:200]}")
+            _error(f"  {line.rstrip()[:500]}")
 
 
 def show_deploy_log(base_url: str, token: str, log_path: str) -> None:
@@ -251,10 +251,10 @@ def show_deploy_log(base_url: str, token: str, log_path: str) -> None:
         _error("  (no log content — file may have been cleaned up)")
         return
     for line in lines:
-        _error(f"  {line.rstrip()[:200]}")
+        _error(f"  {line.rstrip()[:500]}")
 
 
-def verify_container_health(client: httpx.Client, app_name: str, timeout: int = 120) -> bool:
+def verify_container_health(client: httpx.Client, app_name: str, timeout: int = 240) -> bool:
     """Poll containers until all are healthy or timeout. Returns True if healthy."""
     max_attempts = timeout // 5
     for i in range(1, max_attempts + 1):

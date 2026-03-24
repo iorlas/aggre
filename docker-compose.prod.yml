@@ -5,6 +5,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    pull_policy: always
     networks:
       - dokploy-network
     environment:
@@ -35,9 +36,15 @@ services:
       - "${TAILSCALE_IP}:3902:3902"  # Web
       - "${TAILSCALE_IP}:3903:3903"  # Admin
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3903/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   hatchet-postgres:
     image: postgres:17-alpine
+    pull_policy: always
     networks:
       - aggre-internal
     command:
@@ -87,6 +94,7 @@ services:
 
   hatchet-pg-maintenance:
     image: postgres:17-alpine
+    pull_policy: always
     networks:
       - aggre-internal
     # Periodic ANALYZE on partitioned parent tables — PostgreSQL autovacuum
@@ -101,9 +109,15 @@ services:
       hatchet-postgres:
         condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h hatchet-postgres -U hatchet"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
 
   hatchet-lite:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    pull_policy: always
     networks:
       - dokploy-network
       - aggre-internal
@@ -133,6 +147,12 @@ services:
       - traefik.http.routers.aggre-hatchet.entrypoints=web
       - traefik.http.services.aggre-hatchet.loadbalancer.server.port=8888
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8888/api/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   migrate:
     image: ghcr.io/iorlas/aggre:${IMAGE_TAG}
@@ -149,13 +169,20 @@ services:
         required: false
 
   browserless:
-    image: ghcr.io/browserless/chromium
+    image: ghcr.io/browserless/chromium:latest
+    pull_policy: always
     environment:
       CONCURRENT: "10"
       TIMEOUT: "60000"
     networks:
       - dokploy-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/json/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   hatchet-worker:
     image: ghcr.io/iorlas/aggre:${IMAGE_TAG}
@@ -189,6 +216,12 @@ services:
       - /app/data/tmp:size=100G
     stop_grace_period: 300s
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'aggre.workflows' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   postgres-data:

@@ -46,6 +46,19 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
+            - name: Install uv
+              uses: astral-sh/setup-uv@v5
+
+            - name: Validate compose syntax
+              run: |
+                export IMAGE_TAG=test POSTGRES_PASSWORD=test TAILSCALE_IP=127.0.0.1
+                export AGGRE_PROXY_URL=test HATCHET_CLIENT_TOKEN=test
+                export MODAL_TOKEN_ID=test MODAL_TOKEN_SECRET=test
+                docker compose -f docker-compose.prod.yml config --quiet
+
+            - name: Lint compose
+              run: uv run python scripts/check-compose.py
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
@@ -90,49 +103,22 @@ jobs:
                   subject-digest: ${{ steps.build.outputs.digest }}
                   push-to-registry: true
 
-            - name: Push compose file and env to Dokploy
+            - name: Deploy to Dokploy
               if: github.event_name != 'pull_request'
               env:
-                POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-                AGGRE_BRONZE_S3_ACCESS_KEY: ${{ secrets.AGGRE_BRONZE_S3_ACCESS_KEY }}
-                AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
-                HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
-                HATCHET_ADMIN_PASSWORD: ${{ secrets.HATCHET_ADMIN_PASSWORD }}
-                MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-                MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-                DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
-                DOKPLOY_AUTH_TOKEN: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
-                DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+                  DOKPLOY_AUTH_TOKEN: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
+                  DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+                  DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+                  POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+                  AGGRE_PROXY_URL: ${{ secrets.AGGRE_PROXY_URL }}
+                  HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
+                  MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+                  MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+                  TAILSCALE_IP: "100.65.108.29"
+                  GIT_SHA: ${{ github.sha }}
               run: |
-                IMAGE_TAG="main-$(echo '${{ github.sha }}' | cut -c1-7)"
-                # Secrets + deployment-specific values only. Config lives in compose file.
-                ENV_CONTENT=$(printf '%s\n' \
-                  "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
-                  "AGGRE_BRONZE_S3_ACCESS_KEY=${AGGRE_BRONZE_S3_ACCESS_KEY}" \
-                  "AGGRE_BRONZE_S3_SECRET_KEY=${AGGRE_BRONZE_S3_SECRET_KEY}" \
-                  "HATCHET_CLIENT_TOKEN=${HATCHET_CLIENT_TOKEN}" \
-                  "HATCHET_ADMIN_PASSWORD=${HATCHET_ADMIN_PASSWORD}" \
-                  "MODAL_TOKEN_ID=${MODAL_TOKEN_ID}" \
-                  "MODAL_TOKEN_SECRET=${MODAL_TOKEN_SECRET}" \
-                  "AGGRE_PROXY_URL=socks5h://shen.shrimp-boa.ts.net:1080" \
-                  "TAILSCALE_IP=100.65.108.29" \
-                  "IMAGE_TAG=${IMAGE_TAG}")
-                # Push both compose file and env — never let them diverge
-                jq -n \
-                  --arg id "${DOKPLOY_COMPOSE_ID}" \
-                  --arg env "$ENV_CONTENT" \
-                  --arg compose "$(cat docker-compose.prod.yml)" \
-                  '{composeId: $id, env: $env, composeFile: $compose}' \
-                | curl -sf -X POST "${DOKPLOY_URL}/api/compose.update" \
-                  -H "x-api-key: ${DOKPLOY_AUTH_TOKEN}" \
-                  -H "Content-Type: application/json" \
-                  -d @-
-
-            - name: Trigger Dokploy deploy
-              if: github.event_name != 'pull_request'
-              uses: benbristow/dokploy-deploy-action@0.2.2
-              with:
-                  api_token: ${{ secrets.DOKPLOY_AUTH_TOKEN }}
-                  application_id: ${{ secrets.DOKPLOY_COMPOSE_ID }}
-                  dokploy_url: ${{ secrets.DOKPLOY_URL }}
-                  service_type: compose
+                  export IMAGE_TAG="main-${GIT_SHA::7}"
+                  mkdir -p ~/.config/dokploy
+                  echo "${DOKPLOY_AUTH_TOKEN}" > ~/.config/dokploy/token
+                  echo "${DOKPLOY_URL}" > ~/.config/dokploy/url
+                  uv run scripts/dokctl.py deploy "${DOKPLOY_COMPOSE_ID}" docker-compose.prod.yml

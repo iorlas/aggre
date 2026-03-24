@@ -37,6 +37,7 @@ lint:  ## Check only — safe for AI, CI, pre-commit. Never modifies files.
 	@git ls-files '*.yml' '*.yaml' | grep -v node_modules | xargs uv run yamllint -c .yamllint.yml
 	@uv run python scripts/check-json.py
 	@uv run python scripts/check-file-length.py
+	@uv run python scripts/check-compose.py
 
 audit:  ## Check for known dependency vulnerabilities (requires network).
 	@uvx pip-audit

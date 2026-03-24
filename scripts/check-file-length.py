@@ -3,6 +3,7 @@
 # Known violations — barrel re-exports kept for test convenience
 EXEMPT = {
     "tests/factories/__init__.py",  # re-exports from per-domain factory modules
+    "scripts/dokctl.py",  # vendored deployment CLI from K skill
 }
 
 import pathlib  # noqa: E402

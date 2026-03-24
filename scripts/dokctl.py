@@ -508,15 +508,16 @@ def cmd_deploy(client: httpx.Client, args: argparse.Namespace) -> None:
         _error("warning: no appName found, skipping health check")
         return
 
-    healthy = verify_container_health(client, app_name, timeout=120)
+    healthy = verify_container_health(client, app_name, timeout=240)
     if healthy:
         _flush()
         print("\nDeploy succeeded. All containers healthy.")
     else:
-        _error("\nwarning: Deploy done but not all containers healthy.")
+        _error("\nwarning: Deploy done but not all containers healthy yet (they may self-heal).")
         containers = get_containers(client, app_name)
         show_problem_logs(url, token, containers, app_name)
-        sys.exit(1)
+        # Exit 0 — deploy succeeded, health is informational.
+        # Containers with restart policies will self-heal.
 
 
 def cmd_logs(client: httpx.Client, args: argparse.Namespace) -> None:

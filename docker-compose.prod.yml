@@ -178,12 +178,12 @@ services:
     image: ghcr.io/browserless/chromium:latest
     pull_policy: always
     environment:
-      CONCURRENT: "3"
+      CONCURRENT: "10"
       TIMEOUT: "60000"
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 8G
     networks:
       - dokploy-network
     restart: unless-stopped

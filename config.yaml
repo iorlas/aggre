@@ -15,7 +15,7 @@ rss:
     - name: "Lalit Maganti"
       url: "https://lalitm.com/index.xml"
     - name: "Sam Altman"
-      url: "http://blog.samaltman.com/posts.atom"
+      url: "https://blog.samaltman.com/posts.atom"
     - name: "HuggingFace Papers (Takara)"
       url: "https://tldr.takara.ai/api/papers"
     # --- Practitioner/Researcher Blogs ---

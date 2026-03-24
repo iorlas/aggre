@@ -40,7 +40,7 @@ class RssCollector(BaseCollector):
         """Fetch RSS/Atom feeds, write bronze, return references."""
         refs: list[DiscussionRef] = []
 
-        with create_http_client(proxy_url=settings.proxy_url or None, timeout=30.0) as client:
+        with create_http_client(proxy_url=settings.proxy_url or None, timeout=30.0, follow_redirects=True) as client:
             for rss_source in config.sources:
                 logger.info("rss.collecting name=%s url=%s", rss_source.name, rss_source.url)
 

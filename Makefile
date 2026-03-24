@@ -38,6 +38,8 @@ lint:  ## Check only — safe for AI, CI, pre-commit. Never modifies files.
 	@uv run python scripts/check-json.py
 	@uv run python scripts/check-file-length.py
 	@uv run python scripts/check-compose.py
+	@hadolint Dockerfile
+	@conftest test Dockerfile --parser dockerfile -p .harness/policy/dockerfile/ --all-namespaces
 
 audit:  ## Check for known dependency vulnerabilities (requires network).
 	@uvx pip-audit

@@ -1,0 +1,2 @@
+ignored:
+  - DL3008  # apt version pinning — versions change with base image, pinning is impractical

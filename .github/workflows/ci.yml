@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Install hadolint
+        run: |
+          curl -sL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 -o /usr/local/bin/hadolint
+          chmod +x /usr/local/bin/hadolint
+
+      - name: Install conftest
+        run: |
+          curl -sL https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_0.56.0_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin conftest
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+        env:
+          AGGRE_TEST_DATABASE_URL: postgresql+psycopg://aggre:aggre@localhost:5432/aggre_test
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: aggre
+          POSTGRES_PASSWORD: aggre
+          POSTGRES_DB: aggre_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+  coverage-diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Test with coverage
+        run: make test
+        env:
+          AGGRE_TEST_DATABASE_URL: postgresql+psycopg://aggre:aggre@localhost:5432/aggre_test
+
+      - name: Diff coverage
+        run: make coverage-diff
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: aggre
+          POSTGRES_PASSWORD: aggre
+          POSTGRES_DB: aggre_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5

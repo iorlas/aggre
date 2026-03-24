@@ -30,6 +30,9 @@ services:
     volumes:
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
+      # IMPORTANT: bind mount — Garage requires TOML config with secrets (rpc_secret, admin_token)
+      # that can't be injected via env vars. This path is outside Dokploy's code/ wipe zone,
+      # but if the server is reprovisioned, this file must be manually restored.
       - /etc/dokploy/compose/compose-connect-back-end-alarm-zgu447/garage.toml:/etc/garage.toml:ro
     ports:
       - "${TAILSCALE_IP}:3900:3900"  # S3 API

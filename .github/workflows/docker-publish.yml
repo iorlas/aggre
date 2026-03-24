@@ -121,4 +121,6 @@ jobs:
                   mkdir -p ~/.config/dokploy
                   echo "${DOKPLOY_AUTH_TOKEN}" > ~/.config/dokploy/token
                   echo "${DOKPLOY_URL}" > ~/.config/dokploy/url
-                  uv run --with 'websockets>=15' python scripts/dokctl.py deploy "${DOKPLOY_COMPOSE_ID}" docker-compose.prod.yml
+                  echo "DEBUG: compose_id length=${#DOKPLOY_COMPOSE_ID}"
+                  echo "DEBUG: args=deploy [COMPOSE_ID] docker-compose.prod.yml"
+                  uv run --with 'websockets>=15' -- python scripts/dokctl.py deploy "${DOKPLOY_COMPOSE_ID}" docker-compose.prod.yml

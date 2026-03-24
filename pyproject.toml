@@ -61,7 +61,7 @@ prerelease = "allow"
 target-version = "py312"
 line-length = 140
 output-format = "concise"
-extend-exclude = ["alembic/versions"]
+extend-exclude = ["alembic/versions", "scripts/dokctl.py"]
 
 [tool.ruff.lint]
 select = [

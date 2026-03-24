@@ -196,7 +196,7 @@ services:
       migrate:
         condition: service_completed_successfully
       hatchet-lite:
-        condition: service_started
+        condition: service_healthy
     environment:
       AGGRE_DATABASE_URL: "postgresql+psycopg://aggre:${POSTGRES_PASSWORD}@postgres:5432/aggre"
       AGGRE_PROXY_URL: ${AGGRE_PROXY_URL}

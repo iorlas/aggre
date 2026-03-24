@@ -121,5 +121,4 @@ jobs:
                   mkdir -p ~/.config/dokploy
                   echo "${DOKPLOY_AUTH_TOKEN}" > ~/.config/dokploy/token
                   echo "${DOKPLOY_URL}" > ~/.config/dokploy/url
-                  pip install --quiet httpx 'websockets>=15'
-                  python3 scripts/dokctl.py deploy -- "${DOKPLOY_COMPOSE_ID}" docker-compose.prod.yml
+                  ./scripts/dokctl.py deploy "${DOKPLOY_COMPOSE_ID}" docker-compose.prod.yml

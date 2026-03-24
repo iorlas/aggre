@@ -265,6 +265,10 @@ def verify_container_health(client: httpx.Client, app_name: str, timeout: int = 
             state = c.get("state", "unknown")
             status = c.get("status", "")
 
+            # Skip exited containers that completed successfully (one-shot services like migrate)
+            if state == "exited" and "Exited (0)" in status:
+                continue
+
             if state != "running" or ("(healthy)" not in status and "(health:" in status.lower()):
                 all_healthy = False
 

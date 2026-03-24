@@ -624,6 +624,7 @@ def cmd_init(client: httpx.Client, args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    print(f"DEBUG: sys.argv={sys.argv!r}", file=sys.stderr)
     parser = argparse.ArgumentParser(prog="dokctl", description="Thin CLI over Dokploy API")
     sub = parser.add_subparsers(dest="command", required=True)
 

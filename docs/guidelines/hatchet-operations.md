@@ -140,6 +140,20 @@ except urllib.error.HTTPError as e: print('FAIL', e.code, e.read().decode())
 - Never use `curl -d '...'` with passwords containing `!` — shells escape `!` to `\!`, making Go's JSON parser reject the request with "invalid character '!' in string escape code"
 - Prefer passwords without `!` for Hatchet admin to avoid this class of issue entirely
 
+## Removing Workflows from Code
+
+Hatchet workflow definitions persist in the database forever — they are NOT removed when a worker stops registering them. If you delete a workflow from code but not from Hatchet, it becomes a ghost: still subscribed to events (e.g., `item.new`), still spawning runs, but with no worker to execute them.
+
+**When removing a workflow from code, also delete it from Hatchet UI:** Workflows → select → delete. Or via the SDK:
+
+```python
+# Find and delete a ghost workflow
+workflows = h.workflows.list()
+for w in workflows.rows:
+    if w.name == "process-discussion-search":
+        h.workflows.delete(w.metadata.id)
+```
+
 ## Common Operational Recipes
 
 ### Retry all failed transcriptions from last 7 days

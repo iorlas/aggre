@@ -216,7 +216,11 @@ def get_problem_containers(containers: list[dict]) -> list[dict]:
 
 def show_problem_logs(base_url: str, token: str, containers: list[dict], app_name: str) -> None:
     """Show logs for unhealthy/failed containers only."""
-    problem = [c for c in get_problem_containers(containers) if c.get("state") != "running" or "(healthy)" not in c.get("status", "")]
+    problem = [
+        c for c in get_problem_containers(containers)
+        if not (c.get("state") == "exited" and "Exited (0)" in c.get("status", ""))
+        and (c.get("state") != "running" or "(healthy)" not in c.get("status", ""))
+    ]
     if not problem:
         return
 

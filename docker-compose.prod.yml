@@ -144,6 +144,7 @@ services:
       - hatchet-config:/config
     labels:
       - tailscale=true
+      - traefik.enable=true
       - traefik.docker.network=dokploy-network
       - traefik.http.routers.aggre-hatchet.rule=Host(`hatchet.ts.shen.iorlas.net`)
       - traefik.http.routers.aggre-hatchet.entrypoints=web

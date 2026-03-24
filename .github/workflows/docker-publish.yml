@@ -53,6 +53,7 @@ jobs:
               run: |
                 export IMAGE_TAG=test POSTGRES_PASSWORD=test TAILSCALE_IP=127.0.0.1
                 export AGGRE_PROXY_URL=test HATCHET_CLIENT_TOKEN=test
+                export AGGRE_BRONZE_S3_ACCESS_KEY=test AGGRE_BRONZE_S3_SECRET_KEY=test
                 export MODAL_TOKEN_ID=test MODAL_TOKEN_SECRET=test
                 docker compose -f docker-compose.prod.yml config --quiet
 
@@ -111,6 +112,8 @@ jobs:
                   DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
                   POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
                   AGGRE_PROXY_URL: ${{ secrets.AGGRE_PROXY_URL }}
+                  AGGRE_BRONZE_S3_ACCESS_KEY: ${{ secrets.AGGRE_BRONZE_S3_ACCESS_KEY }}
+                  AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
                   HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}
                   MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
                   MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}

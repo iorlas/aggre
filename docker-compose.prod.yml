@@ -178,8 +178,12 @@ services:
     image: ghcr.io/browserless/chromium:latest
     pull_policy: always
     environment:
-      CONCURRENT: "10"
+      CONCURRENT: "3"
       TIMEOUT: "60000"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     networks:
       - dokploy-network
     restart: unless-stopped
@@ -188,7 +192,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
   hatchet-worker:
     image: ghcr.io/iorlas/aggre:${IMAGE_TAG}

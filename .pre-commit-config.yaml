@@ -4,15 +4,15 @@ repos:
   - repo: local
     hooks:
       - id: fix
-        name: auto-fix (ruff)
-        entry: make fix
+        name: auto-fix (agent-harness)
+        entry: agent-harness fix
         language: system
         pass_filenames: false
         always_run: true
 
       - id: lint
-        name: lint (ruff + ty + yamllint + json)
-        entry: make lint
+        name: lint (agent-harness)
+        entry: agent-harness lint
         language: system
         pass_filenames: false
         always_run: true

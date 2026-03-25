@@ -31,23 +31,13 @@ coverage-diff:
 check: lint test  ## Full quality gate — lint then test.
 
 lint:  ## Check only — safe for AI, CI, pre-commit. Never modifies files.
-	@uv run ruff format --check || (echo "Formatting issues found. Run 'make fix' to auto-fix." && exit 1)
-	@uv run ruff check || (echo "Lint issues found. Fixable ones can be resolved with 'make fix'." && exit 1)
-	@uv run ty check
-	@git ls-files '*.yml' '*.yaml' | grep -v node_modules | xargs uv run yamllint -c .yamllint.yml
-	@uv run python scripts/check-json.py
-	@uv run python scripts/check-file-length.py
-	@uv run python scripts/check-compose.py
-	@hadolint Dockerfile
-	@conftest test Dockerfile --parser dockerfile -p .harness/policy/dockerfile/ --all-namespaces
+	@agent-harness lint
 
 audit:  ## Check for known dependency vulnerabilities (requires network).
 	@uvx pip-audit
 
 fix:  ## Auto-fix formatting and import sorting, then verify with lint.
-	uv run ruff check --fix
-	uv run ruff format
-	$(MAKE) lint
+	@agent-harness fix
 
 worker:
 	uv run python -m aggre.workflows

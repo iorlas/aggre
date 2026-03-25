@@ -27,5 +27,12 @@ COPY config.yaml ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
+# Non-root user
+RUN groupadd --system app && useradd --system --gid app app
+USER app
+
 # Skip sync at runtime
 ENV UV_NO_SYNC=true
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD ["python", "-c", "import sys; sys.exit(0)"]

@@ -6,6 +6,7 @@ services:
   postgres:
     image: postgres:17-alpine
     pull_policy: always
+    hostname: aggre-postgres
     networks:
       - dokploy-network
     environment:
@@ -25,15 +26,40 @@ services:
 
   garage:
     image: dxflrs/garage:v2.2.0
+    hostname: aggre-garage
     networks:
       - dokploy-network
+    entrypoint:
+      - sh
+      - -c
+      - |
+        cat > /etc/garage.toml <<TOML
+        metadata_dir = "/var/lib/garage/meta"
+        data_dir = "/var/lib/garage/data"
+        db_engine = "lmdb"
+        replication_factor = 1
+        rpc_bind_addr = "[::]:3901"
+        rpc_secret = "$${GARAGE_RPC_SECRET}"
+        [s3_api]
+        s3_region = "garage"
+        api_bind_addr = "[::]:3900"
+        root_domain = ".s3.garage.localhost"
+        [s3_web]
+        bind_addr = "[::]:3902"
+        root_domain = ".web.garage.localhost"
+        [admin]
+        api_bind_addr = "[::]:3903"
+        admin_token = "$${GARAGE_ADMIN_TOKEN}"
+        metrics_token = "$${GARAGE_METRICS_TOKEN}"
+        TOML
+        exec /garage server
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET}
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN}
+      GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN}
     volumes:
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
-      # IMPORTANT: bind mount — Garage requires TOML config with secrets (rpc_secret, admin_token)
-      # that can't be injected via env vars. This path is outside Dokploy's code/ wipe zone,
-      # but if the server is reprovisioned, this file must be manually restored.
-      - /etc/dokploy/compose/compose-connect-back-end-alarm-zgu447/garage.toml:/etc/garage.toml:ro
     ports:
       - "${TAILSCALE_IP}:3900:3900"  # S3 API
       - "${TAILSCALE_IP}:3902:3902"  # Web
@@ -123,6 +149,7 @@ services:
   hatchet-lite:
     image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
     pull_policy: always
+    hostname: aggre-hatchet
     networks:
       - dokploy-network
       - aggre-internal
@@ -177,6 +204,7 @@ services:
   browserless:
     image: ghcr.io/browserless/chromium:latest
     pull_policy: always
+    hostname: aggre-browserless
     environment:
       CONCURRENT: "10"
       TIMEOUT: "60000"
@@ -196,6 +224,7 @@ services:
 
   hatchet-worker:
     image: ghcr.io/iorlas/aggre:${IMAGE_TAG}
+    hostname: aggre-worker
     networks:
       - dokploy-network
     command: uv run python -m aggre.workflows

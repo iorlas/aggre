@@ -7,27 +7,14 @@
         "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
       }
     },
-    "remote-db": {
-      "command": "toolbox",
-      "args": ["--prebuilt", "postgres", "--stdio"],
-      "env": {
-        "POSTGRES_HOST": "shen.shrimp-boa.ts.net",
-        "POSTGRES_PORT": "5432",
-        "POSTGRES_DATABASE": "aggre",
-        "POSTGRES_USER": "aggre",
-        "POSTGRES_PASSWORD": "${AGGRE_DB_PASSWORD}"
-      }
-    },
-    "local-db": {
-      "command": "toolbox",
-      "args": ["--prebuilt", "postgres", "--stdio"],
-      "env": {
-        "POSTGRES_HOST": "127.0.0.1",
-        "POSTGRES_PORT": "5432",
-        "POSTGRES_DATABASE": "aggre",
-        "POSTGRES_USER": "aggre",
-        "POSTGRES_PASSWORD": "aggre"
-      }
+    "dbhub": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@bytebase/dbhub@latest",
+        "--transport", "stdio",
+        "--dsn", "postgres://aggre:${AGGRE_DB_PASSWORD}@100.65.108.29:5432/aggre?sslmode=disable"
+      ]
     }
   }
 }

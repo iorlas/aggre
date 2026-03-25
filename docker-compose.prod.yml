@@ -24,22 +24,19 @@ services:
       timeout: 5s
       retries: 5
 
-  garage:
-    image: dxflrs/garage:v2.2.0
-    hostname: aggre-garage
-    networks:
-      - dokploy-network
+  garage-init:
+    image: busybox:1.37
     entrypoint:
       - sh
       - -c
       - |
-        cat > /etc/garage.toml <<TOML
+        cat > /config/garage.toml <<'TOML'
         metadata_dir = "/var/lib/garage/meta"
         data_dir = "/var/lib/garage/data"
         db_engine = "lmdb"
         replication_factor = 1
         rpc_bind_addr = "[::]:3901"
-        rpc_secret = "$${GARAGE_RPC_SECRET}"
+        rpc_secret = "placeholder"
         [s3_api]
         s3_region = "garage"
         api_bind_addr = "[::]:3900"
@@ -49,17 +46,28 @@ services:
         root_domain = ".web.garage.localhost"
         [admin]
         api_bind_addr = "[::]:3903"
-        admin_token = "$${GARAGE_ADMIN_TOKEN}"
-        metrics_token = "$${GARAGE_METRICS_TOKEN}"
         TOML
-        exec /garage server
+    volumes:
+      - garage-config:/config
+
+  garage:
+    image: dxflrs/garage:v2.2.0
+    hostname: aggre-garage
+    networks:
+      - dokploy-network
+    depends_on:
+      garage-init:
+        condition: service_completed_successfully
     environment:
+      GARAGE_CONFIG_FILE: /config/garage.toml
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET}
       GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN}
       GARAGE_METRICS_TOKEN: ${GARAGE_METRICS_TOKEN}
+      GARAGE_ALLOW_WORLD_READABLE_SECRETS: "true"
     volumes:
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
+      - garage-config:/config:ro
     ports:
       - "${TAILSCALE_IP}:3900:3900"  # S3 API
       - "${TAILSCALE_IP}:3902:3902"  # Web
@@ -268,6 +276,7 @@ volumes:
   postgres-data:
   garage-meta:
   garage-data:
+  garage-config:
   hatchet-postgres-data:
   hatchet-config:
 

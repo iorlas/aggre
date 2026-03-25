@@ -122,7 +122,7 @@ jobs:
                   GIT_SHA: ${{ github.sha }}
               run: |
                   export IMAGE_TAG="main-${GIT_SHA::7}"
-                  mkdir -p ~/.config/dokploy
-                  echo "${DOKPLOY_AUTH_TOKEN}" > ~/.config/dokploy/token
-                  echo "${DOKPLOY_URL}" > ~/.config/dokploy/url
-                  ./scripts/dokctl.py deploy "${DOKPLOY_COMPOSE_ID}" docker-compose.prod.yml
+                  uvx --from 'dokploy-ctl @ git+https://github.com/iorlas/dokploy-ctl.git' \
+                    dokploy-ctl login --url "${DOKPLOY_URL}" --token "${DOKPLOY_AUTH_TOKEN}"
+                  uvx --from 'dokploy-ctl @ git+https://github.com/iorlas/dokploy-ctl.git' \
+                    dokploy-ctl deploy "${DOKPLOY_COMPOSE_ID}" docker-compose.prod.yml --env

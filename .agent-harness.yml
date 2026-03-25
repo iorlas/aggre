@@ -2,14 +2,9 @@
 # Detected stacks: docker, dokploy, python
 stacks: [docker, dokploy, python]
 
-exclude:
-  - scripts/dokctl.py  # vendored deployment CLI from K skill
-
 python:
   coverage_threshold: 95
   line_length: 120
-  file_length_exempt:
-    - scripts/dokctl.py
 
 docker:
   own_image_prefix: "ghcr.io/iorlas/"

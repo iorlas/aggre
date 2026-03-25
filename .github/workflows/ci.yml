@@ -20,7 +20,8 @@ jobs:
 
       - name: Install agent-harness
         run: |
-          uv tool install 'agent-harness @ git+https://github.com/agentic-eng/agent-harness.git'
+          git clone --depth 1 https://github.com/agentic-eng/agent-harness.git /tmp/agent-harness
+          uv tool install --editable /tmp/agent-harness
           curl -sL https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 -o /usr/local/bin/hadolint
           chmod +x /usr/local/bin/hadolint
           curl -sL https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_0.56.0_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin conftest

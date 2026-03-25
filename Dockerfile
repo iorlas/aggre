@@ -28,7 +28,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # Non-root user
-RUN groupadd --system app && useradd --system --gid app app
+RUN groupadd --system app && useradd --system --gid app --home-dir /app app \
+    && chown -R app:app /app
 USER app
 
 # Skip sync at runtime

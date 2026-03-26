@@ -222,6 +222,110 @@ class TestBrowserlessDownload:
         assert "launch" not in str(url)
 
 
+class TestProxyAPIIntegration:
+    """Tests for Proxy API integration in download_one."""
+
+    def _fn_response(self, status: int, html: str) -> dict:
+        return {"data": {"status": status, "html": html}}
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch(
+        "aggre.workflows.webpage.get_proxy",
+        return_value={"addr": "1.2.3.4:8080", "protocol": "socks5"},
+    )
+    def test_uses_proxy_api_when_configured(self, mock_get, _mock_bronze, engine, mock_http):
+        """When proxy_api_url is set, get_proxy is called and result used."""
+        config = make_config(proxy_api_url="http://proxy-api:8080", browserless_url="http://browserless:3000")
+        content_id = seed_content(engine, "https://example.com/proxy-api-test", domain="example.com")
+
+        route = mock_http.post("http://browserless:3000/chromium/function").respond(
+            json=self._fn_response(200, "<html><body>ok</body></html>"),
+        )
+
+        result = download_one(engine, config, content_id)
+        assert result.status == "downloaded"
+        mock_get.assert_called_once_with("http://proxy-api:8080", protocol="socks5")
+
+        import json as _json
+
+        url = route.calls[0].request.url
+        launch_param = _json.loads(str(url.params.get("launch")))
+        assert launch_param["args"] == ["--proxy-server=socks5://1.2.3.4:8080"]
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage.report_failure")
+    @patch(
+        "aggre.workflows.webpage.get_proxy",
+        return_value={"addr": "1.2.3.4:8080", "protocol": "socks5"},
+    )
+    def test_reports_failure_on_download_error(self, _mock_get, mock_report, _mock_bronze, engine, mock_http):
+        """On download failure, report_failure is called before re-raising."""
+        config = make_config(proxy_api_url="http://proxy-api:8080", browserless_url="http://browserless:3000")
+        content_id = seed_content(engine, "https://example.com/proxy-fail-test", domain="example.com")
+
+        mock_http.post("http://browserless:3000/chromium/function").mock(
+            side_effect=Exception("Connection refused"),
+        )
+
+        with pytest.raises(Exception, match="Connection refused"):
+            download_one(engine, config, content_id)
+
+        mock_report.assert_called_once_with("http://proxy-api:8080", "1.2.3.4:8080")
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    def test_falls_back_to_static_proxy_when_api_empty(self, _mock_bronze, engine, mock_http):
+        """When proxy_api_url is empty, uses static proxy_url."""
+        config = make_config(proxy_url="socks5://static:2080", browserless_url="http://browserless:3000")
+        content_id = seed_content(engine, "https://example.com/static-proxy-test", domain="example.com")
+
+        route = mock_http.post("http://browserless:3000/chromium/function").respond(
+            json=self._fn_response(200, "<html><body>ok</body></html>"),
+        )
+
+        result = download_one(engine, config, content_id)
+        assert result.status == "downloaded"
+
+        import json as _json
+
+        url = route.calls[0].request.url
+        launch_param = _json.loads(str(url.params.get("launch")))
+        assert launch_param["args"] == ["--proxy-server=socks5://static:2080"]
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage.get_proxy", return_value=None)
+    def test_proceeds_without_proxy_when_api_returns_none(self, _mock_get, _mock_bronze, engine, mock_http):
+        """When Proxy API returns None, proceeds without proxy."""
+        config = make_config(proxy_api_url="http://proxy-api:8080", browserless_url="http://browserless:3000")
+        content_id = seed_content(engine, "https://example.com/no-proxy-avail-test", domain="example.com")
+
+        route = mock_http.post("http://browserless:3000/chromium/function").respond(
+            json=self._fn_response(200, "<html><body>ok</body></html>"),
+        )
+
+        result = download_one(engine, config, content_id)
+        assert result.status == "downloaded"
+
+        url = route.calls[0].request.url
+        assert "launch" not in str(url)
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage.report_failure")
+    @patch("aggre.workflows.webpage.get_proxy", return_value=None)
+    def test_no_failure_report_when_no_proxy_addr(self, _mock_get, mock_report, _mock_bronze, engine, mock_http):
+        """When proxy API returned None, failure report is not sent."""
+        config = make_config(proxy_api_url="http://proxy-api:8080", browserless_url="http://browserless:3000")
+        content_id = seed_content(engine, "https://example.com/no-addr-fail-test", domain="example.com")
+
+        mock_http.post("http://browserless:3000/chromium/function").mock(
+            side_effect=Exception("Connection refused"),
+        )
+
+        with pytest.raises(Exception, match="Connection refused"):
+            download_one(engine, config, content_id)
+
+        mock_report.assert_not_called()
+
+
 class TestExtractOne:
     def test_returns_not_found_for_nonexistent_content(self, engine):
         result = extract_one(engine, 99999)

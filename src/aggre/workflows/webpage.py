@@ -20,6 +20,7 @@ from aggre.db import SilverContent, update_content
 from aggre.utils.bronze import bronze_exists_by_url, read_bronze_by_url, write_bronze_by_url
 from aggre.utils.db import get_engine
 from aggre.utils.http import create_http_client
+from aggre.utils.proxy_api import get_proxy, report_failure
 from aggre.workflows.models import SilverContentRef, StepOutput
 
 logger = logging.getLogger(__name__)
@@ -241,13 +242,30 @@ def download_one(
         return StepOutput(status="skipped", reason="already_done", url=row.canonical_url)
 
     browserless_url = config.settings.browserless_url or ""
+    proxy_api_url = config.settings.proxy_api_url or ""
+
+    # Get proxy: prefer Proxy API, fall back to static proxy_url
+    proxy_url = ""
+    proxy_addr = ""
+    if proxy_api_url:
+        proxy_info = get_proxy(proxy_api_url, protocol="socks5")
+        if proxy_info:
+            proxy_addr = proxy_info["addr"]
+            proxy_url = f"{proxy_info['protocol']}://{proxy_addr}"
+    else:
+        proxy_url = config.settings.proxy_url or ""
 
     with create_http_client(
-        proxy_url=config.settings.proxy_url or None,
+        proxy_url=proxy_url or None,
         follow_redirects=True,
     ) as client:
-        status = _download_one(client, row.canonical_url, row.original_url, browserless_url, config.settings.proxy_url or "")
-        return StepOutput(status=status, url=row.canonical_url)
+        try:
+            status = _download_one(client, row.canonical_url, row.original_url, browserless_url, proxy_url)
+            return StepOutput(status=status, url=row.canonical_url)
+        except Exception:
+            if proxy_api_url and proxy_addr:
+                report_failure(proxy_api_url, proxy_addr)
+            raise
 
 
 def extract_one(

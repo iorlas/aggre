@@ -103,7 +103,13 @@ def _download_one(
                 return "skipped"  # 404/410 or non-text content
 
     except httpx.HTTPStatusError as exc:  # pragma: no cover — HTTP error with Wayback fallback
-        logger.warning("webpage_downloader.download_failed url=%s fetch_url=%s status=%d", url, fetch_url, exc.response.status_code)
+        logger.warning(
+            "webpage_downloader.download_failed url=%s fetch_url=%s status=%d reason=%s",
+            url,
+            fetch_url,
+            exc.response.status_code,
+            exc.response.text[:200] if exc.response.text else str(exc),
+        )
         html = _fetch_via_wayback(client, url)
         if html is not None:
             write_bronze_by_url("webpage", url, "response", html, "html")

@@ -194,6 +194,94 @@ for i in range(0, len(runs_to_replay), BATCH):
 
 For large backfills (hundreds+), use the same batching approach with `h.event.push()`.
 
+## Known Issue: Zombie Tasks (Tasks Stuck in RUNNING)
+
+**Severity: Critical.** This is a systemic Hatchet architectural limitation, not a misconfiguration. It has caused full pipeline stalls multiple times.
+
+### Symptoms
+
+- Tasks show RUNNING in Hatchet UI for far longer than their `execution_timeout`
+- No new tasks start — the entire pipeline stalls (downloads, transcriptions, comments)
+- Any task type can become a zombie — transcription, download, comments
+- Worker shows active heartbeat, but assigned tasks are not executing
+
+### Root Cause
+
+When the worker process dies (deploy, crash, OOM, SIGTERM), Hatchet does not reliably clean up in-flight tasks:
+
+1. **Worker shutdown does not report task failure** ([#3308](https://github.com/hatchet-dev/hatchet/issues/3308)) — on SIGTERM, in-flight tasks are not marked as failed. They stay RUNNING until `execution_timeout` expires server-side — if it fires at all.
+
+2. **gRPC stream dies silently** ([#3280](https://github.com/hatchet-dev/hatchet/issues/3280), OPEN) — the `ListenV2` gRPC stream can be killed by proxies or network issues. The engine dispatches tasks to the dead stream, marking them RUNNING, but the worker never receives them. Reassignment only catches tasks on workers with expired heartbeats, **not tasks dispatched to dead streams**.
+
+3. **Heartbeat timeout kills the action listener** ([#2432](https://github.com/hatchet-dev/hatchet/issues/2432)) — when `DEADLINE_EXCEEDED` occurs during heartbeat, it interrupts the action listener loop. The worker never reports completion.
+
+4. **OLAP replication lag** ([#2573](https://github.com/hatchet-dev/hatchet/issues/2573)) — tasks complete in the core DB but the OLAP/UI tables never update. Default: 5 retries then drops the write. The task shows RUNNING forever in the UI even though it finished internally.
+
+5. **Stale worker records** ([#60](https://github.com/hatchet-dev/hatchet/issues/60)) — dead workers stay `is_active=true` with stale heartbeats. Heartbeat interval (4s) and liveness checks (5s) are hardcoded and not configurable.
+
+6. **Reassignment requires retries > 0** — tasks at max retry count that get stuck are never reassigned. The 30-second reassignment visibility timeout is also hardcoded.
+
+### Why This Blocks Everything
+
+Zombie RUNNING tasks hold concurrency slots. With `max_runs=20` for transcription and 40 total worker slots, 20 zombies consume 50% of worker capacity. With `GROUP_ROUND_ROBIN` concurrency, blocked slots prevent scheduling across all groups.
+
+### Observed Incident (2026-03-26)
+
+Timeline reconstructed from Hatchet database:
+- **23:00-00:06** — System healthy. Downloads, comments, extracts completing normally.
+- **~00:06** — Worker died (deploy or crash). Downloads stopped completing.
+- **00:26-00:44** — 110 transcription tasks created from earlier events. 20 assigned to the (now-dead) worker, all on retry #6 (final retry).
+- **00:06-02:06** — No worker running for ~2 hours. 20 transcription zombies held all `max_runs=20` slots. 513 downloads, 98 transcriptions, 12 comments queued with no progress.
+- **02:06** — New worker started (deploy). Zombies persisted — `execution_timeout=30m` had long expired but was never enforced.
+- **02:40** — Manual investigation confirmed 20 RUNNING zombies, all 90+ minutes old. Deploy eventually cleared them.
+
+### Mitigations
+
+**Immediate (config changes):**
+
+Set `HATCHET_CLIENT_LISTENER_V2_TIMEOUT=180` on the worker — forces gRPC stream reconnect every 3 minutes, preventing silent stream death ([#3280](https://github.com/hatchet-dev/hatchet/issues/3280) workaround).
+
+**Required (external reaper):**
+
+Hatchet's built-in timeout enforcement cannot be trusted. Build an external reaper that:
+1. Queries for tasks RUNNING longer than 2x their `execution_timeout`
+2. Cancels them via `h.runs.cancel()`
+3. Runs as a Hatchet cron workflow or external cron
+
+**Monitoring:**
+
+Query the Hatchet database (via dblink from aggre postgres) to detect zombie tasks:
+
+```sql
+-- Find zombie tasks: RUNNING longer than their execution_timeout
+SELECT * FROM dblink(
+  'host=hatchet-postgres dbname=hatchet user=hatchet password=hatchet',
+  'SELECT display_name, readable_status, inserted_at,
+          round(extract(epoch from now() - inserted_at)/60::numeric, 1) as minutes_ago,
+          latest_retry_count, latest_worker_id
+   FROM v1_tasks_olap
+   WHERE readable_status = ''RUNNING''
+   AND inserted_at < now() - interval ''30 minutes''
+   ORDER BY inserted_at ASC'
+) AS t(display_name text, status text, inserted_at timestamptz,
+       minutes_ago numeric, retry_count int, worker_id uuid);
+```
+
+**Database access setup:** The aggre postgres has `dblink` extension installed and is on the `aggre-internal` Docker network alongside `hatchet-postgres`, enabling cross-database queries without additional infrastructure.
+
+### Related Hatchet Issues
+
+| Issue | Status | Summary |
+|-------|--------|---------|
+| [#3308](https://github.com/hatchet-dev/hatchet/issues/3308) | Open | Worker doesn't report failure on SIGTERM |
+| [#3280](https://github.com/hatchet-dev/hatchet/issues/3280) | Open | ListenV2 streams killed silently by proxies |
+| [#2573](https://github.com/hatchet-dev/hatchet/issues/2573) | Closed | OLAP replication drops writes, tasks show RUNNING forever |
+| [#2432](https://github.com/hatchet-dev/hatchet/issues/2432) | Closed | Heartbeat timeout breaks action listener |
+| [#1996](https://github.com/hatchet-dev/hatchet/issues/1996) | Closed | Run stuck RUNNING after all tasks done |
+| [#1022](https://github.com/hatchet-dev/hatchet/issues/1022) | Closed | Duplicate execution on timeout |
+| [#322](https://github.com/hatchet-dev/hatchet/issues/322) | Stale | Heartbeat intervals not configurable |
+| [#60](https://github.com/hatchet-dev/hatchet/issues/60) | Closed | Stale workers not cleaned up |
+
 ## Timeout Design
 
 Event-triggered workflows use `schedule_timeout="72h"` — time a task can wait in the concurrency queue before being scheduled onto a worker. Set high because:

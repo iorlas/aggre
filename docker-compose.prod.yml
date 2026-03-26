@@ -259,6 +259,7 @@ services:
       HATCHET_CLIENT_HOST_PORT: "hatchet-lite:7077"
       HATCHET_CLIENT_SERVER_URL: "http://hatchet-lite:8888"
       HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN}
+      HATCHET_CLIENT_LISTENER_V2_TIMEOUT: "180"
     env_file:
       - path: .env
         required: false

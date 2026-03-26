@@ -9,6 +9,7 @@ services:
     hostname: aggre-postgres
     networks:
       - dokploy-network
+      - aggre-internal
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aggre}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

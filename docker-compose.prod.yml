@@ -246,10 +246,16 @@ services:
     networks:
       - aggre-internal
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # required: deunhealth monitors Docker API for unhealthy containers
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # required: deunhealth monitors Docker API for unhealthy containers
     environment:
       LOG_LEVEL: info
     restart: always
+    healthcheck:
+      test: ["CMD", "/deunhealth", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   hatchet-worker:
     image: ghcr.io/iorlas/aggre:${IMAGE_TAG}

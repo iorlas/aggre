@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     whisper_server_timeout: float = 300.0
     modal_app_name: str = ""
     proxy_url: str = ""
+    proxy_api_url: str = ""
     browserless_url: str = ""
     # Bronze storage backend
     bronze_backend: str = "filesystem"  # "filesystem" or "s3"

@@ -214,22 +214,48 @@ services:
     image: ghcr.io/browserless/chromium:latest
     pull_policy: always
     hostname: aggre-browserless
+    init: true
     environment:
       CONCURRENT: "10"
       TIMEOUT: "60000"
+      HEALTH: "true"
+      MAX_CPU_PERCENT: "90"
+      MAX_MEMORY_PERCENT: "85"
     deploy:
       resources:
         limits:
           memory: 8G
     networks:
       - dokploy-network
+    labels:
+      - deunhealth.restart.on.unhealthy=true
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3000/json/version || exit 1"]
-      interval: 10s
-      timeout: 5s
+      # Health check: Chrome must respond AND container must be under 24h uptime.
+      # After 24h, reports unhealthy so deunhealth restarts it (prevents /tmp leak, issue #3969).
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/json/version && test $$(( $$(date +%s) - $$(stat -c %Y /proc/1) )) -lt 86400 || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 3
       start_period: 30s
+
+  deunhealth:
+    image: qmcgaw/deunhealth
+    pull_policy: always
+    hostname: aggre-deunhealth
+    networks:
+      - aggre-internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # required: deunhealth monitors Docker API for unhealthy containers
+    environment:
+      LOG_LEVEL: info
+    restart: always
+    healthcheck:
+      test: ["CMD", "/app/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   hatchet-worker:
     image: ghcr.io/iorlas/aggre:${IMAGE_TAG}

@@ -18,10 +18,13 @@ services:
   browserless:
     image: ghcr.io/browserless/chromium
     restart: unless-stopped
+    init: true
     environment:
       MAX_CONCURRENT_SESSIONS: 5
       TIMEOUT: 60000
       HEALTH: "true"
+      MAX_CPU_PERCENT: "90"
+      MAX_MEMORY_PERCENT: "85"
       DEBUG: "browserless.io:*:info,browserless.io:*:warn,browserless.io:*:error"
     ports:
       - "3001:3000"

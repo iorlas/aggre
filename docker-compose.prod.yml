@@ -251,7 +251,7 @@ services:
       LOG_LEVEL: info
     restart: always
     healthcheck:
-      test: ["CMD", "/deunhealth", "healthcheck"]
+      test: ["CMD", "/app", "healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3

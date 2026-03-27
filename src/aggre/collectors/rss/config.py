@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from aggre.collectors.source_config import SourceBase
 
-class RssSource(BaseModel):
+
+class RssSource(SourceBase):
     name: str
     url: str
 

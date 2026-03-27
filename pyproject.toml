@@ -108,6 +108,7 @@ ignore = [
     "SIM108",    # ternary — often hurts readability
     "SIM110",    # any() rewrite
     "RUF001",    # ambiguous unicode
+    "RUF012",    # mutable class attribute — false positive on Pydantic models via indirect inheritance
     "RUF015",    # next(iter()) vs [0]
     # Too strict — valid patterns flagged
     "EM101",     # string literal in exception

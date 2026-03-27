@@ -47,7 +47,8 @@ class YoutubeCollector(BaseCollector):
 
             source_id = self._ensure_source(engine, yt_source.name, {"channel_id": yt_source.channel_id})
 
-            if self._is_source_recent(engine, source_id, source_ttl_minutes):
+            ttl = yt_source.fetch_interval_hours * 60 if yt_source.fetch_interval_hours else source_ttl_minutes
+            if self._is_source_recent(engine, source_id, ttl):
                 logger.info("youtube.source_skipped name=%s reason=recent", yt_source.name)
                 continue
 

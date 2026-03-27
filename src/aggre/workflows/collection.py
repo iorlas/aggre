@@ -17,6 +17,7 @@ from aggre.collectors.lobsters.collector import LobstersCollector
 from aggre.collectors.reddit.collector import RedditCollector
 from aggre.collectors.telegram.collector import TelegramCollector
 from aggre.collectors.youtube.collector import YoutubeCollector
+from aggre.collectors.youtube.config import TranscribePolicy, YoutubeSource
 from aggre.config import AppConfig, load_config
 from aggre.db import SilverContent, SilverDiscussion
 from aggre.utils.db import get_engine
@@ -58,7 +59,7 @@ def collect_source(
 
             # Emit event for downstream processing workflows
             if hatchet is not None:
-                emit_result = _emit_item_event(engine, hatchet, ref, name)
+                emit_result = _emit_item_event(engine, hatchet, ref, name, cfg)
                 if emit_result == "error":
                     event_errors += 1
                 elif emit_result == "skipped":
@@ -90,12 +91,25 @@ def _emit_item_event(
     hatchet: Hatchet,
     ref: dict,
     source_name: str,
+    cfg: AppConfig | None = None,
 ) -> str:
     """Emit an 'item.new' event for a processed discussion.
 
-    Returns "emitted", "skipped" (fully processed, dedup), or "error".
+    Returns "emitted", "skipped" (fully processed, dedup, or filtered by policy), or "error".
     """
     try:
+        # -- YouTube transcription policy filter --
+        if source_name == "youtube" and cfg is not None:
+            skip_reason = _check_youtube_transcribe_policy(cfg, ref)
+            if skip_reason:
+                logger.info(
+                    "collect.event_skipped_policy source=%s external_id=%s reason=%s",
+                    source_name,
+                    ref["external_id"],
+                    skip_reason,
+                )
+                return "skipped"
+
         with engine.connect() as conn:
             disc = conn.execute(
                 sa.select(
@@ -142,6 +156,44 @@ def _emit_item_event(
     except Exception:
         logger.exception("collect.event_emit_error source=%s external_id=%s", source_name, ref["external_id"])
         return "error"
+
+
+def _find_youtube_source(cfg: AppConfig, channel_id: str) -> YoutubeSource | None:
+    """Look up a YouTube source config by channel_id."""
+    for source in cfg.youtube.sources:
+        if source.channel_id == channel_id:
+            return source
+    return None
+
+
+def _check_youtube_transcribe_policy(cfg: AppConfig, ref: dict) -> str | None:
+    """Check if a YouTube video should be skipped based on transcription policy.
+
+    Returns a skip reason string, or None if the video should be transcribed.
+    """
+    raw_data = ref.get("raw_data", {})
+    channel_id = raw_data.get("_channel_id", "")
+    source = _find_youtube_source(cfg, channel_id)
+
+    if source is None:
+        # Unknown channel — default to always transcribe
+        return None
+
+    if source.transcribe == TranscribePolicy.never:
+        return "policy_never"
+
+    if source.transcribe == TranscribePolicy.keyword:
+        title = (raw_data.get("title") or "").lower()
+        if not any(kw.lower() in title for kw in source.keywords):
+            return "policy_keyword_no_match"
+
+    # Duration filter (applies to both always and keyword policies)
+    if source.max_duration_minutes is not None:
+        duration = raw_data.get("duration")
+        if duration is not None and duration > source.max_duration_minutes * 60:
+            return "policy_duration_exceeded"
+
+    return None
 
 
 # -- Source configs: (name, collector_class, cron_schedule) --

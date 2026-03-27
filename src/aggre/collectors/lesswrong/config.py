@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from aggre.collectors.source_config import SourceBase
 
-class LesswrongSource(BaseModel):
+
+class LesswrongSource(SourceBase):
     name: str  # e.g., "LessWrong Frontpage"
     view: str = "new"  # "new", "magic", "top"
     min_karma: int = 10  # minimum baseScore to ingest

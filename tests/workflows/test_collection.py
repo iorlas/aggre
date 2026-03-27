@@ -11,7 +11,8 @@ from unittest.mock import MagicMock
 import pytest
 from hatchet_sdk.clients.events import PushEventOptions
 
-from aggre.workflows.collection import collect_source
+from aggre.collectors.youtube.config import TranscribePolicy, YoutubeConfig, YoutubeSource
+from aggre.workflows.collection import _check_youtube_transcribe_policy, _find_youtube_source, collect_source
 from aggre.workflows.models import CollectResult
 from tests.factories import make_config
 
@@ -261,3 +262,78 @@ class TestEventEmission:
 
         assert result.events_skipped == 1
         mock_hatchet.event.push.assert_not_called()
+
+
+def _make_youtube_config(*sources: YoutubeSource) -> YoutubeConfig:
+    return YoutubeConfig(sources=list(sources))
+
+
+def _make_ref(*, channel_id: str = "CH1", title: str = "Some Video", duration: int | None = None) -> dict:
+    raw: dict = {"_channel_id": channel_id, "title": title}
+    if duration is not None:
+        raw["duration"] = duration
+    return {"external_id": "vid1", "raw_data": raw, "source_id": 1}
+
+
+class TestFindYoutubeSource:
+    def test_finds_matching_source(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test")
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _find_youtube_source(cfg, "CH1") is src
+
+    def test_returns_none_for_unknown(self) -> None:
+        cfg = make_config(youtube=_make_youtube_config())
+        assert _find_youtube_source(cfg, "UNKNOWN") is None
+
+
+class TestCheckYoutubeTranscribePolicy:
+    def test_always_allows(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.always)
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref()) is None
+
+    def test_never_blocks(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.never)
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref()) == "policy_never"
+
+    def test_keyword_match_allows(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.keyword, keywords=["AI", "LLM"])
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(title="New AI breakthrough")) is None
+
+    def test_keyword_no_match_blocks(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.keyword, keywords=["AI", "LLM"])
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(title="Cooking tutorial")) == "policy_keyword_no_match"
+
+    def test_keyword_match_case_insensitive(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.keyword, keywords=["ai"])
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(title="New AI Model")) is None
+
+    def test_duration_exceeded_blocks(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.always, max_duration_minutes=30)
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(duration=2700)) == "policy_duration_exceeded"
+
+    def test_duration_within_limit_allows(self) -> None:
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.always, max_duration_minutes=60)
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(duration=1800)) is None
+
+    def test_duration_none_allows(self) -> None:
+        """No duration metadata — don't block (can't know length yet)."""
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.always, max_duration_minutes=30)
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(duration=None)) is None
+
+    def test_unknown_channel_defaults_to_always(self) -> None:
+        cfg = make_config(youtube=_make_youtube_config())
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(channel_id="UNKNOWN")) is None
+
+    def test_keyword_with_duration_both_checked(self) -> None:
+        """Keyword matches but duration exceeds — should block."""
+        src = YoutubeSource(channel_id="CH1", name="Test", transcribe=TranscribePolicy.keyword, keywords=["AI"], max_duration_minutes=30)
+        cfg = make_config(youtube=_make_youtube_config(src))
+        assert _check_youtube_transcribe_policy(cfg, _make_ref(title="AI talk", duration=3600)) == "policy_duration_exceeded"

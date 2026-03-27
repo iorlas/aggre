@@ -82,406 +82,1012 @@ youtube:
   fetch_limit: 10
   init_fetch_limit: 100
   sources:
+    # ============================================================
+    # AI-focused channels — always transcribe
+    # ============================================================
     - channel_id: "UCsBjURrPoezykLs9EqgamOA"
       name: "Fireship"
+      categories: ["ai", "tech", "programming"]
+      transcribe: always
     - channel_id: "UCmzw8UuVPkqGQQpAvbx1x5A"
       name: "Theos Theory"
-    - channel_id: "UCm3i_fqq8dqsV-dTAriv2KA"
-      name: "Discovery Science"
-    - channel_id: "UCRctaGysS2x2fqVVh4VKDgw"
-      name: "Intelligent Design the Future"
+      categories: ["ai", "tech"]
+      transcribe: always
     - channel_id: "UCfg9ux4m8P0YDITTPptrmLg"
       name: "bycloud"
-    - channel_id: "UCBnkjD--nanVtOH76wJsaEw"
-      name: "2nd Order Thinkers"
-    - channel_id: "UC8tyTt_yKBvjd5SowFNoc2Q"
-      name: "se@ring"
-    - channel_id: "UCbRBrPjdAPQh0sdP33MFN7Q"
-      name: "Тостер Скрипт"
-    - channel_id: "UCiUKNylPtR_GV5mkYOs2KPQ"
-      name: "ForgetMe"
-    - channel_id: "UC9rJrMVgcXTfa8xuMnbhAEA"
-      name: "Pivot to AI"
-    - channel_id: "UCelfWQr9sXVMTvBzviPGlFw"
-      name: "AI LABS"
-    - channel_id: "UCsVgseBnKuyIGaH54XVoK3Q"
-      name: "Rob Shocks"
-    - channel_id: "UCfOvNb3xj28SNqPQ_JIbumg"
-      name: "Discover AI"
-    - channel_id: "UCDIpZ1P48Y9xSBL_OLQdFjw"
-      name: "ai Nova Sapiens"
-    - channel_id: "UCNH2x236pEyNWZHPQ_PYJ9Q"
-      name: "Ai Podcast"
-    - channel_id: "UCuE6iwZKgGz8s6kznBRI9LQ"
-      name: "Developers Digest"
-    - channel_id: "UCEUyd79AnnYoi6N_nY0j9GA"
-      name: "Silicon Pravda"
-    - channel_id: "UCE6O7wATswjzR0JvgLy2-Og"
-      name: "The Gray Cat"
-    - channel_id: "UCJ9IsUmnbm1MJ2cH0ye3aFQ"
-      name: "Rando"
-    - channel_id: "UC3qEl5dxYlrLOcHjQwbEZ6A"
-      name: "Борис Дядёра"
-    - channel_id: "UC4uPlwsk-_wT3ie-YX-fJbA"
-      name: "nimspr"
-    - channel_id: "UCXuZtz3Qgp7y_k4zYhbUBuw"
-      name: "Серверные Технологии"
-    - channel_id: "UCbY9xX3_jW5c2fjlZVBI4cg"
-      name: "TheAIGRID"
-    - channel_id: "UCdtvjyHCrKFs2H_Ii60k2Bw"
-      name: "re4ee"
-    - channel_id: "UCcefcZRL2oaA_uBNeo5UOWg"
-      name: "Y Combinator"
-    - channel_id: "UC0C-17n9iuUQPylguM1d-lQ"
-      name: "Nate B Jones"
-    - channel_id: "UCpdyFxSktWo3W6kMYfmk6lg"
-      name: "Dylan Curious"
-    - channel_id: "UCajiMK_CY9icRhLepS8_3ug"
-      name: "Alex Ziskind"
-    - channel_id: "UCDq7SjbgRKty5TgGafW8Clg"
-      name: "Prompt Engineering"
-    - channel_id: "UCp2B2R6njtYeLXv2rOy3C3A"
-      name: "Tinker Vibe"
-    - channel_id: "UCXzw-OdotBUcNA9yhuYQBwA"
-      name: "Awesome"
-    - channel_id: "UCkdgAA0rfK7lG5dv4o__Paw"
-      name: "Alberta Tech"
-    - channel_id: "UC33hVFJO90lPJQndVf_qMdA"
-      name: "Яблокодер: Хайлайты"
-    - channel_id: "UC9tZbR8DlUSXLjLqwUmwzWA"
-      name: "AI RANEZ"
-    - channel_id: "UCYuQjtwffrSIzfswH3V24mQ"
-      name: "Tom Delalande"
-    - channel_id: "UC_mYaQAE6-71rjSN6CeCA-g"
-      name: "NeetCode"
-    - channel_id: "UC-nZ6AfvJAwpqA2oRfD3ZNA"
-      name: "Доступное айти"
-    - channel_id: "UCc5B1PXJ6yK7uZZx4IqgETA"
-      name: "Кошачья Бацыла"
-    - channel_id: "UCcMplxvoLyNVH2Fhq4pqriw"
-      name: "Direcode"
-    - channel_id: "UCELHcNI5hYHy5iz54WUsndQ"
-      name: "Hack the Clown"
-    - channel_id: "UCDS20hpBFiv_Kdp5Ibh0vew"
-      name: "Open Data Science and AI Conference"
-    - channel_id: "UCCsGEYIgJbIqgQha1fIJ74A"
-      name: "skill issue"
+      categories: ["ai", "ml"]
+      transcribe: always
     - channel_id: "UCgfe2ooZD3VJPB6aJAnuQng"
       name: "bycloud AI"
-    - channel_id: "UCEAbqW0HFB_UxZoUDO0kJBw"
-      name: "Aitrepreneur"
-    - channel_id: "UCndBDrR7x8zpdPKtoy3uW4A"
-      name: "Одна Подписка"
-    - channel_id: "UChI0q9a-ZcbZh7dAu_-J-hg"
-      name: "Upper Echelon"
-    - channel_id: "UCCRxYlYOmLE2l5wxs3ckJtg"
-      name: "Limitless FT"
-    - channel_id: "UCN8F8z4wIicwkm4X7Tk3BOQ"
-      name: "Александр Григорин"
-    - channel_id: "UCdCR4-uYOg5ju-IUuDnfnQA"
-      name: "Simon Scrapes"
-    - channel_id: "UC_iEmYXdZJvjxdUMehwSXqw"
-      name: "Asian Dad Energy"
-    - channel_id: "UCgQGu_BPXtWq6X4ZH38eySQ"
-      name: "Zero to One"
-    - channel_id: "UCJUmE61LxhbhudzUugHL2wQ"
-      name: "Mehul Mohan"
-    - channel_id: "UCbRP3c757lWg9M-U7TyEkXA"
-      name: "Theo"
-    - channel_id: "UCzCsyvyrq38R6TnztEzOmgg"
-      name: "ByteMonk"
-    - channel_id: "UCYhgVUxsl1PQUOMufZ8I5uQ"
-      name: "Claudius Papirus"
-    - channel_id: "UC55ODQSvARtgSyc8ThfiepQ"
-      name: "Sam Witteveen"
-    - channel_id: "UCgscS8mBsQZ5sFRkJIFWD7Q"
-      name: "RoboNuggets"
-    - channel_id: "UCjiDBsEL3QtROdoM-FphuKQ"
-      name: "Ben Sla"
-    - channel_id: "UC1StrrIwS-zx1x7LutG1ANg"
-      name: "Кирштейн"
-    - channel_id: "UCZzdKFrypg1_UaK3t_tKblA"
-      name: "Parth Knows AI"
-    - channel_id: "UCq_MHfMX5FBBB3bqnJPAEzA"
-      name: "Ray Fernando"
-    - channel_id: "UCkVfrGwV-iG9bSsgCbrNPxQ"
-      name: "Better Stack"
-    - channel_id: "UCJO31lXn1Uo924ha6nO8XlA"
-      name: "Dolan Dark"
-    - channel_id: "UCGwns8iFnP0WbTK9e0PUxIg"
-      name: "Easy Riders"
-    - channel_id: "UC_mG2mk1253TrPISSv3dupA"
-      name: "Code Review 1C"
-    - channel_id: "UCsWj-nZsf3KMZyJiFnxIztA"
-      name: "Vini"
-    - channel_id: "UCGO7dfbhhvdaw1Tz_eEialg"
-      name: "sch.13"
-    - channel_id: "UCRfTv-QsCHhx-S8kcOgO2dg"
-      name: "Christopher Deane"
-    - channel_id: "UCKSXs4jiLetyWsW5Lba3ZjQ"
-      name: "marimo"
-    - channel_id: "UCAwT-7B6StW_xzXPku6v7MQ"
-      name: "atmo"
-    - channel_id: "UCV9QxOjHLf_OAzfEYuS9YCw"
-      name: "ZlodeiBaal"
-    - channel_id: "UCeelCzuzcIngkPyFUqeD7gA"
-      name: "VuntraCity"
-    - channel_id: "UCpphSHXSrc3uPcUGG4rGgtg"
-      name: "reyzdor"
-    - channel_id: "UCq8XiKtzXOBOtqeNygJRjdA"
-      name: "Coder Kaylee"
-    - channel_id: "UCyoTo72htVfcrbx_RvGuejw"
-      name: "Erwan Lorteau"
-    - channel_id: "UCrNfRFWnLC3tCy1TnyhVQ7g"
-      name: "Casually Finance"
-    - channel_id: "UCV03SRZXJEz-hchIAogeJOg"
-      name: "Claude"
-    - channel_id: "UCtrGZc-hme--8LECM0dMS5A"
-      name: "Jaymin West"
-    - channel_id: "UCjhFK5Yk0w9k_ydlaTJG3ew"
-      name: "TechTalk NotDead"
-    - channel_id: "UCxVxcTULO9cFU6SB9qVaisQ"
-      name: "Its Jack"
-    - channel_id: "UCxIJaCMEptJjxmmQgGFsnCg"
-      name: "YC Root Access"
-    - channel_id: "UCSHZKyawb77ixDdsGog4iWA"
-      name: "Machine Learning Street Talk"
-    - channel_id: "UCdh_dHrl_pkg8QCKCEAioFQ"
-      name: "devsplate"
-    - channel_id: "UCwgKmJM4ZJQRJ-U5NjvR2dg"
-      name: "george hotz archive"
-    - channel_id: "UCMHBJH5rX2dF1S7o-fJuY-A"
-      name: "NeuroDump"
-    - channel_id: "UC1LJVKQ0hp7sKyfAbKoDHMw"
-      name: "Brian Jenney"
-    - channel_id: "UClNB39bdGrUE9dEOtm8J8ZQ"
-      name: "The Passionate Programmer"
-    - channel_id: "UCmxKkv3HQUNbTCshLwwDu3g"
-      name: "Shade of Code"
-    - channel_id: "UCX6c6hTIqcphjMsXbeanJ1g"
-      name: "Prompt Engineer"
-    - channel_id: "UCJXEDBOm98xjJaWeUElnV6g"
-      name: "OFM Lab"
-    - channel_id: "UCR1Clh4HLWGBI5gq2FB5Arw"
-      name: "KAIY"
-    - channel_id: "UCJ_6yfSYOp98FfDURacHk0Q"
-      name: "onionboots"
-    - channel_id: "UCUvkPEm38w6pq8w5QYgtPPw"
-      name: "CyberFlow"
-    - channel_id: "UCBX__dPYqDFqAN4QcWbnUbw"
-      name: "Ras Mic"
-    - channel_id: "UCVQ5XHD6CFcCT13xNhlZRmg"
-      name: "Palisade Research"
-    - channel_id: "UC27eC_usQzXTj9dK8JLDLwQ"
-      name: "SciencePetr"
-    - channel_id: "UC5xFTfxy33jwwHfEj5wmdDQ"
-      name: "Тостер Скрипт"
-    - channel_id: "UCW_HxXm6tMnVGSx_A6cE-rg"
-      name: "Veteran AI"
+      categories: ["ai", "ml"]
+      transcribe: always
+    - channel_id: "UCelfWQr9sXVMTvBzviPGlFw"
+      name: "AI LABS"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCfOvNb3xj28SNqPQ_JIbumg"
+      name: "Discover AI"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCDIpZ1P48Y9xSBL_OLQdFjw"
+      name: "ai Nova Sapiens"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCNH2x236pEyNWZHPQ_PYJ9Q"
+      name: "Ai Podcast"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCbY9xX3_jW5c2fjlZVBI4cg"
+      name: "TheAIGRID"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UC9tZbR8DlUSXLjLqwUmwzWA"
+      name: "AI RANEZ"
+      categories: ["ai"]
+      transcribe: always
     - channel_id: "UC2WmuBuFq6gL08QYG-JjXKw"
       name: "WorldofAI"
+      categories: ["ai"]
+      transcribe: always
     - channel_id: "UCNJ1Ymd5yFuUPtn21xtRbbw"
       name: "AI Explained"
-    - channel_id: "UCBNZ4b1k0q_CmCzacT0urzA"
-      name: "Becky Global"
+      categories: ["ai"]
+      transcribe: always
     - channel_id: "UCrXSVX9a1mj8l0CMLwKgMVw"
       name: "AI Jason"
-    - channel_id: "UCVqKMOHu4nOfYQp8WKFeiFQ"
-      name: "s6ptember"
-    - channel_id: "UCIsVwdLhYrrs3K8MOXEZdhQ"
-      name: "Onigiri"
-    - channel_id: "UC6sCcOMQoY0BMVnDYizMFmA"
-      name: "НейроЧел+"
-    - channel_id: "UCOCahKBCEUuzDJawM7yN1dg"
-      name: "Bijan Bowen"
-    - channel_id: "UCTwhOf7dt6qTqKjluVO1P4g"
-      name: "Java Основы"
-    - channel_id: "UCGkpFfEMF0eMJlh9xXj2lMw"
-      name: "ColdFusion"
-    - channel_id: "UCjUh8q1OcFotde1KNOVDFMw"
-      name: "Дмитрий Березницкий"
-    - channel_id: "UCN7D80fY9xMYu5mHhUhXEFw"
-      name: "Moon Dev"
-    - channel_id: "UCn0aU31zEBuysmPYTwTUJWQ"
-      name: "ИИШНЫЙ"
-    - channel_id: "UCLavWnVQ9PSRlb3A-91Hyuw"
-      name: "Dave Swift"
-    - channel_id: "UCWtiKY_NPl9hGexYd5rk0kg"
-      name: "VelvetShark"
-    - channel_id: "UC-91UA-Xy2Cvb98deRXuggA"
-      name: "Joshua Fluke"
-    - channel_id: "UC0-sNIE-SLXs-K8jbkpqGNA"
-      name: "Metavision"
-    - channel_id: "UC6vRUjYqDuoUsYsku86Lrsw"
-      name: "Jack Herrington"
-    - channel_id: "UCuUCDlx8QxDGssT9beIoJ9w"
-      name: "Маракулин Михаил"
-    - channel_id: "UCotwjyJnb-4KW7bmsOoLfkg"
-      name: "Art of the Problem"
-    - channel_id: "UCDEMRMWiAW2YXUXYyfNbigg"
-      name: "VXControl"
-    - channel_id: "UCCsREoj8rSRkEvxWqxr74rQ"
-      name: "Cybernews"
-    - channel_id: "UCG7wPZrMqjyNgHwSyALSLeA"
-      name: "SGX CRYPTO"
-    - channel_id: "UCPS2CLdJZaG_rFUXfwn2jpA"
-      name: "Mikkel Malmberg"
-    - channel_id: "UCZRp6-Xvzo_dBFvt9L7y3Qw"
-      name: "Build Great Products"
-    - channel_id: "UCcbiQJ4KxeSnQVQD_qpyxEg"
-      name: "Warp"
-    - channel_id: "UCLA7cJBnqr0nLF2bQBD9uUg"
-      name: "Ray Amjad"
-    - channel_id: "UCXBA485t5tpyDwpZAeA4xDQ"
-      name: "sam henri gold"
-    - channel_id: "UCwHwDuNd9lCdA7chyyquDXw"
-      name: "Bread on Penguins"
-    - channel_id: "UCgd5-BWtbgOw5Hx2wP3qxzg"
-      name: "Cyb3rMaddy"
-    - channel_id: "UCE8m-P9Qcogb9x-luljGnBQ"
-      name: "BasicDevBlog"
-    - channel_id: "UCg4al5O89TloiZ-HHDUwvmQ"
-      name: "aiastaker"
-    - channel_id: "UCOQls4ibIT-_vyBetUfo3Ng"
-      name: "Playing Possum"
-    - channel_id: "UCD5uzyow0c-zaxVpLKLA41A"
-      name: "sprestay"
-    - channel_id: "UCGIwTzpFqyriY0XoUdJMNjQ"
-      name: "Daniel Zivkovic"
-    - channel_id: "UCtevzRsHEKhs-RK8pAqwSyQ"
-      name: "Leon van Zyl"
-    - channel_id: "UC0cd_-e49hZpWLH3UIwoWRA"
-      name: "Professor Dave Explains"
-    - channel_id: "UCX3S42-bPAl65PyM-m_KNpA"
-      name: "SHIZ"
-    - channel_id: "UC_a85mUHqsy5j0CYCgLnkEQ"
-      name: "DIY Smart Code"
-    - channel_id: "UCNoahX0Q8GNJc43o782ASzg"
-      name: "Turing College"
-    - channel_id: "UC-K70bVlrVps9WTMn8aIqKg"
-      name: "TechFacts"
-    - channel_id: "UCBql4fTP5-7cEFN4506uRvw"
-      name: "Donald vs The System"
-    - channel_id: "UCU9OIyFn1blsuOZJD6pvy9A"
-      name: "Константин Исакин"
-    - channel_id: "UC6biysICWOJ-C3P4Tyeggzg"
-      name: "Low Level"
-    - channel_id: "UCh_bSyL_Ioa3vZ2h4rCQsEA"
-      name: "The Serious CTO"
-    - channel_id: "UCds6iMh7X4N2YMtyMklW3dg"
-      name: "Саня Crypton"
-    - channel_id: "UC5--wS0Ljbin1TjWQX6eafA"
-      name: "bigboxSWE"
-    - channel_id: "UC6YYHJzM6PhZ2Yey9BQiUaw"
-      name: "Cursor"
-    - channel_id: "UCuj1_b4QHEycQPShFTxI_-w"
-      name: "StarMorph AI"
-    - channel_id: "UCJS9pqu9BzkAMNTmzNMNhvg"
-      name: "Google Cloud Tech"
-    - channel_id: "UCPbwhExawYrn9xxI21TFfyw"
-      name: "The Pragmatic Engineer"
-    - channel_id: "UC2ojq-nuP8ceeHqiroeKhBA"
-      name: "Nate Herk"
-    - channel_id: "UCw0LWJr2s8XXPmu3NB_47YQ"
-      name: "Superset"
-    - channel_id: "UCtTwAVPlqUSQ21Ba_4Zh_vw"
-      name: "ЭПОХА ПОДМЕНЫ"
-    - channel_id: "UCf-vHLevJIdQjm3t2fVUrjg"
-      name: "Береста"
-    - channel_id: "UC_x36zCEGilGpB1m-V4gmjg"
-      name: "IndyDevDan"
-    - channel_id: "UC_eVxIPHFZm7oF_gET0x-8Q"
-      name: "Google Antigravity"
-    - channel_id: "UC7TUInmEJ4NmYb-krFz-SuA"
-      name: "Zen van Riel"
-    - channel_id: "UCuHO8EzUJYx7vcD8G6S-MAA"
-      name: "Alex Followell"
-    - channel_id: "UCPvOHaaP9E6FqSqG1NMV_Hw"
-      name: "Raycast"
-    - channel_id: "UCi1Rgm2ulItUOagasB3B8sg"
-      name: "Jan Lunge"
-    - channel_id: "UCMFJxBQoTsS9h1HVjqk1WPA"
-      name: "Midlife Crisis Diaries"
-    - channel_id: "UCBNwZAz6jJAW7HRfgZ1t4mA"
-      name: "SpacetimeDB"
-    - channel_id: "UCzcs40uDeh9rW6UPSQlqImQ"
-      name: "alexandr tamrazov"
+      categories: ["ai", "agents"]
+      transcribe: always
     - channel_id: "UCLKPca3kwwd-B59HNr-_lvA"
       name: "AI Engineer"
+      categories: ["ai", "engineering"]
+      transcribe: always
     - channel_id: "UCh97UguoGjmZ8fLHRZwjuYA"
       name: "AI Stack Studio"
-    - channel_id: "UCI9w0pAIlXrQuSYA79x0F3w"
-      name: "Damian Galarza"
-    - channel_id: "UCbVZdLngJH6KOJvpAOO3qTw"
-      name: "Joshua Morony"
+      categories: ["ai", "agents"]
+      transcribe: always
     - channel_id: "UC0m81bQuthaQZmFbXEY9QSw"
       name: "AICodeKing"
-    - channel_id: "UCswG6FSbgZjbWtdf_hMLaow"
-      name: "Matt Pocock"
-    - channel_id: "UCf5rfjU5gMoqZOFkGk9Wupw"
-      name: "Entropy Talk"
-    - channel_id: "UC4fL7qpp4A_Np_V67MpWTvA"
-      name: "Coding With ADHD"
-    - channel_id: "UCdpkTMgFiDkcAnNV7TmXntA"
-      name: "Cheese Turbulence"
-    - channel_id: "UClkieE3BBB4xXoMvBj7_TRw"
-      name: "Dummy Codes"
-    - channel_id: "UCErGCL3dKJxwkhBcUr0yohQ"
-      name: "Pavel Bekoev"
-    - channel_id: "UCOT2iLov0V7Re7ku_3UBtcQ"
-      name: "Hank Green"
-    - channel_id: "UC2I9E2R9i72YrkR9mYVy-xA"
-      name: "Просто о сложном"
-    - channel_id: "UCTfxYHJdMCJHgVuujK20CEA"
-      name: "Kyle Kabasares"
+      categories: ["ai", "coding"]
+      transcribe: always
     - channel_id: "UCoy6cTJ7Tg0dqS-DI-_REsA"
       name: "Chase AI"
-    - channel_id: "UC4omkhNHsYLagT1o6hnmKQw"
-      name: "Winderton"
-    - channel_id: "UCa1LIkxIMjcEJ7mS-GnvePQ"
-      name: "Cisco's Computer Tech"
-    - channel_id: "UCMUy_WsUIYbM_hKR9drb9dA"
-      name: "Julia Turc"
-    - channel_id: "UCCBVCTuk6uJrN3iFV_3vurg"
-      name: "Devoxx"
-    - channel_id: "UCd6vEDS3SOhWbXZrxbrf_bw"
-      name: "SAMTIME"
-    - channel_id: "UCTfS-XQGhM__ifiH9w4oAAw"
-      name: "pookie"
-    - channel_id: "UCPL5PeHpfOSnovdPalF3CTw"
-      name: "Stevan Freeborn"
-    - channel_id: "UCP7uiEZIqci43m22KDl0sNw"
-      name: "Kotlin by JetBrains"
-    - channel_id: "UCdBXOyqr8cDshsp7kcKDAkg"
-      name: "Big A"
-    - channel_id: "UCDjiwACeEZhMjtkegSHob6A"
-      name: "Pigeon Finance"
-    - channel_id: "UC75sZDv6cuxARkRuouhHKwg"
-      name: "Nate Ziller"
-    - channel_id: "UC8ENHE5xdFSwx71u3fDH5Xw"
-      name: "ThePrimeagen"
-    - channel_id: "UCMUjLA5fXfMlgVVCxDYGb3Q"
-      name: "Kiki's Bytes"
-    - channel_id: "UC1eherjPft_PWmzyVJ8jSDQ"
-      name: "The Companies Expert"
-    - channel_id: "UC-cUo61X-sY3KjW8f5TldWg"
-      name: "sespichin"
-    - channel_id: "UCKWaEZ-_VweaEx1j62do_vQ"
-      name: "IBM Technology"
-    - channel_id: "UCZf5IX90oe5gdPppMXGImwg"
-      name: "Dr Waku"
-    - channel_id: "UCUyeluBRhGPCW4rPe_UvBZQ"
-      name: "The PrimeTime"
-    - channel_id: "UCKj-Hy8AuOtKNWE5yQ67BVA"
-      name: "The Coding Koala"
-    - channel_id: "UCNzszbnvQeFzObW0ghk0Ckw"
-      name: "Dave's Garage"
-    - channel_id: "UCxyjuN1Xjm3Nq88Qy4EaWvA"
-      name: "Pixel Perfect"
+      categories: ["ai"]
+      transcribe: always
     - channel_id: "UC3KK7ENB_ierAXvrxVNnbZQ"
       name: "Ben AI"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCW_HxXm6tMnVGSx_A6cE-rg"
+      name: "Veteran AI"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCuj1_b4QHEycQPShFTxI_-w"
+      name: "StarMorph AI"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCZzdKFrypg1_UaK3t_tKblA"
+      name: "Parth Knows AI"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCR1Clh4HLWGBI5gq2FB5Arw"
+      name: "KAIY"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCg4al5O89TloiZ-HHDUwvmQ"
+      name: "aiastaker"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCMHBJH5rX2dF1S7o-fJuY-A"
+      name: "NeuroDump"
+      categories: ["ai", "ml"]
+      transcribe: always
+    - channel_id: "UC9rJrMVgcXTfa8xuMnbhAEA"
+      name: "Pivot to AI"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCDq7SjbgRKty5TgGafW8Clg"
+      name: "Prompt Engineering"
+      categories: ["ai", "prompting"]
+      transcribe: always
+    - channel_id: "UCX6c6hTIqcphjMsXbeanJ1g"
+      name: "Prompt Engineer"
+      categories: ["ai", "prompting"]
+      transcribe: always
+    - channel_id: "UCSHZKyawb77ixDdsGog4iWA"
+      name: "Machine Learning Street Talk"
+      categories: ["ai", "ml", "research"]
+      transcribe: always
+    - channel_id: "UCEAbqW0HFB_UxZoUDO0kJBw"
+      name: "Aitrepreneur"
+      categories: ["ai", "tools"]
+      transcribe: always
+    - channel_id: "UC55ODQSvARtgSyc8ThfiepQ"
+      name: "Sam Witteveen"
+      categories: ["ai", "agents"]
+      transcribe: always
+    - channel_id: "UCgscS8mBsQZ5sFRkJIFWD7Q"
+      name: "RoboNuggets"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCVQ5XHD6CFcCT13xNhlZRmg"
+      name: "Palisade Research"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UCDS20hpBFiv_Kdp5Ibh0vew"
+      name: "Open Data Science and AI Conference"
+      categories: ["ai", "ml", "conferences"]
+      transcribe: always
+    - channel_id: "UCMUy_WsUIYbM_hKR9drb9dA"
+      name: "Julia Turc"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UCTfxYHJdMCJHgVuujK20CEA"
+      name: "Kyle Kabasares"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCUvkPEm38w6pq8w5QYgtPPw"
+      name: "CyberFlow"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCZf5IX90oe5gdPppMXGImwg"
+      name: "Dr Waku"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCYhgVUxsl1PQUOMufZ8I5uQ"
+      name: "Claudius Papirus"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCsVgseBnKuyIGaH54XVoK3Q"
+      name: "Rob Shocks"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCdCR4-uYOg5ju-IUuDnfnQA"
+      name: "Simon Scrapes"
+      categories: ["ai", "data"]
+      transcribe: always
+    - channel_id: "UCJXEDBOm98xjJaWeUElnV6g"
+      name: "OFM Lab"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCMUjLA5fXfMlgVVCxDYGb3Q"
+      name: "Kiki's Bytes"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UCwgKmJM4ZJQRJ-U5NjvR2dg"
+      name: "george hotz archive"
+      categories: ["ai", "tech"]
+      transcribe: always
+    - channel_id: "UCV03SRZXJEz-hchIAogeJOg"
+      name: "Claude"
+      categories: ["ai", "anthropic"]
+      transcribe: always
+    - channel_id: "UCN7D80fY9xMYu5mHhUhXEFw"
+      name: "Moon Dev"
+      categories: ["ai", "coding"]
+      transcribe: always
+    # --- AI companies/labs ---
+    - channel_id: "UCXZCJLdBC09xxGZ6gcdrc6A"
+      name: "OpenAI"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UCP7jMXSY2xbc3KCAE0MHQ-A"
+      name: "Google DeepMind"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UCCb9_Kn8F_Opb3UCGm-lILQ"
+      name: "Microsoft Research"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UC5-pBdfdA3KUo-vq72l-umA"
+      name: "Mistral AI"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UCHlNU7kIZhRgSbhHvFoy72w"
+      name: "Hugging Face"
+      categories: ["ai", "ml", "open-source"]
+      transcribe: always
+    - channel_id: "UCC4EsuM0n_-u5_eOuZFCfpA"
+      name: "Groq"
+      categories: ["ai", "inference"]
+      transcribe: always
+    # --- AI coding tools ---
+    - channel_id: "UC6YYHJzM6PhZ2Yey9BQiUaw"
+      name: "Cursor"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UCirYnEfIjR8L1-sM2ozb7QQ"
+      name: "Windsurf"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UCC-lyoTfSrcJzA1ab3APAgw"
+      name: "LangChain"
+      categories: ["ai", "agents", "frameworks"]
+      transcribe: always
+    - channel_id: "UCgoJjdR6-7AMu9fDitb6nVw"
+      name: "Replit"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UC7c3Kb6jYCRj4JOHHZTxKsQ"
+      name: "GitHub"
+      categories: ["ai", "coding-tools", "open-source"]
+      transcribe: always
+    - channel_id: "UCLq8gNoee7oXM7MvTdjyQvA"
+      name: "Vercel"
+      categories: ["ai", "webdev", "coding-tools"]
+      transcribe: always
+    - channel_id: "UC_x36zCEGilGpB1m-V4gmjg"
+      name: "IndyDevDan"
+      categories: ["ai", "agents", "coding"]
+      transcribe: always
+    - channel_id: "UCp2B2R6njtYeLXv2rOy3C3A"
+      name: "Tinker Vibe"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UC0C-17n9iuUQPylguM1d-lQ"
+      name: "Nate B Jones"
+      categories: ["ai", "agents"]
+      transcribe: always
+    - channel_id: "UCuE6iwZKgGz8s6kznBRI9LQ"
+      name: "Developers Digest"
+      categories: ["ai", "tech"]
+      transcribe: always
+    - channel_id: "UC_a85mUHqsy5j0CYCgLnkEQ"
+      name: "DIY Smart Code"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UCtevzRsHEKhs-RK8pAqwSyQ"
+      name: "Leon van Zyl"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UCGIwTzpFqyriY0XoUdJMNjQ"
+      name: "Daniel Zivkovic"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UCw0LWJr2s8XXPmu3NB_47YQ"
+      name: "Superset"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UC4fL7qpp4A_Np_V67MpWTvA"
+      name: "Coding With ADHD"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UC2ojq-nuP8ceeHqiroeKhBA"
+      name: "Nate Herk"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UCuHO8EzUJYx7vcD8G6S-MAA"
+      name: "Alex Followell"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCI9w0pAIlXrQuSYA79x0F3w"
+      name: "Damian Galarza"
+      categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UCf5rfjU5gMoqZOFkGk9Wupw"
+      name: "Entropy Talk"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCBNZ4b1k0q_CmCzacT0urzA"
+      name: "Becky Global"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCVqKMOHu4nOfYQp8WKFeiFQ"
+      name: "s6ptember"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCIsVwdLhYrrs3K8MOXEZdhQ"
+      name: "Onigiri"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCOCahKBCEUuzDJawM7yN1dg"
+      name: "Bijan Bowen"
+      categories: ["ai"]
+      transcribe: always
+    # --- Russian AI channels ---
+    - channel_id: "UCEUyd79AnnYoi6N_nY0j9GA"
+      name: "Silicon Pravda"
+      categories: ["ai", "tech", "ru"]
+      transcribe: always
+    - channel_id: "UC6sCcOMQoY0BMVnDYizMFmA"
+      name: "НейроЧел+"
+      categories: ["ai", "ru"]
+      transcribe: always
+    - channel_id: "UCn0aU31zEBuysmPYTwTUJWQ"
+      name: "ИИШНЫЙ"
+      categories: ["ai", "ru"]
+      transcribe: always
+    - channel_id: "UCuUCDlx8QxDGssT9beIoJ9w"
+      name: "Маракулин Михаил"
+      categories: ["ai", "tech", "ru"]
+      transcribe: always
+    - channel_id: "UCV9QxOjHLf_OAzfEYuS9YCw"
+      name: "ZlodeiBaal"
+      categories: ["ai", "ml", "ru"]
+      transcribe: always
+    # ============================================================
+    # Tech/programming — keyword filter for AI topics
+    # ============================================================
+    - channel_id: "UCBnkjD--nanVtOH76wJsaEw"
+      name: "2nd Order Thinkers"
+      categories: ["tech", "startups"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic", "Gemini", "copilot", "cursor", "vibe cod"]
+    - channel_id: "UCcefcZRL2oaA_uBNeo5UOWg"
+      name: "Y Combinator"
+      categories: ["startups", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic"]
+    - channel_id: "UCxIJaCMEptJjxmmQgGFsnCg"
+      name: "YC Root Access"
+      categories: ["startups", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic"]
+    - channel_id: "UCJ9IsUmnbm1MJ2cH0ye3aFQ"
+      name: "Rando"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic"]
+    - channel_id: "UCpdyFxSktWo3W6kMYfmk6lg"
+      name: "Dylan Curious"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCajiMK_CY9icRhLepS8_3ug"
+      name: "Alex Ziskind"
+      categories: ["programming", "mobile"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCXzw-OdotBUcNA9yhuYQBwA"
+      name: "Awesome"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCkdgAA0rfK7lG5dv4o__Paw"
+      name: "Alberta Tech"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCYuQjtwffrSIzfswH3V24mQ"
+      name: "Tom Delalande"
+      categories: ["tech", "startups"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic"]
+    - channel_id: "UC_mYaQAE6-71rjSN6CeCA-g"
+      name: "NeetCode"
+      categories: ["programming", "algorithms"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCcMplxvoLyNVH2Fhq4pqriw"
+      name: "Direcode"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCELHcNI5hYHy5iz54WUsndQ"
+      name: "Hack the Clown"
+      categories: ["tech", "humor"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCCsGEYIgJbIqgQha1fIJ74A"
+      name: "skill issue"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "cursor"]
+    - channel_id: "UCbRP3c757lWg9M-U7TyEkXA"
+      name: "Theo"
+      categories: ["tech", "webdev"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor", "vibe cod"]
+    - channel_id: "UCzCsyvyrq38R6TnztEzOmgg"
+      name: "ByteMonk"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCjiDBsEL3QtROdoM-FphuKQ"
+      name: "Ben Sla"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCq_MHfMX5FBBB3bqnJPAEzA"
+      name: "Ray Fernando"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCkVfrGwV-iG9bSsgCbrNPxQ"
+      name: "Better Stack"
+      categories: ["devops", "observability"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCsWj-nZsf3KMZyJiFnxIztA"
+      name: "Vini"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCRfTv-QsCHhx-S8kcOgO2dg"
+      name: "Christopher Deane"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCKSXs4jiLetyWsW5Lba3ZjQ"
+      name: "marimo"
+      categories: ["python", "data"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCAwT-7B6StW_xzXPku6v7MQ"
+      name: "atmo"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCq8XiKtzXOBOtqeNygJRjdA"
+      name: "Coder Kaylee"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor", "vibe cod"]
+    - channel_id: "UCyoTo72htVfcrbx_RvGuejw"
+      name: "Erwan Lorteau"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCtrGZc-hme--8LECM0dMS5A"
+      name: "Jaymin West"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCjhFK5Yk0w9k_ydlaTJG3ew"
+      name: "TechTalk NotDead"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCxVxcTULO9cFU6SB9qVaisQ"
+      name: "Its Jack"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCdh_dHrl_pkg8QCKCEAioFQ"
+      name: "devsplate"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UC1LJVKQ0hp7sKyfAbKoDHMw"
+      name: "Brian Jenney"
+      categories: ["webdev"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UClNB39bdGrUE9dEOtm8J8ZQ"
+      name: "The Passionate Programmer"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCmxKkv3HQUNbTCshLwwDu3g"
+      name: "Shade of Code"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCJ_6yfSYOp98FfDURacHk0Q"
+      name: "onionboots"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCBX__dPYqDFqAN4QcWbnUbw"
+      name: "Ras Mic"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UC6vRUjYqDuoUsYsku86Lrsw"
+      name: "Jack Herrington"
+      categories: ["webdev", "programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCotwjyJnb-4KW7bmsOoLfkg"
+      name: "Art of the Problem"
+      categories: ["cs", "math"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "machine learning", "neural", "deep learning"]
+    - channel_id: "UCCsREoj8rSRkEvxWqxr74rQ"
+      name: "Cybernews"
+      categories: ["security", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCPS2CLdJZaG_rFUXfwn2jpA"
+      name: "Mikkel Malmberg"
+      categories: ["tech", "indie"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCZRp6-Xvzo_dBFvt9L7y3Qw"
+      name: "Build Great Products"
+      categories: ["product", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCcbiQJ4KxeSnQVQD_qpyxEg"
+      name: "Warp"
+      categories: ["devtools"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCLA7cJBnqr0nLF2bQBD9uUg"
+      name: "Ray Amjad"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCXBA485t5tpyDwpZAeA4xDQ"
+      name: "sam henri gold"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "cursor"]
+    - channel_id: "UCE8m-P9Qcogb9x-luljGnBQ"
+      name: "BasicDevBlog"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCOQls4ibIT-_vyBetUfo3Ng"
+      name: "Playing Possum"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCD5uzyow0c-zaxVpLKLA41A"
+      name: "sprestay"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCNoahX0Q8GNJc43o782ASzg"
+      name: "Turing College"
+      categories: ["education", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UC6biysICWOJ-C3P4Tyeggzg"
+      name: "Low Level"
+      categories: ["systems", "programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCh_bSyL_Ioa3vZ2h4rCQsEA"
+      name: "The Serious CTO"
+      categories: ["engineering", "management"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UC5--wS0Ljbin1TjWQX6eafA"
+      name: "bigboxSWE"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCJS9pqu9BzkAMNTmzNMNhvg"
+      name: "Google Cloud Tech"
+      categories: ["cloud", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "Gemini", "Vertex"]
+    - channel_id: "UCPbwhExawYrn9xxI21TFfyw"
+      name: "The Pragmatic Engineer"
+      categories: ["engineering"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCswG6FSbgZjbWtdf_hMLaow"
+      name: "Matt Pocock"
+      categories: ["typescript", "webdev"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCbVZdLngJH6KOJvpAOO3qTw"
+      name: "Joshua Morony"
+      categories: ["webdev", "angular"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCPvOHaaP9E6FqSqG1NMV_Hw"
+      name: "Raycast"
+      categories: ["devtools", "productivity"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCi1Rgm2ulItUOagasB3B8sg"
+      name: "Jan Lunge"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCBNwZAz6jJAW7HRfgZ1t4mA"
+      name: "SpacetimeDB"
+      categories: ["databases", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCKWaEZ-_VweaEx1j62do_vQ"
+      name: "IBM Technology"
+      categories: ["tech", "enterprise"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UC8ENHE5xdFSwx71u3fDH5Xw"
+      name: "ThePrimeagen"
+      categories: ["programming", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor", "vibe cod"]
+    - channel_id: "UCUyeluBRhGPCW4rPe_UvBZQ"
+      name: "The PrimeTime"
+      categories: ["programming", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor", "vibe cod"]
+    - channel_id: "UCKj-Hy8AuOtKNWE5yQ67BVA"
+      name: "The Coding Koala"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCNzszbnvQeFzObW0ghk0Ckw"
+      name: "Dave's Garage"
+      categories: ["tech", "programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCxyjuN1Xjm3Nq88Qy4EaWvA"
+      name: "Pixel Perfect"
+      categories: ["design", "webdev"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCPL5PeHpfOSnovdPalF3CTw"
+      name: "Stevan Freeborn"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCP7uiEZIqci43m22KDl0sNw"
+      name: "Kotlin by JetBrains"
+      categories: ["kotlin", "jvm"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot"]
+    - channel_id: "UCdBXOyqr8cDshsp7kcKDAkg"
+      name: "Big A"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCCBVCTuk6uJrN3iFV_3vurg"
+      name: "Devoxx"
+      categories: ["conferences", "jvm"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UC1eherjPft_PWmzyVJ8jSDQ"
+      name: "The Companies Expert"
+      categories: ["tech", "business"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "OpenAI", "Anthropic"]
+    - channel_id: "UC7TUInmEJ4NmYb-krFz-SuA"
+      name: "Zen van Riel"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCJUmE61LxhbhudzUugHL2wQ"
+      name: "Mehul Mohan"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCgQGu_BPXtWq6X4ZH38eySQ"
+      name: "Zero to One"
+      categories: ["startups", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "OpenAI", "Anthropic"]
+    - channel_id: "UC_iEmYXdZJvjxdUMehwSXqw"
+      name: "Asian Dad Energy"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCdpkTMgFiDkcAnNV7TmXntA"
+      name: "Cheese Turbulence"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UClkieE3BBB4xXoMvBj7_TRw"
+      name: "Dummy Codes"
+      categories: ["programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot", "cursor"]
+    - channel_id: "UCa1LIkxIMjcEJ7mS-GnvePQ"
+      name: "Cisco's Computer Tech"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UC75sZDv6cuxARkRuouhHKwg"
+      name: "Nate Ziller"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCMFJxBQoTsS9h1HVjqk1WPA"
+      name: "Midlife Crisis Diaries"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCLavWnVQ9PSRlb3A-91Hyuw"
+      name: "Dave Swift"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UCWtiKY_NPl9hGexYd5rk0kg"
+      name: "VelvetShark"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "cursor", "copilot"]
+    - channel_id: "UC0m81bQuthaQZmFbXEY9QSw"
+      name: "Metavision"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+    - channel_id: "UC-91UA-Xy2Cvb98deRXuggA"
+      name: "Joshua Fluke"
+      categories: ["tech", "career"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "copilot"]
+    # --- Russian tech/programming (keyword) ---
+    - channel_id: "UC8tyTt_yKBvjd5SowFNoc2Q"
+      name: "se@ring"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCbRBrPjdAPQh0sdP33MFN7Q"
+      name: "Тостер Скрипт"
+      categories: ["programming", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC5xFTfxy33jwwHfEj5wmdDQ"
+      name: "Тостер Скрипт"
+      categories: ["programming", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCiUKNylPtR_GV5mkYOs2KPQ"
+      name: "ForgetMe"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCE6O7wATswjzR0JvgLy2-Og"
+      name: "The Gray Cat"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC3qEl5dxYlrLOcHjQwbEZ6A"
+      name: "Борис Дядёра"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC4uPlwsk-_wT3ie-YX-fJbA"
+      name: "nimspr"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCXuZtz3Qgp7y_k4zYhbUBuw"
+      name: "Серверные Технологии"
+      categories: ["devops", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCdtvjyHCrKFs2H_Ii60k2Bw"
+      name: "re4ee"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC33hVFJO90lPJQndVf_qMdA"
+      name: "Яблокодер: Хайлайты"
+      categories: ["apple", "mobile", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн"]
+    - channel_id: "UC-nZ6AfvJAwpqA2oRfD3ZNA"
+      name: "Доступное айти"
+      categories: ["tech", "career", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCc5B1PXJ6yK7uZZx4IqgETA"
+      name: "Кошачья Бацыла"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCndBDrR7x8zpdPKtoy3uW4A"
+      name: "Одна Подписка"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCCRxYlYOmLE2l5wxs3ckJtg"
+      name: "Limitless FT"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCN8F8z4wIicwkm4X7Tk3BOQ"
+      name: "Александр Григорин"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC1StrrIwS-zx1x7LutG1ANg"
+      name: "Кирштейн"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCDEMRMWiAW2YXUXYyfNbigg"
+      name: "VXControl"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCjUh8q1OcFotde1KNOVDFMw"
+      name: "Дмитрий Березницкий"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCeelCzuzcIngkPyFUqeD7gA"
+      name: "VuntraCity"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCpphSHXSrc3uPcUGG4rGgtg"
+      name: "reyzdor"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCGO7dfbhhvdaw1Tz_eEialg"
+      name: "sch.13"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCzcs40uDeh9rW6UPSQlqImQ"
+      name: "alexandr tamrazov"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCErGCL3dKJxwkhBcUr0yohQ"
+      name: "Pavel Bekoev"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC2I9E2R9i72YrkR9mYVy-xA"
+      name: "Просто о сложном"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC4omkhNHsYLagT1o6hnmKQw"
+      name: "Winderton"
+      categories: ["programming", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC-cUo61X-sY3KjW8f5TldWg"
+      name: "sespichin"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCTwhOf7dt6qTqKjluVO1P4g"
+      name: "Java Основы"
+      categories: ["java", "programming", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC_mG2mk1253TrPISSv3dupA"
+      name: "Code Review 1C"
+      categories: ["programming", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCU9OIyFn1blsuOZJD6pvy9A"
+      name: "Константин Исакин"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCf-vHLevJIdQjm3t2fVUrjg"
+      name: "Береста"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCtTwAVPlqUSQ21Ba_4Zh_vw"
+      name: "ЭПОХА ПОДМЕНЫ"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCX3S42-bPAl65PyM-m_KNpA"
+      name: "SHIZ"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UC-K70bVlrVps9WTMn8aIqKg"
+      name: "TechFacts"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    - channel_id: "UCds6iMh7X4N2YMtyMklW3dg"
+      name: "Саня Crypton"
+      categories: ["crypto", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн", "агент"]
+    # ============================================================
+    # General/entertainment — keyword filter, fetch weekly
+    # ============================================================
+    - channel_id: "UCm3i_fqq8dqsV-dTAriv2KA"
+      name: "Discovery Science"
+      categories: ["science", "documentaries"]
+      transcribe: keyword
+      keywords: ["AI", "artificial intelligence", "machine learning", "robot", "neural"]
+      fetch_interval_hours: 168
+    - channel_id: "UCRctaGysS2x2fqVVh4VKDgw"
+      name: "Intelligent Design the Future"
+      categories: ["science", "philosophy"]
+      transcribe: keyword
+      keywords: ["AI", "artificial intelligence", "machine learning"]
+      fetch_interval_hours: 168
+    - channel_id: "UChI0q9a-ZcbZh7ixDdsGog4iWA"
+      name: "Upper Echelon"
+      categories: ["commentary"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "machine learning", "OpenAI"]
+      fetch_interval_hours: 168
+    - channel_id: "UCJO31lXn1Uo924ha6nO8XlA"
+      name: "Dolan Dark"
+      categories: ["entertainment"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCGwns8iFnP0WbTK9e0PUxIg"
+      name: "Easy Riders"
+      categories: ["entertainment"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCrNfRFWnLC3tCy1TnyhVQ7g"
+      name: "Casually Finance"
+      categories: ["finance"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCwHwDuNd9lCdA7chyyquDXw"
+      name: "Bread on Penguins"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCgd5-BWtbgOw5Hx2wP3qxzg"
+      name: "Cyb3rMaddy"
+      categories: ["security"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCBql4fTP5-7cEFN4506uRvw"
+      name: "Donald vs The System"
+      categories: ["commentary"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCG7wPZrMqjyNgHwSyALSLeA"
+      name: "SGX CRYPTO"
+      categories: ["crypto"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCDjiwACeEZhMjtkegSHob6A"
+      name: "Pigeon Finance"
+      categories: ["finance"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCd6vEDS3SOhWbXZrxbrf_bw"
+      name: "SAMTIME"
+      categories: ["tech", "humor"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCTfS-XQGhM__ifiH9w4oAAw"
+      name: "pookie"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCOT2iLov0V7Re7ku_3UBtcQ"
+      name: "Hank Green"
+      categories: ["science", "general"]
+      transcribe: keyword
+      keywords: ["AI", "artificial intelligence", "machine learning", "ChatGPT", "OpenAI"]
+      fetch_interval_hours: 168
+    - channel_id: "UC0cd_-e49hZpWLH3UIwoWRA"
+      name: "Professor Dave Explains"
+      categories: ["science", "education"]
+      transcribe: keyword
+      keywords: ["AI", "artificial intelligence", "machine learning", "neural"]
+      fetch_interval_hours: 168
     - channel_id: "UCh_dVD10YuSghle8g6yjePg"
       name: "Naval"
+      categories: ["philosophy", "startups"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "machine learning", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UC_eVxIPHFZm7oF_gET0x-8Q"
+      name: "Google Antigravity"
+      categories: ["ai", "tech"]
+      transcribe: always
+    - channel_id: "UC27eC_usQzXTj9dK8JLDLwQ"
+      name: "SciencePetr"
+      categories: ["science", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCGkpFfEMF0eMJlh9xXj2lMw"
+      name: "ColdFusion"
+      categories: ["tech", "documentaries"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic", "neural"]
+      fetch_interval_hours: 168
 
 hackernews:
   fetch_limit: 100

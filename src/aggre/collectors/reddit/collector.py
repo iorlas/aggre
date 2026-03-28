@@ -188,6 +188,8 @@ class RedditCollector(BaseCollector):
         external_id: str,
         meta_json: str | None,
         settings: Settings,
+        *,
+        proxy_url: str | None = None,
     ) -> None:
         """Fetch and store comments for a single discussion."""
         meta = json.loads(meta_json) if meta_json else {}
@@ -196,7 +198,8 @@ class RedditCollector(BaseCollector):
         url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json"
 
         rate_limit = settings.reddit_rate_limit
-        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+        effective_proxy = proxy_url or settings.proxy_url or None
+        with create_http_client(proxy_url=effective_proxy) as client:
             time.sleep(rate_limit)
             data, resp = _fetch_json(client, url)
             _rate_limit_sleep(resp, 0)

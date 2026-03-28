@@ -141,10 +141,13 @@ class HackernewsCollector(BaseCollector):
         external_id: str,
         meta_json: str | None,  # noqa: ARG002 — required by BaseCollector interface
         settings: Settings,
+        *,
+        proxy_url: str | None = None,
     ) -> None:
         """Fetch and store comments for a single discussion."""
         rate_limit = settings.hn_rate_limit
-        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+        effective_proxy = proxy_url or settings.proxy_url or None
+        with create_http_client(proxy_url=effective_proxy) as client:
             time.sleep(rate_limit)
             url = f"{HN_ALGOLIA_BASE}/items/{external_id}"
             resp = client.get(url)

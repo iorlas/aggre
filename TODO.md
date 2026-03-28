@@ -72,3 +72,18 @@ Deferred from the architecture brainstorming session (2026-02-23).
 - The audience for these docs is AI coding agents (per guidelines), not humans browsing GitHub
 
 **Decision criteria:** Stick with ASCII. The docs are agent-consumed, and ASCII is universally parseable. Consider Mermaid only if docs are published to a human-facing site.
+
+## 6. Priority-ordered comment fetching
+
+**Goal:** Fetch comments for high-score discussions first, while still eventually fetching all.
+
+**Context:** Reddit ingests ~600 discussions/day. Even with proxy rotation and 12 max_runs, there's a throughput ceiling. High-score posts have time-sensitive discussions that go stale. Low-score posts can wait hours without losing value.
+
+**Approach options:**
+1. **Two-tier workflows** — split into `process-comments-priority` (score > threshold, more workers) and `process-comments-normal`. Collection emits to different events based on score. Simple but rigid threshold.
+2. **Score-ordered batch poll** — replace event-driven model with periodic query: `WHERE comments_json IS NULL ORDER BY score DESC`. Loses event-driven reactivity.
+3. **Score in event payload + CEL-based concurrency groups** — add `score` to `SilverContentRef`, use Hatchet CEL filter to split high/low into different concurrency groups with different `max_runs`. Keeps event-driven model, adjusts throughput allocation. Cleanest option.
+
+**Prerequisite:** Add `score` and `comment_count` to `SilverContentRef` event payload in `workflows/models.py` and `workflows/collection.py`.
+
+**Decision criteria:** Implement when comment backlog persists despite proxy rotation, or when gold-layer consumers need fresh high-signal comments.

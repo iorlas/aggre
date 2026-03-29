@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     proxy_url: str = ""
     proxy_api_url: str = ""
     browserless_url: str = ""
+    jina_reader_url: str = "https://r.jina.ai"
     # Bronze storage backend
     bronze_backend: str = "filesystem"  # "filesystem" or "s3"
     bronze_root: str = "./data/bronze"

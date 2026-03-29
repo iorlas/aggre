@@ -62,11 +62,20 @@ class TestSettings:
         with pytest.raises(ValidationError):
             Settings()
 
-    def test_proxy_url_default_empty(self, tmp_path, monkeypatch):
-        """Settings().proxy_url == '' by default."""
+    def test_proxy_api_url_default_empty(self, tmp_path, monkeypatch):
+        """Settings().proxy_api_url == '' by default."""
         monkeypatch.chdir(tmp_path)
         _clear_aggre_env(monkeypatch)
 
         s = Settings()
 
-        assert s.proxy_url == ""
+        assert s.proxy_api_url == ""
+
+    def test_jina_reader_url_default(self, tmp_path, monkeypatch):
+        """Settings().jina_reader_url == 'https://r.jina.ai' by default."""
+        monkeypatch.chdir(tmp_path)
+        _clear_aggre_env(monkeypatch)
+
+        s = Settings()
+
+        assert s.jina_reader_url == "https://r.jina.ai"

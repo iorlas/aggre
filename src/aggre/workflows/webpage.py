@@ -73,6 +73,32 @@ def _fetch_via_wayback(client: httpx.Client, url: str) -> str | None:  # pragma:
         return None
 
 
+JINA_SKIP_DOMAINS = frozenset(
+    {
+        "reddit.com",
+        "old.reddit.com",
+        "www.reddit.com",
+        "news.ycombinator.com",
+        "lobste.rs",
+    }
+)
+
+
+def _fetch_via_jina(client: httpx.Client, url: str, jina_reader_url: str) -> str | None:
+    """Fetch page content via Jina Reader. Returns markdown or None."""
+    try:
+        resp = client.get(f"{jina_reader_url}/{url}", timeout=30.0)
+        resp.raise_for_status()
+        text = resp.text
+        # Jina returns 200 even when target returns errors — check for empty/error content
+        if not text or len(text.strip()) < 50:
+            return None
+        return text
+    except Exception:  # noqa: BLE001 — Jina is best-effort, any failure returns None
+        logger.debug("jina.unavailable url=%s", url)
+        return None
+
+
 def _download_one(
     client: httpx.Client,
     url: str,
@@ -244,7 +270,7 @@ def download_one(
     browserless_url = config.settings.browserless_url or ""
     proxy_api_url = config.settings.proxy_api_url or ""
 
-    # Get proxy: prefer Proxy API, fall back to static proxy_url
+    # Get proxy via Proxy API
     proxy_url = ""
     proxy_addr = ""
     if proxy_api_url:
@@ -252,8 +278,6 @@ def download_one(
         if proxy_info:
             proxy_addr = proxy_info["addr"]
             proxy_url = f"{proxy_info['protocol']}://{proxy_addr}"
-    else:
-        proxy_url = config.settings.proxy_url or ""
 
     with create_http_client(
         proxy_url=proxy_url or None,

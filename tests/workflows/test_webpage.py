@@ -9,7 +9,8 @@ import pytest
 import sqlalchemy as sa
 
 from aggre.db import SilverContent
-from aggre.workflows.webpage import download_one, extract_one
+from aggre.utils.http import create_http_client
+from aggre.workflows.webpage import JINA_SKIP_DOMAINS, _fetch_via_jina, download_one, extract_one
 from tests.factories import make_config, seed_content
 
 pytestmark = pytest.mark.integration
@@ -189,9 +190,13 @@ class TestBrowserlessDownload:
             download_one(engine, config, content_id)
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
-    def test_browserless_sends_proxy_launch_arg(self, _mock_bronze, engine, mock_http):
-        """When proxy_url is set, launch args are passed as query parameter."""
-        config = make_config(browserless_url="http://browserless:3000", proxy_url="socks5://proxy:1080")
+    @patch(
+        "aggre.workflows.webpage.get_proxy",
+        return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"},
+    )
+    def test_browserless_sends_proxy_launch_arg(self, _mock_get, _mock_bronze, engine, mock_http):
+        """When proxy API returns a proxy, launch args are passed as query parameter."""
+        config = make_config(browserless_url="http://browserless:3000", proxy_api_url="http://proxy-api:8080")
         content_id = seed_content(engine, "https://example.com/proxy-test", domain="example.com")
 
         route = mock_http.post("http://browserless:3000/chromium/function").respond(
@@ -204,11 +209,11 @@ class TestBrowserlessDownload:
 
         url = route.calls[0].request.url
         launch_param = _json.loads(str(url.params.get("launch")))
-        assert launch_param["args"] == ["--proxy-server=socks5://proxy:1080"]
+        assert launch_param["args"] == ["--proxy-server=socks5://1.2.3.4:1080"]
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     def test_browserless_no_launch_arg_without_proxy(self, _mock_bronze, engine, mock_http):
-        """When proxy_url is empty, no launch query param is sent to browserless."""
+        """When no proxy_api_url is set, no launch query param is sent to browserless."""
         config = make_config(browserless_url="http://browserless:3000")
         content_id = seed_content(engine, "https://example.com/no-proxy-test", domain="example.com")
 
@@ -273,25 +278,6 @@ class TestProxyAPIIntegration:
         mock_report.assert_called_once_with("http://proxy-api:8080", "1.2.3.4:8080")
 
     @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
-    def test_falls_back_to_static_proxy_when_api_empty(self, _mock_bronze, engine, mock_http):
-        """When proxy_api_url is empty, uses static proxy_url."""
-        config = make_config(proxy_url="socks5://static:2080", browserless_url="http://browserless:3000")
-        content_id = seed_content(engine, "https://example.com/static-proxy-test", domain="example.com")
-
-        route = mock_http.post("http://browserless:3000/chromium/function").respond(
-            json=self._fn_response(200, "<html><body>ok</body></html>"),
-        )
-
-        result = download_one(engine, config, content_id)
-        assert result.status == "downloaded"
-
-        import json as _json
-
-        url = route.calls[0].request.url
-        launch_param = _json.loads(str(url.params.get("launch")))
-        assert launch_param["args"] == ["--proxy-server=socks5://static:2080"]
-
-    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
     @patch("aggre.workflows.webpage.get_proxy", return_value=None)
     def test_proceeds_without_proxy_when_api_returns_none(self, _mock_get, _mock_bronze, engine, mock_http):
         """When Proxy API returns None, proceeds without proxy."""
@@ -324,6 +310,64 @@ class TestProxyAPIIntegration:
             download_one(engine, config, content_id)
 
         mock_report.assert_not_called()
+
+
+@pytest.mark.unit
+class TestFetchViaJina:
+    """Tests for the Jina Reader fallback function."""
+
+    def test_returns_markdown_on_success(self, mock_http):
+        mock_http.get("https://r.jina.ai/https://example.com/article").respond(
+            text="# Article Title\n\nSome article content that is long enough to pass the length check easily.",
+            headers={"content-type": "text/plain"},
+        )
+
+        with create_http_client() as client:
+            result = _fetch_via_jina(client, "https://example.com/article", "https://r.jina.ai")
+
+        assert result is not None
+        assert "Article Title" in result
+
+    def test_returns_none_on_http_error(self, mock_http):
+        mock_http.get("https://r.jina.ai/https://example.com/broken").respond(status_code=500)
+
+        with create_http_client() as client:
+            result = _fetch_via_jina(client, "https://example.com/broken", "https://r.jina.ai")
+
+        assert result is None
+
+    def test_returns_none_on_empty_response(self, mock_http):
+        mock_http.get("https://r.jina.ai/https://example.com/empty").respond(text="   ")
+
+        with create_http_client() as client:
+            result = _fetch_via_jina(client, "https://example.com/empty", "https://r.jina.ai")
+
+        assert result is None
+
+    def test_returns_none_on_short_response(self, mock_http):
+        mock_http.get("https://r.jina.ai/https://example.com/short").respond(text="Blocked")
+
+        with create_http_client() as client:
+            result = _fetch_via_jina(client, "https://example.com/short", "https://r.jina.ai")
+
+        assert result is None
+
+    def test_returns_none_on_connection_error(self, mock_http):
+        mock_http.get("https://r.jina.ai/https://example.com/down").mock(
+            side_effect=Exception("Connection refused"),
+        )
+
+        with create_http_client() as client:
+            result = _fetch_via_jina(client, "https://example.com/down", "https://r.jina.ai")
+
+        assert result is None
+
+    def test_skip_domains_includes_reddit_hn_lobsters(self):
+        assert "reddit.com" in JINA_SKIP_DOMAINS
+        assert "www.reddit.com" in JINA_SKIP_DOMAINS
+        assert "old.reddit.com" in JINA_SKIP_DOMAINS
+        assert "news.ycombinator.com" in JINA_SKIP_DOMAINS
+        assert "lobste.rs" in JINA_SKIP_DOMAINS
 
 
 class TestExtractOne:

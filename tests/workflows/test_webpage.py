@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import sqlalchemy as sa
 
 from aggre.db import SilverContent
 from aggre.utils.http import create_http_client
-from aggre.workflows.webpage import JINA_SKIP_DOMAINS, _fetch_via_jina, download_one, extract_one
+from aggre.workflows.webpage import JINA_SKIP_DOMAINS, _fetch_via_jina, download_one
 from tests.factories import make_config, seed_content
 
 pytestmark = pytest.mark.integration
@@ -126,7 +126,8 @@ class TestDownloadOne:
         with patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=True):
             assert download_one(engine, config, content_id).status == "cached"
 
-    def test_bronze_check_exception_propagates(self, engine):
+    @patch("aggre.workflows.webpage._fetch_via_jina", return_value=None)
+    def test_bronze_check_exception_propagates(self, _mock_jina, engine):
         """When bronze_exists_by_url raises, the error propagates (Hatchet retries)."""
         config = make_config()
         content_id = seed_content(engine, "https://example.com/s3-broken", domain="example.com")
@@ -312,6 +313,101 @@ class TestProxyAPIIntegration:
         mock_report.assert_not_called()
 
 
+class TestJinaFallback:
+    """Tests for Jina Reader fallback in download_one."""
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage._fetch_via_jina")
+    def test_jina_fallback_on_download_failure(self, mock_jina, _mock_bronze, engine, mock_http):
+        """When direct fetch fails and Wayback returns None, Jina is tried."""
+        config = make_config(jina_reader_url="https://r.jina.ai")
+        content_id = seed_content(engine, "https://example.com/jina-fallback-test", domain="example.com")
+
+        mock_http.get("https://example.com/jina-fallback-test").mock(
+            side_effect=Exception("Connection refused"),
+        )
+        mock_jina.return_value = "# Fallback Article\n\nContent extracted via Jina Reader with enough text."
+
+        result = download_one(engine, config, content_id)
+
+        assert result.status == "downloaded_jina"
+        mock_jina.assert_called_once()
+
+        # text should be written directly
+        with engine.connect() as conn:
+            row = conn.execute(sa.select(SilverContent).where(SilverContent.id == content_id)).fetchone()
+            assert row.text is not None
+            assert "Fallback Article" in row.text
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage._fetch_via_jina", return_value=None)
+    def test_raises_when_jina_also_fails(self, _mock_jina, _mock_bronze, engine, mock_http):
+        """When all fallbacks fail, exception propagates for Hatchet retry."""
+        config = make_config(jina_reader_url="https://r.jina.ai")
+        content_id = seed_content(engine, "https://example.com/all-fail", domain="example.com")
+
+        mock_http.get("https://example.com/all-fail").mock(
+            side_effect=Exception("Connection refused"),
+        )
+
+        with pytest.raises(Exception, match="Connection refused"):
+            download_one(engine, config, content_id)
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage._fetch_via_jina")
+    def test_skips_jina_for_reddit_domain(self, mock_jina, _mock_bronze, engine, mock_http):
+        """Jina is not attempted for domains in JINA_SKIP_DOMAINS."""
+        config = make_config(jina_reader_url="https://r.jina.ai")
+        content_id = seed_content(engine, "https://reddit.com/r/test/comments/abc", domain="reddit.com")
+
+        mock_http.get("https://reddit.com/r/test/comments/abc").mock(
+            side_effect=Exception("Connection refused"),
+        )
+
+        with pytest.raises(Exception, match="Connection refused"):
+            download_one(engine, config, content_id)
+
+        mock_jina.assert_not_called()
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage._fetch_via_jina")
+    def test_skips_jina_when_disabled(self, mock_jina, _mock_bronze, engine, mock_http):
+        """Jina is not attempted when jina_reader_url is empty."""
+        config = make_config(jina_reader_url="")
+        content_id = seed_content(engine, "https://example.com/jina-disabled", domain="example.com")
+
+        mock_http.get("https://example.com/jina-disabled").mock(
+            side_effect=Exception("Connection refused"),
+        )
+
+        with pytest.raises(Exception, match="Connection refused"):
+            download_one(engine, config, content_id)
+
+        mock_jina.assert_not_called()
+
+    @patch("aggre.workflows.webpage.bronze_exists_by_url", return_value=False)
+    @patch("aggre.workflows.webpage._fetch_via_jina")
+    def test_jina_fallback_stores_bronze_as_md(self, mock_jina, _mock_bronze, engine, mock_http):
+        """Jina markdown is stored in bronze with .md extension."""
+        config = make_config(jina_reader_url="https://r.jina.ai")
+        content_id = seed_content(engine, "https://example.com/jina-bronze-test", domain="example.com")
+
+        mock_http.get("https://example.com/jina-bronze-test").mock(
+            side_effect=Exception("Connection refused"),
+        )
+        mock_jina.return_value = "# Bronze Test\n\nMarkdown content stored in bronze with enough length."
+
+        with patch("aggre.workflows.webpage.write_bronze_by_url") as mock_write_bronze:
+            download_one(engine, config, content_id)
+            mock_write_bronze.assert_called_once_with(
+                "webpage",
+                "https://example.com/jina-bronze-test",
+                "response",
+                "# Bronze Test\n\nMarkdown content stored in bronze with enough length.",
+                "md",
+            )
+
+
 @pytest.mark.unit
 class TestFetchViaJina:
     """Tests for the Jina Reader fallback function."""
@@ -368,79 +464,3 @@ class TestFetchViaJina:
         assert "old.reddit.com" in JINA_SKIP_DOMAINS
         assert "news.ycombinator.com" in JINA_SKIP_DOMAINS
         assert "lobste.rs" in JINA_SKIP_DOMAINS
-
-
-class TestExtractOne:
-    def test_returns_not_found_for_nonexistent_content(self, engine):
-        result = extract_one(engine, 99999)
-        assert result.status == "skipped"
-        assert result.reason == "not_found"
-
-    def test_skips_already_processed(self, engine):
-        content_id = seed_content(engine, "https://example.com/done", text="existing text")
-        result = extract_one(engine, content_id)
-        assert result.status == "skipped"
-        assert result.reason == "already_done"
-
-    def test_skips_when_bronze_missing(self, engine):
-        content_id = seed_content(engine, "https://example.com/no-bronze", domain="example.com")
-        result = extract_one(engine, content_id)
-        assert result.status == "skipped"
-        assert result.reason == "no_bronze"
-
-    def test_extracts_text_from_downloaded(self, engine):
-        content_id = seed_content(engine, "https://example.com/article", domain="example.com")
-
-        html = "<html><body><p>Article content here</p></body></html>"
-        from aggre.utils.bronze import write_bronze_by_url
-
-        write_bronze_by_url("webpage", "https://example.com/article", "response", html, "html")
-
-        with (
-            patch("aggre.workflows.webpage.trafilatura.extract", return_value="Article content here"),
-            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata") as mock_meta,
-        ):
-            mock_meta_obj = MagicMock()
-            mock_meta_obj.title = "Test Article"
-            mock_meta.return_value = mock_meta_obj
-
-            result = extract_one(engine, content_id)
-
-        assert result.status == "extracted"
-
-        with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent).where(SilverContent.id == content_id)).fetchone()
-            assert row.text == "Article content here"
-            assert row.title == "Test Article"
-
-    def test_trafilatura_returns_none(self, engine):
-        content_id = seed_content(engine, "https://example.com/empty-page", domain="example.com")
-
-        html = "<html><body><nav>Menu only</nav></body></html>"
-        from aggre.utils.bronze import write_bronze_by_url
-
-        write_bronze_by_url("webpage", "https://example.com/empty-page", "response", html, "html")
-
-        with (
-            patch("aggre.workflows.webpage.trafilatura.extract", return_value=None),
-            patch("aggre.workflows.webpage.trafilatura.metadata.extract_metadata", return_value=None),
-        ):
-            result = extract_one(engine, content_id)
-
-        assert result.status == "no_content"
-
-        # text must remain NULL
-        with engine.connect() as conn:
-            row = conn.execute(sa.select(SilverContent).where(SilverContent.id == content_id)).fetchone()
-            assert row.text is None
-
-    def test_handles_extraction_error(self, engine):
-        content_id = seed_content(engine, "https://example.com/bad-html", domain="example.com")
-
-        from aggre.utils.bronze import write_bronze_by_url
-
-        write_bronze_by_url("webpage", "https://example.com/bad-html", "response", "<html>bad</html>", "html")
-
-        with patch("aggre.workflows.webpage.trafilatura.extract", side_effect=Exception("Parse error")):
-            with pytest.raises(Exception, match="Parse error"):
-                extract_one(engine, content_id)

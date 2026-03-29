@@ -289,6 +289,16 @@ def download_one(
         except Exception:
             if proxy_api_url and proxy_addr:
                 report_failure(proxy_api_url, proxy_addr)
+
+            # Jina Reader fallback — last resort after direct + Wayback both failed
+            jina_reader_url = config.settings.jina_reader_url or ""
+            if jina_reader_url and row.domain not in JINA_SKIP_DOMAINS:
+                jina_md = _fetch_via_jina(client, row.canonical_url, jina_reader_url)
+                if jina_md is not None:
+                    write_bronze_by_url("webpage", row.canonical_url, "response", jina_md, "md")
+                    update_content(engine, content_id, text=jina_md)
+                    logger.info("webpage_downloader.jina_fallback url=%s", row.canonical_url)
+                    return StepOutput(status="downloaded_jina", url=row.canonical_url)
             raise
 
 

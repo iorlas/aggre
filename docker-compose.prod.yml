@@ -282,9 +282,9 @@ services:
       AGGRE_BROWSERLESS_URL: "http://browserless:3000"
       AGGRE_PROXY_API_URL: "http://proxy-api:8080"
       AGGRE_WHISPER_ENDPOINTS: "http://dtomilin-mwg.shrimp-boa.ts.net:8090:2:whisper-cpp:macbook-whisper:2,http://zep.shrimp-boa.ts.net:8100:10:openai:zep-speaches:10"
-      AGGRE_MODAL_APP_NAME: aggre-transcription
-      MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
-      MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
+      # AGGRE_MODAL_APP_NAME: aggre-transcription  # disabled — use whisper endpoints only
+      # MODAL_TOKEN_ID: ${MODAL_TOKEN_ID}
+      # MODAL_TOKEN_SECRET: ${MODAL_TOKEN_SECRET}
       HATCHET_CLIENT_TLS_STRATEGY: none
       HATCHET_CLIENT_HOST_PORT: "hatchet-lite:7077"
       HATCHET_CLIENT_SERVER_URL: "http://hatchet-lite:8888"

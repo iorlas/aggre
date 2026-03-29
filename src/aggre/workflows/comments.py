@@ -2,7 +2,7 @@
 
 Triggered per-item via "item.new" event. Self-filters to comment-supporting sources.
 Hatchet manages concurrency (max 12 per source) and retry.
-Uses proxy rotation for Reddit to distribute requests across IPs.
+Collectors handle proxy resolution internally via proxy_api_url.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from aggre.collectors.registry import COLLECTORS
 from aggre.config import load_config
 from aggre.db import SilverDiscussion
 from aggre.utils.db import get_engine
-from aggre.utils.proxy_api import get_proxy, report_failure
 from aggre.workflows.models import SilverContentRef, StepOutput
 
 if TYPE_CHECKING:
@@ -28,25 +27,7 @@ logger = logging.getLogger(__name__)
 # Sources that support comment fetching
 _COMMENT_SOURCES = ("reddit", "hackernews", "lobsters")
 
-# Sources that benefit from proxy rotation (IP-based rate limiting)
-_PROXY_SOURCES = frozenset({"reddit"})
-
 _comments_filter_expr = "input.source in [" + ", ".join(f"'{s}'" for s in sorted(_COMMENT_SOURCES)) + "]"
-
-
-def _resolve_proxy(source: str, settings: Settings) -> tuple[str, str]:
-    """Resolve proxy for a comment fetch. Returns (proxy_url, proxy_addr).
-
-    Uses proxy API rotation for sources with IP-based rate limiting (Reddit).
-    Falls back to static proxy_url for others.
-    """
-    proxy_api_url = settings.proxy_api_url or ""
-    if source in _PROXY_SOURCES and proxy_api_url:
-        proxy_info = get_proxy(proxy_api_url, protocol="socks5")
-        if proxy_info:
-            addr = proxy_info["addr"]
-            return f"{proxy_info['protocol']}://{addr}", addr
-    return settings.proxy_url or "", ""
 
 
 def fetch_one_comments(
@@ -73,16 +54,8 @@ def fetch_one_comments(
     if row.comments_json is not None:
         return StepOutput(status="skipped", reason="already_done")
 
-    proxy_url, proxy_addr = _resolve_proxy(source, settings)
-    proxy_api_url = settings.proxy_api_url or ""
-
     collector = cls()
-    try:
-        collector.fetch_discussion_comments(engine, row.id, row.external_id, row.meta, settings, proxy_url=proxy_url or None)
-    except Exception:
-        if proxy_api_url and proxy_addr:
-            report_failure(proxy_api_url, proxy_addr)
-        raise
+    collector.fetch_discussion_comments(engine, row.id, row.external_id, row.meta, settings, proxy_api_url=settings.proxy_api_url)
     logger.info("comments.fetched source=%s discussion_id=%d external_id=%s", source, discussion_id, row.external_id)
     return StepOutput(status="fetched")
 

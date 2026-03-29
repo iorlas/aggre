@@ -285,3 +285,40 @@ class TestRssCollector:
         rows = get_discussions(engine)
         assert len(rows) == 1
         assert rows[0].title == "Good Post"
+
+
+class TestRssCollectorProxy:
+    def test_collect_calls_get_proxy_once(self, engine):
+        """collect_discussions() should call get_proxy() once (per-run)."""
+        config = make_config(
+            rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]),
+            proxy_api_url="http://proxy-hub:8000",
+        )
+
+        feed = rss_feed([rss_entry()])
+
+        with (
+            patch("aggre.collectors.rss.collector.get_proxy", return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"}) as mock_gp,
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
+            collector = RssCollector()
+            collect(collector, engine, config.rss, config.settings)
+
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_collect_no_proxy_when_api_url_empty(self, engine):
+        """collect_discussions() should not call get_proxy() when proxy_api_url is empty."""
+        config = make_config(rss=RssConfig(sources=[RssSource(name="Test Blog", url="https://example.com/feed.xml")]))
+
+        feed = rss_feed([])
+
+        with (
+            patch("aggre.collectors.rss.collector.get_proxy") as mock_gp,
+            patch("aggre.collectors.rss.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.rss.collector.feedparser.parse", return_value=feed),
+        ):
+            collector = RssCollector()
+            collect(collector, engine, config.rss, config.settings)
+
+        mock_gp.assert_not_called()

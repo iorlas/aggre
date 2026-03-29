@@ -85,7 +85,7 @@ def _transcribe_one(  # noqa: C901, PLR0912, PLR0915 — sequential transcriptio
             downloaded = download_audio(
                 external_id,
                 audio_dest.parent,
-                proxy_url=config.settings.proxy_url,
+                proxy_api_url=config.settings.proxy_api_url,
             )
             if downloaded != audio_dest:
                 downloaded.rename(audio_dest)

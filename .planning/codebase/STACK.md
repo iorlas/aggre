@@ -87,7 +87,7 @@
 - `AGGRE_TELEGRAM_API_ID`, `AGGRE_TELEGRAM_API_HASH`, `AGGRE_TELEGRAM_SESSION` - Telegram credentials
 - `AGGRE_TELEGRAM_RATE_LIMIT` - Rate limit in seconds (default: 2.0)
 - `AGGRE_FETCH_LIMIT` - Max items per source per poll (default: 100)
-- `AGGRE_PROXY_URL` - SOCKS5 proxy for HTTP and yt-dlp (e.g., `socks5://user:pass@geo.iproyal.com:32325`)
+- `AGGRE_PROXY_API_URL` - Proxy API endpoint for dynamic IP rotation (e.g., `http://proxy-api:8080`)
 
 **Build:**
 - `pyproject.toml` - Project metadata, dependencies, tool config

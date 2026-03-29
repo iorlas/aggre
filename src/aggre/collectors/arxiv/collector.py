@@ -13,6 +13,7 @@ from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.urls import ensure_content
 from aggre.utils.bronze import url_hash
 from aggre.utils.http import create_http_client
+from aggre.utils.proxy_api import get_proxy
 
 if TYPE_CHECKING:
     import sqlalchemy as sa
@@ -46,7 +47,9 @@ class ArxivCollector(BaseCollector):
         """Fetch ArXiv RSS feeds, write bronze, return references."""
         refs: list[DiscussionRef] = []
 
-        with create_http_client(proxy_url=settings.proxy_url or None, timeout=30.0) as http:
+        proxy_info = get_proxy(settings.proxy_api_url, protocol="socks5") if settings.proxy_api_url else None
+        proxy_url = f"{proxy_info['protocol']}://{proxy_info['addr']}" if proxy_info else None
+        with create_http_client(proxy_url=proxy_url, timeout=30.0) as http:
             for arxiv_source in config.sources:
                 url = _FEED_URL.format(category=arxiv_source.category)
                 logger.info("arxiv.collecting name=%s category=%s", arxiv_source.name, arxiv_source.category)

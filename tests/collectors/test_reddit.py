@@ -13,7 +13,6 @@ import sqlalchemy as sa
 from aggre.collectors.reddit.collector import RedditCollector, _rate_limit_sleep
 from aggre.collectors.reddit.config import RedditConfig, RedditSource
 from aggre.db import SilverDiscussion
-from aggre.utils.http import create_http_client
 from tests.factories import (
     make_config,
     reddit_comment,
@@ -290,41 +289,148 @@ class TestRedditCollectorSources:
 
 
 class TestRedditCollectorProxy:
-    def test_collect_passes_proxy_url_to_http_client(self, engine, mock_http):
-        """collect_discussions() should pass proxy_url from config to create_http_client."""
-        listing = reddit_listing()
+    def test_collect_calls_get_proxy_per_request(self, engine, mock_http):
+        """collect_discussions() should call get_proxy() before each HTTP request."""
+        post = reddit_post()
+        listing = reddit_listing(post)
         mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with (
-            patch(
-                "aggre.collectors.reddit.collector.create_http_client",
-                wraps=create_http_client,
-            ) as mock_factory,
+            patch("aggre.collectors.reddit.collector.get_proxy", return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"}) as mock_gp,
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             config = make_config(
                 reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
-                proxy_url="socks5://tor-proxy:9150",
+                proxy_api_url="http://proxy-hub:8000",
             )
             collect(RedditCollector(), engine, config.reddit, config.settings)
 
-        mock_factory.assert_called_with(proxy_url="socks5://tor-proxy:9150")
+        # Called once per listing request (hot + new = 2)
+        assert mock_gp.call_count == 2
+        mock_gp.assert_called_with("http://proxy-hub:8000", protocol="socks5")
 
-    def test_collect_passes_none_when_proxy_empty(self, engine, mock_http):
-        """collect_discussions() should pass proxy_url=None when config has empty proxy_url."""
+    def test_collect_reports_failure_on_error(self, engine):
+        """collect_discussions() should call report_failure() when request fails with proxy."""
+        with (
+            patch(
+                "aggre.collectors.reddit.collector.get_proxy",
+                return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"},
+            ),
+            patch("aggre.collectors.reddit.collector.report_failure") as mock_rf,
+            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
+            patch("aggre.collectors.reddit.collector.time.sleep"),
+        ):
+            client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
+            client_instance.get.side_effect = Exception("connection failed")
+            mock_client_cls.return_value = client_instance
+
+            config = make_config(
+                reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
+                proxy_api_url="http://proxy-hub:8000",
+            )
+            collect(RedditCollector(), engine, config.reddit, config.settings)
+
+        # report_failure called for each failed request (hot + new = 2)
+        assert mock_rf.call_count == 2
+        mock_rf.assert_called_with("http://proxy-hub:8000", "1.2.3.4:1080")
+
+    def test_collect_passes_none_when_proxy_api_empty(self, engine, mock_http):
+        """collect_discussions() should pass proxy_url=None when proxy_api_url is empty."""
         listing = reddit_listing()
         mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
         mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
 
         with (
-            patch(
-                "aggre.collectors.reddit.collector.create_http_client",
-                wraps=create_http_client,
-            ) as mock_factory,
+            patch("aggre.collectors.reddit.collector.get_proxy") as mock_gp,
             patch("aggre.collectors.reddit.collector.time.sleep"),
         ):
             config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]))
             collect(RedditCollector(), engine, config.reddit, config.settings)
 
-        mock_factory.assert_called_with(proxy_url=None)
+        # get_proxy should not be called when proxy_api_url is empty
+        mock_gp.assert_not_called()
+
+    def test_collect_handles_get_proxy_returning_none(self, engine, mock_http):
+        """collect_discussions() should proceed without proxy when get_proxy() returns None."""
+        post = reddit_post()
+        listing = reddit_listing(post)
+        mock_http.get(url__regex=r".*/hot\.json.*").respond(json=listing)
+        mock_http.get(url__regex=r".*/new\.json.*").respond(json=listing)
+
+        with (
+            patch("aggre.collectors.reddit.collector.get_proxy", return_value=None),
+            patch("aggre.collectors.reddit.collector.time.sleep"),
+        ):
+            config = make_config(
+                reddit=RedditConfig(sources=[RedditSource(subreddit="python")]),
+                proxy_api_url="http://proxy-hub:8000",
+            )
+            count = collect(RedditCollector(), engine, config.reddit, config.settings)
+
+        assert count == 1
+
+    def test_fetch_comments_calls_get_proxy(self, engine, mock_http):
+        """fetch_discussion_comments() should call get_proxy() internally."""
+        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]), proxy_api_url="http://proxy-hub:8000")
+        collector = RedditCollector()
+
+        content_id = seed_content(engine, "https://example.com/reddit-proxy-test", domain="example.com")
+        discussion_id = seed_discussion(
+            engine,
+            source_type="reddit",
+            external_id="t3_proxy123",
+            content_id=content_id,
+            meta='{"subreddit": "python"}',
+        )
+
+        comment = reddit_comment(comment_id="com1", body="Great post!")
+        comment_response = reddit_comment_listing(comment)
+        mock_http.get(url__regex=r".*/comments/proxy123\.json.*").respond(json=comment_response)
+
+        with (
+            patch(
+                "aggre.collectors.reddit.collector.get_proxy",
+                return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"},
+            ) as mock_gp,
+            patch("aggre.collectors.reddit.collector.time.sleep"),
+        ):
+            collector.fetch_discussion_comments(engine, discussion_id, "t3_proxy123", '{"subreddit": "python"}', config.settings)
+
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_fetch_comments_reports_failure_on_error(self, engine):
+        """fetch_discussion_comments() should call report_failure() on error with proxy."""
+        config = make_config(reddit=RedditConfig(sources=[RedditSource(subreddit="python")]), proxy_api_url="http://proxy-hub:8000")
+        collector = RedditCollector()
+
+        content_id = seed_content(engine, "https://example.com/reddit-fail-test", domain="example.com")
+        discussion_id = seed_discussion(
+            engine,
+            source_type="reddit",
+            external_id="t3_fail123",
+            content_id=content_id,
+            meta='{"subreddit": "python"}',
+        )
+
+        with (
+            patch(
+                "aggre.collectors.reddit.collector.get_proxy",
+                return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"},
+            ),
+            patch("aggre.collectors.reddit.collector.report_failure") as mock_rf,
+            patch("aggre.collectors.reddit.collector.create_http_client") as mock_client_cls,
+            patch("aggre.collectors.reddit.collector.time.sleep"),
+        ):
+            client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
+            client_instance.get.side_effect = Exception("connection failed")
+            mock_client_cls.return_value = client_instance
+
+            with pytest.raises(Exception, match="connection failed"):
+                collector.fetch_discussion_comments(engine, discussion_id, "t3_fail123", '{"subreddit": "python"}', config.settings)
+
+        mock_rf.assert_called_once_with("http://proxy-hub:8000", "1.2.3.4:1080")

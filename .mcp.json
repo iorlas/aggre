@@ -6,15 +6,6 @@
       "headers": {
         "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
       }
-    },
-    "dbhub": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@bytebase/dbhub@latest",
-        "--transport", "stdio",
-        "--dsn", "postgres://aggre:${AGGRE_DB_PASSWORD}@100.65.108.29:5432/aggre?sslmode=disable"
-      ]
     }
   }
 }

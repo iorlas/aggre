@@ -13,6 +13,7 @@ from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.urls import ensure_content
 from aggre.utils.bronze import url_hash
 from aggre.utils.http import create_http_client
+from aggre.utils.proxy_api import get_proxy
 
 if TYPE_CHECKING:
     import sqlalchemy as sa
@@ -40,7 +41,9 @@ class RssCollector(BaseCollector):
         """Fetch RSS/Atom feeds, write bronze, return references."""
         refs: list[DiscussionRef] = []
 
-        with create_http_client(proxy_url=settings.proxy_url or None, timeout=30.0, follow_redirects=True) as client:
+        proxy_info = get_proxy(settings.proxy_api_url, protocol="socks5") if settings.proxy_api_url else None
+        proxy_url = f"{proxy_info['protocol']}://{proxy_info['addr']}" if proxy_info else None
+        with create_http_client(proxy_url=proxy_url, timeout=30.0, follow_redirects=True) as client:
             for rss_source in config.sources:
                 logger.info("rss.collecting name=%s url=%s", rss_source.name, rss_source.url)
 

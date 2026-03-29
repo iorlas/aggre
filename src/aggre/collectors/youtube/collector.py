@@ -58,7 +58,7 @@ class YoutubeCollector(BaseCollector):
 
             try:
                 logger.info("youtube.fetching name=%s limit=%s", yt_source.name, fetch_limit)
-                entries = extract_channel_info(url, proxy_url=settings.proxy_url, fetch_limit=fetch_limit)
+                entries = extract_channel_info(url, proxy_api_url=settings.proxy_api_url, fetch_limit=fetch_limit)
                 logger.info("youtube.fetched name=%s entries=%d", yt_source.name, len(entries))
             except (VideoUnavailableError, YtDlpError):
                 logger.exception("youtube.fetch_error channel=%s", yt_source.name)

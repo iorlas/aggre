@@ -28,7 +28,7 @@
   - SDK/Client: yt-dlp (via `src/aggre/collectors/youtube/collector.py`)
   - Auth: No authentication required (public channels only)
   - Transcription: Video audio extracted and transcribed via faster-whisper
-  - Proxy support: Routed through `AGGRE_PROXY_URL` if configured
+  - Proxy support: Routed through `AGGRE_PROXY_API_URL` if configured
 
 - HuggingFace Daily Papers - Research paper listings
   - SDK/Client: httpx
@@ -117,7 +117,7 @@
 - `AGGRE_TELEGRAM_SESSION` - Telegram session string (only if collecting from Telegram)
 
 **Optional Configuration:**
-- `AGGRE_PROXY_URL` - SOCKS5 proxy for HTTP requests and yt-dlp (format: `socks5://user:pass@host:port`)
+- `AGGRE_PROXY_API_URL` - Proxy API endpoint for dynamic IP rotation (format: `http://proxy-api:8080`)
 - All rate limit settings: `AGGRE_*_RATE_LIMIT` (each has sensible defaults)
 - Paths: `AGGRE_LOG_DIR`, `AGGRE_YOUTUBE_TEMP_DIR`, `AGGRE_WHISPER_MODEL_CACHE`
 - Whisper model: `AGGRE_WHISPER_MODEL` (default `large-v3-turbo`)
@@ -139,13 +139,13 @@
 
 **HTTP Client:**
 - All HTTP requests (Reddit, HN, HuggingFace, trafilatura downloads) use `httpx.Client` with shared configuration
-- Proxy support: All clients support `AGGRE_PROXY_URL` (SOCKS5 format)
+- Proxy support: All clients support `AGGRE_PROXY_API_URL` (SOCKS5 format)
 - User-Agent: Browser-like User-Agent header (`Mozilla/5.0...`) to avoid blocking
 - Timeout: 30 seconds default (configurable per request)
 - Implementation: `src/aggre/utils/http.py` factory function `create_http_client()`
 
 **yt-dlp:**
-- Routed through SOCKS5 proxy if `AGGRE_PROXY_URL` configured
+- Routed through SOCKS5 proxy if `AGGRE_PROXY_API_URL` configured
 - Used for YouTube metadata extraction and video download
 - ffmpeg required for video processing (installed in Docker)
 

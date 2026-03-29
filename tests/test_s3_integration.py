@@ -145,13 +145,13 @@ class TestTranscriptionViaS3:
         from aggre.workflows.transcription import transcribe_one
 
         content_id = _seed_youtube(engine, external_id="up01")
-        config = make_config(proxy_url="")
+        config = make_config()
         # Point youtube_temp_dir to a real tmp directory
         config.settings.youtube_temp_dir = str(tmp_path / "videos")
         mock_transcribe.return_value = _mock_transcribe()
 
         # download_audio creates the file and returns its path
-        def fake_download(video_id, output_dir, *, proxy_url):
+        def fake_download(video_id, output_dir, *, proxy_api_url):
             from pathlib import Path
 
             dest = Path(output_dir)

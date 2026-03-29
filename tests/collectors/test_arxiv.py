@@ -185,3 +185,39 @@ class TestArxivCollector:
 
         assert count == 2
         assert len(get_discussions(engine)) == 2
+
+
+class TestArxivCollectorProxy:
+    def test_collect_calls_get_proxy_once(self, engine):
+        """collect_discussions() should call get_proxy() once (per-run)."""
+        config = ArxivConfig(sources=[ArxivSource(name="ArXiv CS.AI", category="cs.AI")])
+        settings = Settings(proxy_api_url="http://proxy-hub:8000")
+
+        feed = rss_feed([arxiv_entry()])
+
+        with (
+            patch("aggre.collectors.arxiv.collector.get_proxy", return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"}) as mock_gp,
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
+            collector = ArxivCollector()
+            collect(collector, engine, config, settings)
+
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_collect_no_proxy_when_api_url_empty(self, engine):
+        """collect_discussions() should not call get_proxy() when proxy_api_url is empty."""
+        config = ArxivConfig(sources=[ArxivSource(name="ArXiv CS.AI", category="cs.AI")])
+        settings = Settings()
+
+        feed = rss_feed([])
+
+        with (
+            patch("aggre.collectors.arxiv.collector.get_proxy") as mock_gp,
+            patch("aggre.collectors.arxiv.collector.create_http_client", _dummy_http_client),
+            patch("aggre.collectors.arxiv.collector.feedparser.parse", return_value=feed),
+        ):
+            collector = ArxivCollector()
+            collect(collector, engine, config, settings)
+
+        mock_gp.assert_not_called()

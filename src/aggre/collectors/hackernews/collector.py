@@ -11,6 +11,7 @@ from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+from aggre.utils.proxy_api import get_proxy, report_failure
 
 if TYPE_CHECKING:
     import sqlalchemy as sa
@@ -44,7 +45,9 @@ class HackernewsCollector(BaseCollector):
         refs: list[DiscussionRef] = []
         rate_limit = settings.hn_rate_limit
 
-        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+        proxy_info = get_proxy(settings.proxy_api_url, protocol="socks5") if settings.proxy_api_url else None
+        proxy_url = f"{proxy_info['protocol']}://{proxy_info['addr']}" if proxy_info else None
+        with create_http_client(proxy_url=proxy_url) as client:
             for hn_source in config.sources:
                 logger.info("hackernews.collecting name=%s", hn_source.name)
                 source_id = self._ensure_source(engine, hn_source.name)
@@ -142,17 +145,24 @@ class HackernewsCollector(BaseCollector):
         meta_json: str | None,  # noqa: ARG002 — required by BaseCollector interface
         settings: Settings,
         *,
-        proxy_url: str | None = None,
+        proxy_api_url: str = "",
     ) -> None:
         """Fetch and store comments for a single discussion."""
         rate_limit = settings.hn_rate_limit
-        effective_proxy = proxy_url or settings.proxy_url or None
-        with create_http_client(proxy_url=effective_proxy) as client:
-            time.sleep(rate_limit)
-            url = f"{HN_ALGOLIA_BASE}/items/{external_id}"
-            resp = client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-            write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
-            children = data.get("children", [])
-            self._mark_comments_done(engine, discussion_id, json.dumps(children), len(children))
+        effective_api_url = proxy_api_url or settings.proxy_api_url
+        proxy_info = get_proxy(effective_api_url, protocol="socks5") if effective_api_url else None
+        proxy_url = f"{proxy_info['protocol']}://{proxy_info['addr']}" if proxy_info else None
+        try:
+            with create_http_client(proxy_url=proxy_url) as client:
+                time.sleep(rate_limit)
+                url = f"{HN_ALGOLIA_BASE}/items/{external_id}"
+                resp = client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+                write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+                children = data.get("children", [])
+                self._mark_comments_done(engine, discussion_id, json.dumps(children), len(children))
+        except Exception:
+            if proxy_info:
+                report_failure(effective_api_url, proxy_info["addr"])
+            raise

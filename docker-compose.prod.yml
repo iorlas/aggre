@@ -273,7 +273,6 @@ services:
         condition: service_healthy
     environment:
       AGGRE_DATABASE_URL: "postgresql+psycopg://aggre:${POSTGRES_PASSWORD}@postgres:5432/aggre"
-      AGGRE_PROXY_URL: ${AGGRE_PROXY_URL}
       AGGRE_BRONZE_S3_ENDPOINT: "http://garage:3900"
       AGGRE_BRONZE_S3_BUCKET: aggre-bronze
       AGGRE_BRONZE_S3_ACCESS_KEY: ${AGGRE_BRONZE_S3_ACCESS_KEY}

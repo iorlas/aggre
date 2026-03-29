@@ -1,0 +1,86 @@
+# genai-toolbox (googleapis/genai-toolbox) configuration
+# Install: brew install mcp-toolbox
+# Run:     toolbox --tools-file tools.yaml --stdio
+# Docs:    https://googleapis.github.io/genai-toolbox/
+
+sources:
+  aggre-pg:
+    type: postgres
+    host: 100.65.108.29
+    port: 5432
+    database: aggre
+    user: aggre
+    password: ${AGGRE_DB_PASSWORD}
+
+tools:
+  list_tables:
+    type: postgres-sql
+    source: aggre-pg
+    description: List all user-created tables in the database with their approximate row counts.
+    statement: |
+      SELECT schemaname, relname AS table_name, n_live_tup AS approx_row_count
+      FROM pg_stat_user_tables
+      ORDER BY schemaname, relname;
+
+  describe_table:
+    type: postgres-sql
+    source: aggre-pg
+    description: Show column names, types, and nullability for a given table.
+    parameters:
+      - name: table_name
+        type: string
+        description: The name of the table to describe.
+    statement: |
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+      ORDER BY ordinal_position;
+
+  recent_discussions:
+    type: postgres-sql
+    source: aggre-pg
+    description: >
+      Get the most recent discussions, optionally filtered by source type
+      (hackernews, reddit, lobsters, rss, youtube, telegram).
+    parameters:
+      - name: source_type
+        type: string
+        description: Filter by source type. Use empty string for all sources.
+      - name: limit_count
+        type: string
+        description: Maximum number of rows to return (default 20, max 100).
+    statement: |
+      SELECT id, source_type, title, author, url, published_at, score, comment_count
+      FROM silver_discussions
+      WHERE ($1 = '' OR source_type = $1)
+      ORDER BY published_at DESC NULLS LAST
+      LIMIT LEAST(GREATEST(COALESCE(NULLIF($2, '')::int, 20), 1), 100);
+
+  content_stats:
+    type: postgres-sql
+    source: aggre-pg
+    description: >
+      Show summary statistics: total content items, items with/without extracted text,
+      and discussion counts broken down by source type.
+    statement: |
+      SELECT 'content_total' AS metric, COUNT(*)::text AS value FROM silver_content
+      UNION ALL
+      SELECT 'content_with_text', COUNT(*)::text FROM silver_content WHERE text IS NOT NULL
+      UNION ALL
+      SELECT 'content_without_text', COUNT(*)::text FROM silver_content WHERE text IS NULL
+      UNION ALL
+      SELECT 'discussions_total', COUNT(*)::text FROM silver_discussions
+      UNION ALL
+      SELECT metric, value FROM (
+        SELECT source_type || '_discussions' AS metric, COUNT(*)::text AS value
+        FROM silver_discussions GROUP BY source_type ORDER BY source_type
+      ) sub;
+
+toolsets:
+  aggre:
+    tools:
+      - list_tables
+      - describe_table
+      - recent_discussions
+      - content_stats

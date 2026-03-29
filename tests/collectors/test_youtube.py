@@ -174,8 +174,8 @@ class TestYoutubeCollector:
 
         assert count == 0
 
-    def test_collect_passes_proxy_to_extract(self, engine):
-        config = _default_config(proxy_url="socks5://user:pass@proxy:1080")
+    def test_collect_passes_proxy_api_url_to_extract(self, engine):
+        config = _default_config(proxy_api_url="http://proxy-hub:8000")
 
         with patch("aggre.collectors.youtube.collector.extract_channel_info", return_value=_default_entries()) as mock_extract:
             collector = YoutubeCollector()
@@ -183,7 +183,7 @@ class TestYoutubeCollector:
 
         mock_extract.assert_called_once()
         _, kwargs = mock_extract.call_args
-        assert kwargs["proxy_url"] == "socks5://user:pass@proxy:1080"
+        assert kwargs["proxy_api_url"] == "http://proxy-hub:8000"
 
     def test_collect_url_fallback(self, engine):
         config = _default_config()

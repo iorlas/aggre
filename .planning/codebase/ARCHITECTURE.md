@@ -198,7 +198,7 @@ Pipeline concurrency invariants (sensor exclusion, state transitions, null-check
 **Authentication:**
 - Reddit: PRAW with credentials from env vars (AGGRE_REDDIT_*)
 - Telegram: async TelegramClient with session string (AGGRE_TELEGRAM_SESSION)
-- YouTube: yt-dlp with optional proxy via config.settings.proxy_url
+- YouTube: yt-dlp with proxy rotation via proxy API (AGGRE_PROXY_API_URL)
 - Other sources: Public APIs or no auth needed
 
 **Rate Limiting:**

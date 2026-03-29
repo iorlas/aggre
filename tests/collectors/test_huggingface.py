@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -116,3 +117,43 @@ class TestHuggingfaceSource:
         collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
 
         assert len(get_sources(engine)) == 1
+
+
+class TestHuggingfaceCollectorProxy:
+    def test_collect_calls_get_proxy_once(self, engine, mock_http):
+        """collect_discussions() should call get_proxy() once (per-run)."""
+        mock_http.get(HF_API).respond(json=[hf_paper()])
+
+        with patch(
+            "aggre.collectors.huggingface.collector.get_proxy", return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"}
+        ) as mock_gp:
+            config = make_config(
+                huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]),
+                proxy_api_url="http://proxy-hub:8000",
+            )
+            collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
+
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_collect_no_proxy_when_api_url_empty(self, engine, mock_http):
+        """collect_discussions() should not call get_proxy() when proxy_api_url is empty."""
+        mock_http.get(HF_API).respond(json=[])
+
+        with patch("aggre.collectors.huggingface.collector.get_proxy") as mock_gp:
+            config = make_config(huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]))
+            collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
+
+        mock_gp.assert_not_called()
+
+    def test_collect_proceeds_when_get_proxy_returns_none(self, engine, mock_http):
+        """collect_discussions() should proceed without proxy when get_proxy() returns None."""
+        mock_http.get(HF_API).respond(json=[hf_paper()])
+
+        with patch("aggre.collectors.huggingface.collector.get_proxy", return_value=None):
+            config = make_config(
+                huggingface=HuggingfaceConfig(sources=[HuggingfaceSource(name="HuggingFace Papers")]),
+                proxy_api_url="http://proxy-hub:8000",
+            )
+            count = collect(HuggingfaceCollector(), engine, config.huggingface, config.settings)
+
+        assert count == 1

@@ -294,3 +294,35 @@ class TestGithubTrendingHelpers:
         result = _published_at("monthly")
         first = date.today().replace(day=1)
         assert first.isoformat() in result
+
+
+class TestGithubTrendingProxy:
+    def test_collect_calls_get_proxy_once(self, engine, mock_http, collector):
+        """collect_discussions() should call get_proxy() once (per-run)."""
+        page = github_trending_page(github_trending_repo_html())
+        _mock_trending_responses(mock_http, daily_html=page, weekly_html=page, monthly_html=page)
+
+        with (
+            patch(
+                "aggre.collectors.github_trending.collector.get_proxy", return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"}
+            ) as mock_gp,
+            patch("aggre.collectors.github_trending.collector.time.sleep"),
+        ):
+            config = make_config(proxy_api_url="http://proxy-hub:8000")
+            collect(collector, engine, config.github_trending, config.settings)
+
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_collect_no_proxy_when_api_url_empty(self, engine, mock_http, collector):
+        """collect_discussions() should not call get_proxy() when proxy_api_url is empty."""
+        page = github_trending_page(github_trending_repo_html())
+        _mock_trending_responses(mock_http, daily_html=page, weekly_html=page, monthly_html=page)
+
+        with (
+            patch("aggre.collectors.github_trending.collector.get_proxy") as mock_gp,
+            patch("aggre.collectors.github_trending.collector.time.sleep"),
+        ):
+            config = make_config()
+            collect(collector, engine, config.github_trending, config.settings)
+
+        mock_gp.assert_not_called()

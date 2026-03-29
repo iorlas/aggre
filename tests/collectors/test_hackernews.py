@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import sqlalchemy as sa
@@ -341,3 +341,127 @@ class TestBaseCollectorEdgeCases:
             result = collector._ensure_self_post_content(conn, "https://news.ycombinator.com/item?id=12345", "")
 
         assert result is None
+
+
+class TestHackernewsCollectorProxy:
+    def test_collect_calls_get_proxy_once(self, engine, mock_http):
+        """collect_discussions() should call get_proxy() once (per-run)."""
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
+
+        with (
+            patch(
+                "aggre.collectors.hackernews.collector.get_proxy", return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"}
+            ) as mock_gp,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
+            config = make_config(
+                hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+                rate_limit=0.0,
+                proxy_api_url="http://proxy-hub:8000",
+            )
+            count = collect(HackernewsCollector(), engine, config.hackernews, config.settings)
+
+        assert count == 1
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_collect_no_proxy_when_api_url_empty(self, engine, mock_http):
+        """collect_discussions() should not call get_proxy() when proxy_api_url is empty."""
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
+
+        with (
+            patch("aggre.collectors.hackernews.collector.get_proxy") as mock_gp,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
+            config = make_config(
+                hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+                rate_limit=0.0,
+            )
+            collect(HackernewsCollector(), engine, config.hackernews, config.settings)
+
+        mock_gp.assert_not_called()
+
+    def test_collect_proceeds_when_get_proxy_returns_none(self, engine, mock_http):
+        """collect_discussions() should proceed without proxy when get_proxy() returns None."""
+        hit = hn_hit()
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/search_by_date").respond(
+            json=hn_search_response(hit),
+        )
+
+        with (
+            patch("aggre.collectors.hackernews.collector.get_proxy", return_value=None),
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
+            config = make_config(
+                hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+                rate_limit=0.0,
+                proxy_api_url="http://proxy-hub:8000",
+            )
+            count = collect(HackernewsCollector(), engine, config.hackernews, config.settings)
+
+        assert count == 1
+
+    def test_fetch_comments_calls_get_proxy(self, engine, mock_http):
+        """fetch_discussion_comments() should call get_proxy() internally."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+            proxy_api_url="http://proxy-hub:8000",
+        )
+        collector = HackernewsCollector()
+
+        content_id = seed_content(engine, "https://example.com/hn-proxy-test", domain="example.com")
+        discussion_id = seed_discussion(engine, source_type="hackernews", external_id="99999", content_id=content_id)
+
+        comment = hn_comment_child(comment_id=100, text="Nice!")
+        mock_http.get(url__startswith="https://hn.algolia.com/api/v1/items/99999").respond(
+            json=hn_item_response(object_id="99999", children=[comment]),
+        )
+
+        with (
+            patch(
+                "aggre.collectors.hackernews.collector.get_proxy",
+                return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"},
+            ) as mock_gp,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
+            collector.fetch_discussion_comments(engine, discussion_id, "99999", None, config.settings)
+
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_fetch_comments_reports_failure_on_error(self, engine):
+        """fetch_discussion_comments() should call report_failure() on error with proxy."""
+        config = make_config(
+            hackernews=HackernewsConfig(sources=[HackernewsSource(name="Hacker News")]),
+            rate_limit=0.0,
+            proxy_api_url="http://proxy-hub:8000",
+        )
+        collector = HackernewsCollector()
+
+        content_id = seed_content(engine, "https://example.com/hn-fail-test", domain="example.com")
+        discussion_id = seed_discussion(engine, source_type="hackernews", external_id="88888", content_id=content_id)
+
+        with (
+            patch(
+                "aggre.collectors.hackernews.collector.get_proxy",
+                return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"},
+            ),
+            patch("aggre.collectors.hackernews.collector.report_failure") as mock_rf,
+            patch("aggre.collectors.hackernews.collector.create_http_client") as mock_client_cls,
+            patch("aggre.collectors.hackernews.collector.time.sleep"),
+        ):
+            client_instance = MagicMock()
+            client_instance.__enter__ = MagicMock(return_value=client_instance)
+            client_instance.__exit__ = MagicMock(return_value=False)
+            client_instance.get.side_effect = Exception("connection failed")
+            mock_client_cls.return_value = client_instance
+
+            with pytest.raises(Exception, match="connection failed"):
+                collector.fetch_discussion_comments(engine, discussion_id, "88888", None, config.settings)
+
+        mock_rf.assert_called_once_with("http://proxy-hub:8000", "1.2.3.4:1080")

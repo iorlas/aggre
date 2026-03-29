@@ -91,6 +91,8 @@ Each workflow stage owns specific columns. Concurrent stages write different col
 
 **Rule:** New stages must own their columns exclusively. If two stages would write the same column on the same row, use `SELECT ... FOR UPDATE` or create a separate output table.
 
+**Note:** `silver_content.title` is only populated by the Webpage stage (trafilatura extraction). For YouTube content, the video title lives on `silver_discussions.title` — use the `content_id` JOIN to access it.
+
 ### `silver_discussions.meta` — JSON keys per source_type
 
 Cast with `meta::jsonb` before querying.

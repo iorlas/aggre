@@ -20,6 +20,7 @@ from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.urls import ensure_content
 from aggre.utils.bronze import write_bronze
 from aggre.utils.http import create_http_client
+from aggre.utils.proxy_api import get_proxy, report_failure
 
 if TYPE_CHECKING:
     import sqlalchemy as sa
@@ -90,44 +91,48 @@ class RedditCollector(BaseCollector):
         refs: list[DiscussionRef] = []
         rate_limit = settings.reddit_rate_limit
 
-        with create_http_client(proxy_url=settings.proxy_url or None) as client:
-            for reddit_source in config.sources:
-                sub = reddit_source.subreddit
-                logger.info("reddit.collecting subreddit=%s", sub)
+        for reddit_source in config.sources:
+            sub = reddit_source.subreddit
+            logger.info("reddit.collecting subreddit=%s", sub)
 
-                source_id = self._ensure_source(engine, sub, {"subreddit": sub})
+            source_id = self._ensure_source(engine, sub, {"subreddit": sub})
 
-                # Fetch hot + new listings, dedup by external_id
-                posts_by_id: dict[str, dict[str, object]] = {}
-                for sort in ("hot", "new"):
-                    url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit={config.fetch_limit}"
-                    time.sleep(rate_limit)
-                    try:
+            # Fetch hot + new listings, dedup by external_id
+            posts_by_id: dict[str, dict[str, object]] = {}
+            for sort in ("hot", "new"):
+                url = f"https://www.reddit.com/r/{sub}/{sort}.json?limit={config.fetch_limit}"
+                time.sleep(rate_limit)
+                proxy_info = get_proxy(settings.proxy_api_url, protocol="socks5") if settings.proxy_api_url else None
+                proxy_url = f"{proxy_info['protocol']}://{proxy_info['addr']}" if proxy_info else None
+                try:
+                    with create_http_client(proxy_url=proxy_url) as client:
                         data, resp = _fetch_json(client, url)
                         _rate_limit_sleep(resp, 0)
-                    except Exception:  # pragma: no cover — network error
-                        logger.exception("reddit.fetch_failed subreddit=%s sort=%s", sub, sort)
-                        continue
+                except Exception:
+                    logger.exception("reddit.fetch_failed subreddit=%s sort=%s", sub, sort)
+                    if proxy_info:
+                        report_failure(settings.proxy_api_url, proxy_info["addr"])
+                    continue
 
-                    for child in data.get("data", {}).get("children", []):
-                        post_data = child.get("data", {})
-                        ext_id = post_data.get("name")
-                        if ext_id and ext_id not in posts_by_id:
-                            posts_by_id[ext_id] = post_data
+                for child in data.get("data", {}).get("children", []):
+                    post_data = child.get("data", {})
+                    ext_id = post_data.get("name")
+                    if ext_id and ext_id not in posts_by_id:
+                        posts_by_id[ext_id] = post_data
 
-                # Write bronze and build refs
-                for ext_id, post_data in posts_by_id.items():
-                    self._write_bronze(ext_id, post_data)
-                    refs.append(
-                        DiscussionRef(
-                            external_id=ext_id,
-                            raw_data=post_data,
-                            source_id=source_id,
-                        )
+            # Write bronze and build refs
+            for ext_id, post_data in posts_by_id.items():
+                self._write_bronze(ext_id, post_data)
+                refs.append(
+                    DiscussionRef(
+                        external_id=ext_id,
+                        raw_data=post_data,
+                        source_id=source_id,
                     )
+                )
 
-                logger.info("reddit.discussions_collected subreddit=%s count=%d", sub, len(posts_by_id))
-                self._update_last_fetched(engine, source_id)
+            logger.info("reddit.discussions_collected subreddit=%s count=%d", sub, len(posts_by_id))
+            self._update_last_fetched(engine, source_id)
 
         return refs
 
@@ -189,7 +194,7 @@ class RedditCollector(BaseCollector):
         meta_json: str | None,
         settings: Settings,
         *,
-        proxy_url: str | None = None,
+        proxy_api_url: str = "",
     ) -> None:
         """Fetch and store comments for a single discussion."""
         meta = json.loads(meta_json) if meta_json else {}
@@ -198,16 +203,23 @@ class RedditCollector(BaseCollector):
         url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json"
 
         rate_limit = settings.reddit_rate_limit
-        effective_proxy = proxy_url or settings.proxy_url or None
-        with create_http_client(proxy_url=effective_proxy) as client:
-            time.sleep(rate_limit)
-            data, resp = _fetch_json(client, url)
-            _rate_limit_sleep(resp, 0)
-            write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
-            comments_json = None
-            comment_count = 0
-            if len(data) >= 2:
-                comment_children = data[1].get("data", {}).get("children", [])
-                comments_json = json.dumps(comment_children)
-                comment_count = len(comment_children)
-            self._mark_comments_done(engine, discussion_id, comments_json, comment_count)
+        effective_api_url = proxy_api_url or settings.proxy_api_url
+        proxy_info = get_proxy(effective_api_url, protocol="socks5") if effective_api_url else None
+        proxy_url = f"{proxy_info['protocol']}://{proxy_info['addr']}" if proxy_info else None
+        try:
+            with create_http_client(proxy_url=proxy_url) as client:
+                time.sleep(rate_limit)
+                data, resp = _fetch_json(client, url)
+                _rate_limit_sleep(resp, 0)
+                write_bronze(self.source_type, external_id, "comments", json.dumps(data, ensure_ascii=False), "json")
+                comments_json = None
+                comment_count = 0
+                if len(data) >= 2:
+                    comment_children = data[1].get("data", {}).get("children", [])
+                    comments_json = json.dumps(comment_children)
+                    comment_count = len(comment_children)
+                self._mark_comments_done(engine, discussion_id, comments_json, comment_count)
+        except Exception:
+            if proxy_info:
+                report_failure(effective_api_url, proxy_info["addr"])
+            raise

@@ -52,7 +52,7 @@ jobs:
             - name: Validate compose syntax
               run: |
                 export IMAGE_TAG=test POSTGRES_PASSWORD=test TAILSCALE_IP=127.0.0.1
-                export AGGRE_PROXY_URL=test HATCHET_CLIENT_TOKEN=test
+                export HATCHET_CLIENT_TOKEN=test
                 export AGGRE_BRONZE_S3_ACCESS_KEY=test AGGRE_BRONZE_S3_SECRET_KEY=test
                 export MODAL_TOKEN_ID=test MODAL_TOKEN_SECRET=test
                 export GARAGE_RPC_SECRET=test GARAGE_ADMIN_TOKEN=test GARAGE_METRICS_TOKEN=test
@@ -109,7 +109,6 @@ jobs:
                   DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
                   DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
                   POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-                  AGGRE_PROXY_URL: ${{ secrets.AGGRE_PROXY_URL }}
                   AGGRE_BRONZE_S3_ACCESS_KEY: ${{ secrets.AGGRE_BRONZE_S3_ACCESS_KEY }}
                   AGGRE_BRONZE_S3_SECRET_KEY: ${{ secrets.AGGRE_BRONZE_S3_SECRET_KEY }}
                   HATCHET_CLIENT_TOKEN: ${{ secrets.HATCHET_CLIENT_TOKEN }}

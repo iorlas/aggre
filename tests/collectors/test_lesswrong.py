@@ -181,3 +181,38 @@ class TestLesswrongCollector:
 
         # collect_discussions skips empty post_id, so count is 0
         assert count == 0
+
+
+class TestLesswrongCollectorProxy:
+    def test_collect_calls_get_proxy_once(self, engine, mock_http):
+        """collect_discussions() should call get_proxy() once (per-run)."""
+        post = lesswrong_post()
+        mock_http.post("https://www.lesswrong.com/graphql").respond(
+            json=lesswrong_graphql_response(post),
+        )
+
+        with (
+            patch("aggre.collectors.lesswrong.collector.get_proxy", return_value={"addr": "1.2.3.4:1080", "protocol": "socks5"}) as mock_gp,
+            patch("aggre.collectors.lesswrong.collector.time.sleep"),
+        ):
+            config = LesswrongConfig(sources=[LesswrongSource(name="LW Frontpage", min_karma=0)])
+            settings = Settings(proxy_api_url="http://proxy-hub:8000")
+            collect(LesswrongCollector(), engine, config, settings)
+
+        mock_gp.assert_called_once_with("http://proxy-hub:8000", protocol="socks5")
+
+    def test_collect_no_proxy_when_api_url_empty(self, engine, mock_http):
+        """collect_discussions() should not call get_proxy() when proxy_api_url is empty."""
+        mock_http.post("https://www.lesswrong.com/graphql").respond(
+            json=lesswrong_graphql_response(),
+        )
+
+        with (
+            patch("aggre.collectors.lesswrong.collector.get_proxy") as mock_gp,
+            patch("aggre.collectors.lesswrong.collector.time.sleep"),
+        ):
+            config = LesswrongConfig(sources=[LesswrongSource(name="LW Frontpage", min_karma=0)])
+            settings = Settings()
+            collect(LesswrongCollector(), engine, config, settings)
+
+        mock_gp.assert_not_called()

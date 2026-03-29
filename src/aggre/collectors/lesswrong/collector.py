@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from aggre.collectors.base import BaseCollector, DiscussionRef
 from aggre.urls import ensure_content
 from aggre.utils.http import create_http_client
+from aggre.utils.proxy_api import get_proxy
 
 if TYPE_CHECKING:
     import sqlalchemy as sa
@@ -66,7 +67,9 @@ class LesswrongCollector(BaseCollector):
         refs: list[DiscussionRef] = []
         rate_limit = getattr(settings, "lesswrong_rate_limit", 1.0)
 
-        with create_http_client(proxy_url=settings.proxy_url or None) as client:
+        proxy_info = get_proxy(settings.proxy_api_url, protocol="socks5") if settings.proxy_api_url else None
+        proxy_url = f"{proxy_info['protocol']}://{proxy_info['addr']}" if proxy_info else None
+        with create_http_client(proxy_url=proxy_url) as client:
             for lw_source in config.sources:
                 logger.info("lesswrong.collecting name=%s", lw_source.name)
                 source_id = self._ensure_source(engine, lw_source.name)

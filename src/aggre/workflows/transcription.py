@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -24,6 +26,29 @@ from aggre.workflows.models import SilverContentRef, StepOutput
 
 logger = logging.getLogger(__name__)
 
+_STALE_AUDIO_AGE_SECONDS = 3 * 60 * 60  # 3 hours — well beyond execution_timeout (30m)
+
+
+def _cleanup_stale_audio(temp_dir: str) -> None:
+    """Remove audio directories older than _STALE_AUDIO_AGE_SECONDS.
+
+    tmpfs persists between tasks but is lost on container restart (deploy).
+    Failed tasks leave orphaned audio files that accumulate over time.
+    """
+    videos_dir = Path(temp_dir)
+    if not videos_dir.exists():
+        return
+    cutoff = time.time() - _STALE_AUDIO_AGE_SECONDS
+    for child in videos_dir.iterdir():
+        if not child.is_dir():
+            continue
+        try:
+            if child.stat().st_mtime < cutoff:
+                shutil.rmtree(child)
+                logger.info("transcription.stale_audio_removed dir=%s", child.name)
+        except OSError:
+            pass  # race with another task or already gone
+
 
 def _transcribe_one(  # noqa: C901, PLR0912, PLR0915 — sequential transcription pipeline, splitting would obscure flow
     engine: sa.engine.Engine,
@@ -39,6 +64,8 @@ def _transcribe_one(  # noqa: C901, PLR0912, PLR0915 — sequential transcriptio
     url = item.canonical_url
     is_remote = False
     audio_dest = None
+
+    _cleanup_stale_audio(config.settings.youtube_temp_dir)
 
     try:
         duration_meta = json.loads(item.meta).get("duration") if item.meta else None

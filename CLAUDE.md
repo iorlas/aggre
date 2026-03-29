@@ -26,12 +26,13 @@ Read the relevant docs first:
 
 ## Dev Commands
 
+- Full quality gate: `make check` — runs lint then test. Use before committing.
 - Run tests: `make test` or `uv run pytest tests/` (requires PostgreSQL — see `AGGRE_TEST_DATABASE_URL`). Coverage is always reported — check for uncovered lines in files you changed.
 - Check diff coverage: `make coverage-diff` — shows coverage of changed lines vs main. Fails below 95%. Run after writing tests to verify new code is covered.
 - Run migrations: `alembic upgrade head`
 - Lint: `make lint` (check only, never modifies files — safe for AI to run anytime)
 - Fix: `make fix` (auto-fix formatting and import sorting, then runs `make lint` to verify)
-- Audit: `make audit` (check dependencies for known vulnerabilities — run after adding/updating deps, requires network)
+- Audit: `make audit` (check for known vulnerabilities and leaked secrets — run after adding/updating deps)
 - Hatchet worker: `uv run python -m aggre.workflows` (or `make worker`)
 - Hatchet UI: http://localhost:8888 (via docker-compose)
 - Verify TLA+ specs: `make verify` (requires Java)

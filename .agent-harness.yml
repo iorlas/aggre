@@ -1,5 +1,4 @@
 # AI Harness configuration
-# Detected stacks: docker, dokploy, python
 stacks: [docker, dokploy, python]
 
 python:
@@ -8,3 +7,8 @@ python:
 
 docker:
   own_image_prefix: "ghcr.io/iorlas/"
+  conftest_skip:
+    scripts/autonomy/Dockerfile:
+      - dockerfile.user         # runs as root intentionally (docker socket)
+      - dockerfile.healthcheck  # not a service, runs to completion
+      - dockerfile.cache        # build speed not critical for utility image

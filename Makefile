@@ -33,8 +33,8 @@ check: lint test  ## Full quality gate — lint then test.
 lint:  ## Check only — safe for AI, CI, pre-commit. Never modifies files.
 	@agent-harness lint
 
-audit:  ## Check for known dependency vulnerabilities (requires network).
-	@uvx pip-audit
+audit:  ## Check for known vulnerabilities and leaked secrets.
+	@agent-harness security-audit
 
 fix:  ## Auto-fix formatting and import sorting, then verify with lint.
 	@agent-harness fix

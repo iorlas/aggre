@@ -1,10 +1,12 @@
 FROM node:20-bookworm
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 ENV DEBIAN_FRONTEND=noninteractive
 ENV IS_SANDBOX=1
 
 # System deps: jq (stop hook JSON), perl (promise extraction), git, docker CLI
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     jq perl git curl ca-certificates gnupg sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -15,7 +17,7 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
     | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
     apt-get update && \
-    apt-get install -y docker-ce-cli docker-compose-plugin && \
+    apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin && \
     rm -rf /var/lib/apt/lists/*
 
 # uv (Python package manager)
@@ -23,7 +25,8 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 RUN uv python install 3.12
 
-# Claude Code
+# Claude Code — want latest, pin not needed
+# hadolint ignore=DL3016,DL3059
 RUN npm install -g @anthropic-ai/claude-code
 
 # Autonomy scripts

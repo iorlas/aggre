@@ -1,7 +1,7 @@
 """Comments workflow -- fetch comments for individual discussions.
 
 Triggered per-item via "item.new" event. Self-filters to comment-supporting sources.
-Hatchet manages concurrency (max 12 per source) and retry.
+Hatchet manages concurrency (max 20 per source) and retry.
 Collectors handle proxy resolution internally via proxy_api_url.
 """
 
@@ -75,7 +75,7 @@ def register(h):  # pragma: no cover — Hatchet wiring
         concurrency=[
             ConcurrencyExpression(
                 expression="input.source",
-                max_runs=12,
+                max_runs=20,
                 limit_strategy=ConcurrencyLimitStrategy.GROUP_ROUND_ROBIN,
             ),
             ConcurrencyExpression(

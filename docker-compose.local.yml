@@ -50,8 +50,39 @@ services:
       timeout: 5s
       retries: 5
 
+  garage-init:
+    image: busybox:1.37
+    entrypoint:
+      - sh
+      - -c
+      - |
+        cat > /config/garage.toml <<'TOML'
+        metadata_dir = "/var/lib/garage/meta"
+        data_dir = "/var/lib/garage/data"
+        db_engine = "lmdb"
+        replication_factor = 1
+        rpc_bind_addr = "[::]:3901"
+        rpc_secret = "20c694526e833e122d22aec38b81656e632c80a22cc9477909cede7ddbb4434a"
+        [s3_api]
+        s3_region = "garage"
+        api_bind_addr = "[::]:3900"
+        root_domain = ".s3.garage.localhost"
+        [s3_web]
+        bind_addr = "[::]:3902"
+        root_domain = ".web.garage.localhost"
+        [admin]
+        api_bind_addr = "[::]:3903"
+        TOML
+    volumes:
+      - garage-config:/config
+
   garage:
     image: dxflrs/garage:v2.2.0
+    depends_on:
+      garage-init:
+        condition: service_completed_successfully
+    environment:
+      GARAGE_CONFIG_FILE: /config/garage.toml
     ports:
       - "3900:3900"  # S3 API
       - "3902:3902"  # Web
@@ -59,7 +90,7 @@ services:
     volumes:
       - ./data/garage/meta:/var/lib/garage/meta
       - ./data/garage/data:/var/lib/garage/data
-      - ./garage.local.toml:/etc/garage.toml:ro
+      - garage-config:/config:ro
     restart: unless-stopped
 
   migrate:
@@ -158,4 +189,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+volumes:
+  garage-config:
 

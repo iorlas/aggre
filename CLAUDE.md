@@ -16,7 +16,7 @@ Read the relevant docs first:
 ## Dev Commands
 
 - Full quality gate: `make check` — runs lint then test. Use before committing.
-- Run tests: `make test` or `uv run pytest tests/` (requires PostgreSQL — see `AGGRE_TEST_DATABASE_URL`). Coverage is always reported — check for uncovered lines in files you changed.
+- Run tests: `make test` — spins up ephemeral PostgreSQL automatically (or uses `AGGRE_TEST_DATABASE_URL` if already set). Coverage is always reported — check for uncovered lines in files you changed.
 - Check diff coverage: `make coverage-diff` — shows coverage of changed lines vs main. Fails below 95%. Run after writing tests to verify new code is covered.
 - Run migrations: `alembic upgrade head`
 - Lint: `make lint` (check only, never modifies files — safe for AI to run anytime)

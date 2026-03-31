@@ -6,24 +6,20 @@ bootstrap:  ## Set up dev environment (run once after clone)
 dev:
 	docker compose -f docker-compose.local.yml up --build --watch
 
-test:
-	uv run pytest tests/
+test:  ## Run tests. Spins up ephemeral postgres if AGGRE_TEST_DATABASE_URL is not set.
+	@if [ -n "$$AGGRE_TEST_DATABASE_URL" ]; then \
+		uv run pytest tests/; \
+	else \
+		PORT=$$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"); \
+		PROJECT=aggre-test-$$(basename "$$PWD"); \
+		AGGRE_TEST_PORT=$$PORT docker compose -p $$PROJECT -f docker-compose.test.yml up -d --wait; \
+		AGGRE_TEST_DATABASE_URL=postgresql+psycopg://aggre:aggre@localhost:$$PORT/aggre_test \
+			uv run pytest tests/; \
+		EXIT=$$?; \
+		AGGRE_TEST_PORT=$$PORT docker compose -p $$PROJECT -f docker-compose.test.yml down -v; \
+		exit $$EXIT; \
+	fi
 
-test-e2e:
-	$(eval AGGRE_TEST_PORT := $(shell python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"))
-	$(eval AGGRE_TEST_PROJECT := aggre-test-$(shell basename $(CURDIR)))
-	AGGRE_TEST_PORT=$(AGGRE_TEST_PORT) docker compose -p $(AGGRE_TEST_PROJECT) -f docker-compose.test.yml up -d --wait
-	AGGRE_TEST_DATABASE_URL=postgresql+psycopg://aggre:aggre@localhost:$(AGGRE_TEST_PORT)/aggre_test \
-		uv run pytest tests/ ; \
-	EXIT=$$? ; \
-	AGGRE_TEST_PORT=$(AGGRE_TEST_PORT) docker compose -p $(AGGRE_TEST_PROJECT) -f docker-compose.test.yml down -v ; \
-	exit $$EXIT
-
-dev-remote:
-	@ip=$$(python3 -c "import socket; print(socket.gethostbyname('aggre-shen'))" 2>/dev/null); \
-	if [ -z "$$ip" ]; then echo "Error: Cannot resolve aggre-shen. Is Tailscale running?" >&2; exit 1; fi; \
-	echo "aggre-shen → $$ip"; \
-	TAILSCALE_REMOTE_IP=$$ip docker compose -f docker-compose.remote.yml up --build --watch
 
 coverage-diff:
 	uv run diff-cover coverage.xml --compare-branch=origin/main --fail-under=95

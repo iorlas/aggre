@@ -46,11 +46,42 @@ grafana:
 	docker compose -f docker-compose.local.yml up grafana -d
 
 verify:
-	bash .planning/verification/run.sh all
+	bash verification/run.sh all
 
-whisper-server:
+WHISPER_MODEL_DIR = $(HOME)/Models/whisper
+WHISPER_MODEL = $(WHISPER_MODEL_DIR)/ggml-large-v3-turbo.bin
+WHISPER_MODEL_URL = https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+
+whisper-model:
+	@if [ ! -f "$(WHISPER_MODEL)" ]; then \
+		echo "Downloading whisper model to $(WHISPER_MODEL)..."; \
+		mkdir -p "$(WHISPER_MODEL_DIR)"; \
+		curl -L --progress-bar -o "$(WHISPER_MODEL).tmp" "$(WHISPER_MODEL_URL)" \
+			&& mv "$(WHISPER_MODEL).tmp" "$(WHISPER_MODEL)" \
+			|| { rm -f "$(WHISPER_MODEL).tmp"; echo "Error: failed to download model"; exit 1; }; \
+		echo "Model downloaded."; \
+	else \
+		echo "Whisper model already exists at $(WHISPER_MODEL)"; \
+	fi
+
+whisper-server: whisper-model
+	@command -v whisper-server >/dev/null 2>&1 || { \
+		echo "Error: whisper-server not found in PATH"; \
+		echo ""; \
+		echo "Install whisper.cpp server:"; \
+		echo ""; \
+		echo "  macOS (Homebrew):"; \
+		echo "    brew install whisper-cpp"; \
+		echo ""; \
+		echo "  Linux (build from source):"; \
+		echo "    git clone https://github.com/ggerganov/whisper.cpp"; \
+		echo "    cd whisper.cpp && cmake -B build && cmake --build build --config Release"; \
+		echo "    sudo cp build/bin/whisper-server /usr/local/bin/"; \
+		echo ""; \
+		exit 1; \
+	}
 	whisper-server \
-		--model $(HOME)/Models/whisper/ggml-large-v3-turbo.bin \
+		--model $(WHISPER_MODEL) \
 		--host 0.0.0.0 --port 8090 --convert
 
 whisper-health:

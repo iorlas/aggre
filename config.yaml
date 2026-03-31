@@ -1088,6 +1088,340 @@ youtube:
       transcribe: keyword
       keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic", "neural"]
       fetch_interval_hours: 168
+    # ============================================================
+    # AI-focused channels — always transcribe (batch 2025-03-30)
+    # ============================================================
+    - channel_id: "UCuU9jE4MHHEIyYMbDfUPSew"
+      name: "Caleb Writes Code"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UCqB1bhMwGsW-yefBxYwFCCg"
+      name: "Onchain AI Garage"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UCzsmpPhpoweC6itJd_oAt3w"
+      name: "FuturMinds"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UCcrH_UUxL4KFjS3pwaXvMXA"
+      name: "Sandy Lee AI"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UCqdm-0hVz-IOAxqR2tmJQEg"
+      name: "Andrew Dunn"
+      categories: ["ai", "agents"]
+      transcribe: always
+    - channel_id: "UC3lEk1yLMWxfII1JyYqMNqg"
+      name: "samvcodes"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UC3MhdHW3CJvIM_FVTyQC1Sg"
+      name: "TrustGraph"
+      categories: ["ai", "research"]
+      transcribe: always
+    - channel_id: "UCyqPmrkbcwHLzPX0kic59Iw"
+      name: "Ovi AI"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCHaBGRjoFcPGjzvr5vxNTlw"
+      name: "Elodine"
+      categories: ["ai", "coding-tools"]
+      transcribe: always
+    - channel_id: "UCdNj_PP__5kKtjZabuEjbqA"
+      name: "Dan Kieft"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCtYAXV1N6ZTbGfbKWt2nN9g"
+      name: "Hongzhao"
+      categories: ["ai"]
+      transcribe: always
+    - channel_id: "UCsx-bX-BVBqsDwdxxzpOXMQ"
+      name: "Firm Learning"
+      categories: ["ai", "education"]
+      transcribe: always
+    - channel_id: "UCl7NA-PqHS2E0F29I6wJIXA"
+      name: "Joseph Suarez"
+      categories: ["ai", "research"]
+      transcribe: always
+    # ============================================================
+    # AI-focused Russian — always transcribe
+    # ============================================================
+    - channel_id: "UCgFaudM5mLnF4ixj6qeRhPQ"
+      name: "Никита Велc"
+      categories: ["ai", "agents", "ru"]
+      transcribe: always
+    - channel_id: "UC5-gQfHltBCNVFsn2pnsXtg"
+      name: "Артем Панферов"
+      categories: ["ai", "ru"]
+      transcribe: always
+    - channel_id: "UCM_ka9z2rAH6wSSjfdhRgVw"
+      name: "NullsCode"
+      categories: ["ai", "ru"]
+      transcribe: always
+    - channel_id: "UCZefZeIiyXYIrK2KaCu41Yw"
+      name: "Yevgeniy Kovalenko"
+      categories: ["ai", "ru"]
+      transcribe: always
+    - channel_id: "UCXu7rUYYfUmbe6jBS0bSeMQ"
+      name: "Yersham"
+      categories: ["ai", "ru"]
+      transcribe: always
+    - channel_id: "UCL-zYTykOhlBsG_3f3xIw6A"
+      name: "Вячеслав Романьков"
+      categories: ["ai", "programming", "ru"]
+      transcribe: always
+    # ============================================================
+    # Tech & dev channels — keyword transcribe
+    # ============================================================
+    - channel_id: "UCcEC0G70AfinugXEFtWAJoA"
+      name: "makeminea99"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UC3gXpd_ifuxgOKh5WvIDeTw"
+      name: "DanOpcode"
+      categories: ["tech", "coding-tools"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCr7EYWaQzs2nsZUN_9_ydSQ"
+      name: "Analyst Academy"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCHEHgvzAEQ-7BsOSAuyHOMA"
+      name: "Joey's Curiosity"
+      categories: ["tech", "open-source"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCmEzz-dPBVrsy4ZluSsYHDg"
+      name: "Hyperplexed"
+      categories: ["tech", "webdev"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCYeiozh-4QwuC1sjgCmB92w"
+      name: "DevOps Toolbox"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCmTK4CrCaDXpuZ-Evl5-b5Q"
+      name: "Confluent Developer"
+      categories: ["tech", "coding-tools"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "MCP", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCWQaM7SpSECp9FELz-cHzuQ"
+      name: "Dreams of Code"
+      categories: ["tech", "programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCNL8MQasO7O-q_g_8X6CI2g"
+      name: "PlivoAI"
+      categories: ["tech", "coding-tools"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "Cursor"]
+      fetch_interval_hours: 168
+    - channel_id: "UCYeqFJjn7wwKiQWDcGUceZg"
+      name: "dreamwieber"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCXzL31BCxf8En1KT34gSK6g"
+      name: "sphaerophoria"
+      categories: ["tech", "programming"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCd6MoB9NC6uYN2grvUNT-Zg"
+      name: "Amazon Web Services"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "Anthropic"]
+      fetch_interval_hours: 168
+    # ============================================================
+    # Business & entrepreneurship — keyword transcribe
+    # ============================================================
+    - channel_id: "UClWTCPVi-AU9TeCN6FkGARg"
+      name: "EO"
+      categories: ["startups"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCPjNBjflYl0-HQtUvOx0Ibw"
+      name: "Greg Isenberg"
+      categories: ["startups"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCRMfdaozE6GoJnUQa9r_jXw"
+      name: "Work. Unusual"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCRCJACvqCJPOHbb9A-QNjeA"
+      name: "Patents Demystified"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "AGI", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    # ============================================================
+    # Commentary & general — keyword transcribe
+    # ============================================================
+    - channel_id: "UChk6TQce1EJMn6_liKdHDog"
+      name: "ThePrimeagenHighlights"
+      categories: ["tech", "commentary"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCeTFqYZD2UEfy_Vytsefg5g"
+      name: "Charles Broomfield"
+      categories: ["commentary"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCaaBu83ylgVnjOkUF6kzFSA"
+      name: "BetterU"
+      categories: ["education"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UC7YOGHUfC1Tb6E4pudI9STA"
+      name: "Mental Outlaw"
+      categories: ["tech", "security"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCl2mFZoRqjw_ELax4Yisf6w"
+      name: "Louis Rossmann"
+      categories: ["tech", "commentary"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCmdly8Nbb8Tki-hti9kC_zQ"
+      name: "Barry's Economics"
+      categories: ["finance"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCrXNkk4IESnqU-8GMad2vyA"
+      name: "Eurodollar University"
+      categories: ["finance"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "OpenAI", "Anthropic"]
+      fetch_interval_hours: 168
+    - channel_id: "UCM0nnXS30YzMbht1GIyygNA"
+      name: "TheStevenSchool"
+      categories: ["education"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCTD-oFOotrvc9PN7WQAp4rA"
+      name: "Joseph Antony"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCOw4v1j3QnzH7X4krQAS7fg"
+      name: "Tessa Violet"
+      categories: ["entertainment"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCTWbP-2W-_6mzWLg2oZmT7Q"
+      name: "RetroGamingNow"
+      categories: ["entertainment"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCcaTUtGzOiS4cqrgtcsHYWg"
+      name: "jvscholz"
+      categories: ["commentary"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    - channel_id: "UCiEO4Qz4HX4Oj7rXIs9X0bQ"
+      name: "Novie by the Sea"
+      categories: ["education"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "ADHD"]
+      fetch_interval_hours: 168
+    - channel_id: "UCvxPZUIEE6KWq--H0tsSqtw"
+      name: "Unf*ck Everything"
+      categories: ["education"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
+    # ============================================================
+    # Russian general — keyword transcribe
+    # ============================================================
+    - channel_id: "UC3A8S-5rE9p7XPdks8R7SNw"
+      name: "Potimuma3D"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCUSbYJK87rpBUJ5KGQd7oHA"
+      name: "Мы обречены"
+      categories: ["tech", "commentary", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCXJ196NygANaBHg_KznKXag"
+      name: "DevOps Kitchen Talks"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "MCP", "нейро", "искусственн", "agent"]
+      fetch_interval_hours: 168
+    - channel_id: "UCCYoupeTwifGIBSCfVUG2WQ"
+      name: "gsixo"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCiWVNE3KzgsUBUDQ4kr6Bjg"
+      name: "Tsarev Pro Marketing"
+      categories: ["commentary", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCVVNJJXC7TQgPpAjQdgrqNw"
+      name: "Александр Штефанов"
+      categories: ["commentary", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCfn7uyPvr5IY5pux8oyIa4Q"
+      name: "Kel"
+      categories: ["commentary", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCDSU7aYPOHxstWvHurbH9VA"
+      name: "Homo Deus"
+      categories: ["science", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн", "машинн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCEMjCjWGr5-GHPdBqAa_ZXw"
+      name: "Silentiumm"
+      categories: ["tech", "ru"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "нейро", "искусственн"]
+      fetch_interval_hours: 168
+    - channel_id: "UCG1bQ55II0VREN6Y3-XiOjg"
+      name: "renderdrop"
+      categories: ["tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude"]
+      fetch_interval_hours: 168
 
 hackernews:
   fetch_limit: 100

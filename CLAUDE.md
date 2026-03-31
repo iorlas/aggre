@@ -6,23 +6,12 @@ Aggre collects discussions from multiple sources (Hacker News, Reddit, Lobsters,
 
 Read the relevant docs first:
 
-- **Always read:** `docs/guidelines/semantic-model.md` — entity definitions, ubiquitous language, status lifecycles
-- **Before changing Python code:** `docs/guidelines/python.md` — module design, typing, tooling, imports
-- **Before changing code:** `.planning/codebase/CONVENTIONS.md` — code style, naming, imports, error handling
-- **Before changing tests:** `docs/guidelines/testing.md` — coverage, pragmas, thresholds
-- **Before changing tests:** `.planning/codebase/TESTING.md` — fixtures, mocking patterns, factories
-- **Before adding features:** `.planning/codebase/ARCHITECTURE.md` — layers, data flow, entry points
-- **Before adding files:** `.planning/codebase/STRUCTURE.md` — directory layout, where to put new code
-- **Before changing deps:** `.planning/codebase/STACK.md` — tech stack, versions, configuration
-- **Before touching integrations:** `.planning/codebase/INTEGRATIONS.md` — external APIs, auth, rate limits
-- **Before touching data layers:** `docs/guidelines/medallion.md` — medallion architecture, bronze/silver patterns
-- **Before adding processing logic:** `docs/guidelines/component-contracts.md` — input accountability, disposition tracking
-- **Before changing concurrency/pipeline:** `docs/guidelines/formal-verification.md` — TLA+ specs, spec-first workflow
-- **Before refactoring:** `.planning/codebase/CONCERNS.md` — known tech debt, fragile areas
-- **Before deploying:** `/Users/iorlas/Documents/Knowledge/Researches/036-deployment-platform/guidelines/` — deployment platform guidelines (Dokploy, Traefik, CI/CD, Tailscale networking)
-- **Before operating Hatchet:** `docs/guidelines/hatchet-operations.md` — retrying runs, pushing events, connection setup, SDK recipes
-
-> **Note:** `.planning/codebase/` files are AI-generated snapshots of current codebase state, not human-authored guidelines. `docs/guidelines/` contains the human-authored standards.
+- **When writing SQL or touching the data model:** `docs/reference/semantic-model.md` — schema, column semantics, query recipes, column ownership rules
+- **When writing or modifying workflows:** `docs/reference/hatchet-operations.md` — SDK patterns, retry/timeout gotchas, zombie task mitigation
+- **When adding a new data processing stage:** `docs/guidelines/medallion.md` — bronze/silver layer contracts, null-check pattern
+- **When writing Python modules:** `docs/guidelines/python.md` — module design, typing, async patterns, layering
+- **When writing tests:** `docs/guidelines/testing.md` — coverage thresholds, pragma conventions, test layers, mocking patterns
+- **When deploying:** `/Users/iorlas/Documents/Knowledge/Researches/036-deployment-platform/guidelines/` — Dokploy, Traefik, CI/CD
 
 ## Dev Commands
 
@@ -36,6 +25,8 @@ Read the relevant docs first:
 - Hatchet worker: `uv run python -m aggre.workflows` (or `make worker`)
 - Hatchet UI: http://localhost:8888 (via docker-compose)
 - Verify TLA+ specs: `make verify` (requires Java)
+- Pre-commit hooks run `make fix` then `make lint` automatically on every commit.
+- Never truncate lint or test output — full output is needed for debugging.
 
 ## Hatchet Safety
 

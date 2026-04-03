@@ -64,6 +64,7 @@ reddit:
   fetch_limit: 100
   init_fetch_limit: 500
   sources:
+    # --- Already monitored ---
     - subreddit: "AI_Agents"
     - subreddit: "AINewsMinute"
     - subreddit: "BMAD_Method"
@@ -77,6 +78,62 @@ reddit:
     - subreddit: "VibeCodeDevs"
     - subreddit: "VibeCodeSchool"
     - subreddit: "vibecoding"
+    # --- AI core / news / research ---
+    - subreddit: "singularity"
+    - subreddit: "artificial"
+    - subreddit: "ArtificialInteligence"
+    - subreddit: "Anthropic"
+    - subreddit: "ClaudeAI"
+    - subreddit: "ClaudeCode"
+    - subreddit: "agi"
+    - subreddit: "accelerate"
+    - subreddit: "MachineLearning"
+    # --- AI engineering / building ---
+    - subreddit: "aiengineering"
+    - subreddit: "AI_Tools_Land"
+    - subreddit: "aipromptprogramming"
+    - subreddit: "AIcodingProfessionals"
+    - subreddit: "AIcliCoding"
+    - subreddit: "agno"
+    - subreddit: "agentdevelopmentkit"
+    - subreddit: "AIMemory"
+    # --- AI agents (niche) ---
+    - subreddit: "aiagents"
+    - subreddit: "AgentsOfAI"
+    - subreddit: "AIAgentsInAction"
+    - subreddit: "AgenticWorkers"
+    # --- AI business / practical ---
+    - subreddit: "AIAssisted"
+    - subreddit: "AiAutomations"
+    - subreddit: "AiBuilders"
+    # --- AI tools / companies ---
+    - subreddit: "OpenAI"
+    - subreddit: "Windsurf"
+    - subreddit: "Codeium"
+    # --- Tech / dev ---
+    - subreddit: "selfhosted"
+    - subreddit: "github"
+    - subreddit: "FastAPI"
+    - subreddit: "algotrading"
+    # --- Senior dev / architecture / leadership ---
+    - subreddit: "ExperiencedDevs"
+    - subreddit: "SoftwareArchitecture"
+    - subreddit: "ProgrammingLanguages"
+    - subreddit: "devops"
+    - subreddit: "softwareengineering"
+    - subreddit: "cto"
+    - subreddit: "EngineeringManagers"
+    - subreddit: "SystemDesign"
+    # --- Lower traffic / niche (to evaluate later) ---
+    - subreddit: "airealist"
+    - subreddit: "AIGuild"
+    - subreddit: "AIQuality"
+    - subreddit: "AIEval"
+    - subreddit: "AIProductivityLab"
+    # --- Monitoring (to evaluate later) ---
+    - subreddit: "aivideo"
+    - subreddit: "AIChatCompanions"
+    - subreddit: "NeuroSama"
 
 youtube:
   fetch_limit: 10
@@ -264,6 +321,10 @@ youtube:
     - channel_id: "UCN7D80fY9xMYu5mHhUhXEFw"
       name: "Moon Dev"
       categories: ["ai", "coding"]
+      transcribe: always
+    - channel_id: "UCPGrgwfbkjTIgPoOh2q1BAg"
+      name: "David Ondrej"
+      categories: ["ai"]
       transcribe: always
     # --- AI companies/labs ---
     - channel_id: "UCXZCJLdBC09xxGZ6gcdrc6A"
@@ -652,6 +713,16 @@ youtube:
       categories: ["cloud", "tech"]
       transcribe: keyword
       keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "Gemini", "Vertex"]
+    - channel_id: "UCgv3xMy6kECn0boYP9d2o-g"
+      name: "Cloudflare"
+      categories: ["cloud", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "Workers AI"]
+    - channel_id: "UC_x5XG1OV2P6uZZ5FSM9Ttw"
+      name: "Google for Developers"
+      categories: ["cloud", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "Gemini"]
     - channel_id: "UCPbwhExawYrn9xxI21TFfyw"
       name: "The Pragmatic Engineer"
       categories: ["engineering"]

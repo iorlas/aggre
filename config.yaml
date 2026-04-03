@@ -723,6 +723,16 @@ youtube:
       categories: ["cloud", "tech"]
       transcribe: keyword
       keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "Gemini"]
+    - channel_id: "UC2UXDak6o7rBm23k3Vv5dww"
+      name: "Tina Huang"
+      categories: ["ai", "data-science"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
+    - channel_id: "UCJXa3_WNNmIpewOtCHf3B0g"
+      name: "LaurieWired"
+      categories: ["security", "tech"]
+      transcribe: keyword
+      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning"]
     - channel_id: "UCPbwhExawYrn9xxI21TFfyw"
       name: "The Pragmatic Engineer"
       categories: ["engineering"]

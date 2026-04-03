@@ -1503,6 +1503,10 @@ youtube:
       transcribe: keyword
       keywords: ["AI", "LLM", "GPT", "Claude"]
       fetch_interval_hours: 168
+    - channel_id: "UC4ZVkG3RQPzvZk7alIVjcCg"
+      name: "theMITmonk"
+      categories: ["ai", "tech"]
+      transcribe: always
 
 hackernews:
   fetch_limit: 100

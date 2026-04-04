@@ -471,8 +471,7 @@ youtube:
     - channel_id: "UCBnkjD--nanVtOH76wJsaEw"
       name: "2nd Order Thinkers"
       categories: ["tech", "startups"]
-      transcribe: keyword
-      keywords: ["AI", "LLM", "GPT", "Claude", "agent", "machine learning", "OpenAI", "Anthropic", "Gemini", "copilot", "cursor", "vibe cod"]
+      transcribe: all
     - channel_id: "UCcefcZRL2oaA_uBNeo5UOWg"
       name: "Y Combinator"
       categories: ["startups", "tech"]
